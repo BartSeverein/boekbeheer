@@ -28,6 +28,7 @@ from common import (
     format_order_status,
     format_datetime_nl,
     get_cron_job_status,
+    get_cron_job_history,
     format_isbn,
     trigger_github_workflow,
     render_logo,
@@ -284,90 +285,6 @@ with sync_tab:
 
 st.divider()
 
-# ---------- Orderstatus overzicht ----------
-
-st.subheader("Orders Boekwinkeltjes per status")
-orders_bw = orders[orders["platform"].fillna("BW") == "BW"] if not orders.empty else orders
-if not orders_bw.empty:
-    status_counts = orders_bw["status"].map(format_order_status).value_counts().reset_index()
-    status_counts.columns = ["status", "aantal"]
-    fig = px.pie(status_counts, names="status", values="aantal")
-    st.plotly_chart(fig, use_container_width=True)
-else:
-    st.info("Nog geen orders om te tonen.")
-
-st.divider()
-
-# ---------- Categorie-overzicht ----------
-
-st.subheader("Voorraad per categorie (top 20)")
-if not books.empty:
-    combined_category = books.apply(
-        lambda r: f"{r['category1']}, {r['category2']}"
-        if pd.notna(r["category2"]) and str(r["category2"]).strip()
-        else r["category1"],
-        axis=1,
-    )
-    cat_counts = combined_category.fillna("onbekend").value_counts().head(20).reset_index()
-    cat_counts.columns = ["categorie", "aantal titels"]
-    fig = px.bar(cat_counts, x="categorie", y="aantal titels")
-    st.plotly_chart(fig, use_container_width=True)
-else:
-    st.info("Nog geen boeken om te tonen.")
-
-st.divider()
-
-left2, right2 = st.columns(2)
-
-# ---------- Boeken per uitgever ----------
-
-with left2:
-    st.subheader("Boeken per uitgever (top 20)")
-    if not books.empty:
-        pub_series = books["publisher_name"].fillna("").astype(str).str.strip()
-        pub_counts = pub_series[pub_series != ""].value_counts().head(20).reset_index()
-        pub_counts.columns = ["uitgever", "aantal boeken"]
-        fig = px.bar(pub_counts, x="uitgever", y="aantal boeken")
-        st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.info("Nog geen boeken om te tonen.")
-
-# ---------- Boeken van Rick (op basis van 'R' in de locatie) ----------
-
-with right2:
-    st.subheader("Boeken van Rick")
-    if not books.empty:
-        is_rick = books["location"].fillna("").str.contains("r", case=False)
-        rick_counts = is_rick.map({True: "Van Rick", False: "Niet van Rick"}).value_counts().reset_index()
-        rick_counts.columns = ["wie", "aantal boeken"]
-        fig = px.pie(rick_counts, names="wie", values="aantal boeken")
-        st.plotly_chart(fig, use_container_width=True)
-        st.caption("Gebaseerd op een 'r' (hoofd- of kleine letter) in het locatieveld.")
-    else:
-        st.info("Nog geen boeken om te tonen.")
-
-st.divider()
-
-# ---------- Supabase-opslag ----------
-
-st.subheader("Supabase-opslag")
-
-db_size_mb = get_database_size_mb()
-DB_LIMIT_MB = 500.0
-db_used_pct = min(db_size_mb / DB_LIMIT_MB * 100, 100)
-
-fig_db = px.pie(
-    values=[db_size_mb, max(DB_LIMIT_MB - db_size_mb, 0)],
-    names=["Gebruikt", "Vrij"],
-    title=f"Databaseopslag: {db_used_pct:.1f}% van {DB_LIMIT_MB:.0f} MB",
-    hole=0.4,
-)
-storage_chart_col, _storage_spacer = st.columns([1, 2])
-with storage_chart_col:
-    st.plotly_chart(fig_db, use_container_width=True)
-
-st.divider()
-
 # ---------- Geplande taken (cron-job.org) ----------
 
 st.subheader("Geplande taken")
@@ -395,3 +312,105 @@ else:
             }
         )
     st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+    st.subheader("Duur van de taken")
+    history_frames = []
+    for job in cron_jobs:
+        job_history = get_cron_job_history(job["jobId"])
+        for item in job_history:
+            date_val = item.get("date") or item.get("time")
+            if date_val:
+                history_frames.append(
+                    {
+                        "Taak": job.get("title", "(naamloos)"),
+                        "Moment": dt.datetime.fromtimestamp(date_val, tz=dt.timezone.utc),
+                        "Duur (s)": (item.get("duration") or 0) / 1000,
+                    }
+                )
+    if history_frames:
+        history_df = pd.DataFrame(history_frames).sort_values("Moment")
+        fig_cron = px.line(
+            history_df, x="Moment", y="Duur (s)", color="Taak", markers=True,
+            labels={"Duur (s)": "Duur (seconden)"},
+        )
+        st.plotly_chart(fig_cron, use_container_width=True)
+    else:
+        st.caption("Nog geen uitvoeringsgeschiedenis beschikbaar.")
+
+st.divider()
+
+# ---------- Orderstatus overzicht + Boeken van Rick ----------
+
+left1, right1 = st.columns(2)
+
+with left1:
+    st.subheader("Orders Boekwinkeltjes per status")
+    orders_bw = orders[orders["platform"].fillna("BW") == "BW"] if not orders.empty else orders
+    if not orders_bw.empty:
+        status_counts = orders_bw["status"].map(format_order_status).value_counts().reset_index()
+        status_counts.columns = ["status", "aantal"]
+        fig = px.pie(status_counts, names="status", values="aantal")
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("Nog geen orders om te tonen.")
+
+with right1:
+    st.subheader("Boeken van Rick")
+    if not books.empty:
+        is_rick = books["location"].fillna("").str.contains("r", case=False)
+        rick_counts = is_rick.map({True: "Van Rick", False: "Niet van Rick"}).value_counts().reset_index()
+        rick_counts.columns = ["wie", "aantal boeken"]
+        fig = px.pie(rick_counts, names="wie", values="aantal boeken")
+        st.plotly_chart(fig, use_container_width=True)
+        st.caption("Gebaseerd op een 'r' (hoofd- of kleine letter) in het locatieveld.")
+    else:
+        st.info("Nog geen boeken om te tonen.")
+
+st.divider()
+
+# ---------- Categorie-overzicht ----------
+
+st.subheader("Voorraad per categorie (top 20)")
+if not books.empty:
+    combined_category = books.apply(
+        lambda r: f"{r['category1']}, {r['category2']}"
+        if pd.notna(r["category2"]) and str(r["category2"]).strip()
+        else r["category1"],
+        axis=1,
+    )
+    cat_counts = combined_category.fillna("onbekend").value_counts().head(20).reset_index()
+    cat_counts.columns = ["categorie", "aantal titels"]
+    fig = px.bar(cat_counts, x="categorie", y="aantal titels")
+    st.plotly_chart(fig, use_container_width=True)
+else:
+    st.info("Nog geen boeken om te tonen.")
+
+st.divider()
+
+# ---------- Boeken per uitgever + Supabase-opslag ----------
+
+left2, right2 = st.columns(2)
+
+with left2:
+    st.subheader("Boeken per uitgever (top 20)")
+    if not books.empty:
+        pub_series = books["publisher_name"].fillna("").astype(str).str.strip()
+        pub_counts = pub_series[pub_series != ""].value_counts().head(20).reset_index()
+        pub_counts.columns = ["uitgever", "aantal boeken"]
+        fig = px.bar(pub_counts, x="uitgever", y="aantal boeken")
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("Nog geen boeken om te tonen.")
+
+with right2:
+    st.subheader("Supabase-opslag")
+    db_size_mb = get_database_size_mb()
+    DB_LIMIT_MB = 500.0
+    db_used_pct = min(db_size_mb / DB_LIMIT_MB * 100, 100)
+    fig_db = px.pie(
+        values=[db_size_mb, max(DB_LIMIT_MB - db_size_mb, 0)],
+        names=["Gebruikt", "Vrij"],
+        title=f"Databaseopslag: {db_used_pct:.1f}% van {DB_LIMIT_MB:.0f} MB",
+        hole=0.4,
+    )
+    st.plotly_chart(fig_db, use_container_width=True)
