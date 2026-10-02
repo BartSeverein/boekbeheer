@@ -1461,6 +1461,99 @@ def find_matching_publisher(candidate_name, threshold=None):
     return None
 
 
+# ---------- Zelflerende ISBN-uitgeverscode ----------
+# Een Nederlands/Vlaams ISBN bestaat uit 978 + 90/94 (registratiegroep) + een
+# uitgeverscode van wisselende lengte (2 t/m 7 cijfers) + een titelcode + een
+# controlecijfer. Omdat er geen vrij beschikbare, betrouwbare lijst bestaat die
+# dat cijferblok aan een uitgeversnaam koppelt, bouwt de app die koppeling zelf
+# op: elke keer dat een uitgever via de normale weg wél gevonden wordt, wordt dat
+# onthouden. Pas na MIN_OBSERVATIONS keer dezelfde, eenduidige combinatie wordt
+# die koppeling ook echt gebruikt als een nieuwe uitgever niet te vinden is.
+
+ISBN_PREFIX_MIN_OBSERVATIONS = 3
+
+
+def _isbn_prefix_candidates(isbn):
+    """
+    Geeft, van lang naar kort, de mogelijke uitgeverscode-cijferblokken van een
+    Nederlands/Vlaams ISBN terug (lengte 7 t/m 2) — of een lege lijst als dit geen
+    Nederlands/Vlaams ISBN-13 is (begint niet met 97890 of 97894).
+    """
+    digits = re.sub(r"\D", "", isbn or "")
+    if len(digits) != 13 or digits[:4] != "9789" or digits[4] not in ("0", "4"):
+        return []
+    middle_block = digits[5:12]  # uitgeverscode + titelcode samen, 7 cijfers
+    return [middle_block[:length] for length in range(7, 1, -1)]
+
+
+def record_isbn_prefix_observation(isbn, publisher):
+    """
+    Legt vast dat dit ISBN bij deze uitgever hoort, voor elk mogelijk
+    uitgeverscode-cijferblok van dat ISBN (de juiste lengte wordt vanzelf
+    duidelijk doordat die, in tegenstelling tot de verkeerde lengtes, telkens
+    dezelfde combinatie oplevert bij meerdere boeken van dezelfde uitgever).
+    Doet niets als dit geen Nederlands/Vlaams ISBN is, of als 'publisher' leeg is.
+    """
+    publisher = (publisher or "").strip()
+    if not publisher:
+        return
+    candidates = _isbn_prefix_candidates(isbn)
+    if not candidates:
+        return
+
+    conn = _dict_connect()
+    try:
+        with conn.cursor() as cur:
+            for prefix in candidates:
+                cur.execute(
+                    """
+                    INSERT INTO isbn_prefix_observations (prefix, publisher, times_seen, last_seen_at)
+                    VALUES (%(prefix)s, %(publisher)s, 1, now())
+                    ON CONFLICT (prefix, publisher) DO UPDATE SET
+                        times_seen = isbn_prefix_observations.times_seen + 1,
+                        last_seen_at = now()
+                    """,
+                    {"prefix": prefix, "publisher": publisher},
+                )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def lookup_publisher_by_isbn_prefix(isbn, min_observations=ISBN_PREFIX_MIN_OBSERVATIONS):
+    """
+    Zoekt, als laatste redmiddel wanneer de normale uitgeverherkenning niets
+    oplevert, of dit ISBN een uitgeverscode-cijferblok heeft dat we al vaak
+    genoeg (en eenduidig — geen andere uitgever ooit onder datzelfde blok gezien)
+    aan een uitgever hebben zien koppelen. Begint bij de langste (specifiekste)
+    kandidaat en werkt af naar de kortste. Geeft de volledige uitgeversregel
+    (naam ; adres ; contact) terug, of None.
+    """
+    candidates = _isbn_prefix_candidates(isbn)
+    if not candidates:
+        return None
+
+    conn = _dict_connect()
+    try:
+        with conn.cursor() as cur:
+            for prefix in candidates:
+                cur.execute(
+                    "SELECT publisher, times_seen FROM isbn_prefix_observations WHERE prefix = %(prefix)s",
+                    {"prefix": prefix},
+                )
+                rows = cur.fetchall()
+                if len(rows) == 1 and rows[0]["times_seen"] >= min_observations:
+                    return rows[0]["publisher"]
+                # Meerdere verschillende uitgevers onder hetzelfde blok: dit blok is
+                # kennelijk te kort om betrouwbaar te zijn — niet gebruiken, ook niet
+                # gedeeltelijk, en ook de kortere kandidaten niet meer proberen.
+                if len(rows) > 1:
+                    return None
+    finally:
+        conn.close()
+    return None
+
+
 # ---------- Bulk-import ----------
 
 def suggest_bulk_price(lowest_current_price, floor=3.95):
@@ -1601,9 +1694,20 @@ def autofill_book_fields_from_isbn(isbn):
         known = get_known_publishers()
         if publisher_candidate in known:
             fields["publisher"] = publisher_candidate
+            record_isbn_prefix_observation(isbn, publisher_candidate)
         else:
             match = find_matching_publisher(publisher_candidate)
-            fields["publisher"] = match if match else publisher_candidate
+            if match:
+                fields["publisher"] = match
+                record_isbn_prefix_observation(isbn, match)
+            else:
+                fields["publisher"] = publisher_candidate
+    else:
+        # Geen enkele bron kon een uitgever vinden: als laatste redmiddel kijken of
+        # het ISBN-uitgeverscijferblok al vaak genoeg aan een uitgever is gekoppeld.
+        learned_publisher = lookup_publisher_by_isbn_prefix(isbn)
+        if learned_publisher:
+            fields["publisher"] = learned_publisher
 
     if metadata and metadata.get("cover_bytes"):
         # Geen echt boekveld — de aanroeper haalt dit eruit en gebruikt het apart
@@ -2057,3 +2161,58 @@ def clean_boekwinkeltjes_title_and_bijz(titel, bijz):
         cleaned_bijz = cleaned_bijz.replace("Gebonden", "gebonden")
 
     return cleaned_titel, cleaned_bijz
+
+
+# ---------- cron-job.org (overzicht van de 5 geplande taken op Home) ----------
+# Rate limit bij cron-job.org: 1 verzoek/seconde, 5 verzoeken/minuut — vandaar de
+# relatief lange cache-tijd (5 minuten), zodat herhaaldelijk verversen van Home
+# niet per ongeluk tegen die limiet aanloopt.
+
+CRON_JOB_API_BASE = "https://api.cron-job.org"
+
+
+@st.cache_data(ttl=300)
+def get_cron_job_status():
+    """
+    Haalt de lijst van alle cron-job.org-taken op, met per taak: titel, laatste
+    uitvoering (tijdstip, status, duur in ms) en eerstvolgende uitvoering. Geeft
+    een lege lijst terug als CRON_JOB_API_KEY niet is ingesteld of de opzoeking
+    om wat voor reden dan ook mislukt (zodat Home nooit stukloopt hierop).
+    """
+    api_key = _get_secret("CRON_JOB_API_KEY")
+    if not api_key:
+        return []
+    try:
+        resp = requests.get(
+            f"{CRON_JOB_API_BASE}/jobs",
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=15,
+        )
+        if not resp.ok:
+            return []
+        return resp.json().get("jobs", [])
+    except requests.RequestException:
+        return []
+
+
+@st.cache_data(ttl=300)
+def get_cron_job_history(job_id, limit=20):
+    """
+    Haalt de laatste uitvoeringen van één cron-job.org-taak op (meest recente
+    eerst), voor het duur-grafiekje. Geeft een lege lijst terug bij een
+    ontbrekende sleutel of een mislukte opzoeking.
+    """
+    api_key = _get_secret("CRON_JOB_API_KEY")
+    if not api_key:
+        return []
+    try:
+        resp = requests.get(
+            f"{CRON_JOB_API_BASE}/jobs/{job_id}/history",
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=15,
+        )
+        if not resp.ok:
+            return []
+        return resp.json().get("history", [])[:limit]
+    except requests.RequestException:
+        return []

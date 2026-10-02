@@ -11,6 +11,7 @@ Op Streamlit Community Cloud:
     Zet SUPABASE_DB_URL in de app-instellingen onder "Secrets".
 """
 
+import datetime as dt
 import time
 
 import plotly.express as px
@@ -26,11 +27,12 @@ from common import (
     format_price,
     format_order_status,
     format_datetime_nl,
+    get_cron_job_status,
+    get_cron_job_history,
     format_isbn,
     trigger_github_workflow,
     render_logo,
     require_login,
-    get_isbndb_usage_history,
     get_database_size_mb,
 )
 
@@ -366,47 +368,6 @@ with right2:
 
 st.divider()
 
-# ---------- Omzet per dag ----------
-
-st.subheader("Omzet per dag (boekprijs, zonder verzendkosten)")
-if not orders.empty and orders["order_date"].notna().any():
-    daily = (
-        orders.dropna(subset=["order_date"])
-        .set_index("order_date")
-        .resample("D")["book_price"]
-        .sum()
-        .reset_index()
-    )
-    fig = px.line(daily, x="order_date", y="book_price", labels={"order_date": "Datum", "book_price": "Omzet (€)"})
-    st.plotly_chart(fig, use_container_width=True)
-else:
-    st.info("Nog geen orders met een geldige datum om te tonen.")
-
-st.divider()
-
-# ---------- ISBNdb API-gebruik ----------
-
-st.subheader("ISBNdb API-gebruik (resterend dagquotum)")
-usage_history = get_isbndb_usage_history()
-if usage_history:
-    usage_df = pd.DataFrame(usage_history)
-    fig = px.line(
-        usage_df,
-        x="checked_at",
-        y="daily_remaining",
-        labels={"checked_at": "Moment", "daily_remaining": "Resterend dagquotum"},
-    )
-    st.plotly_chart(fig, use_container_width=True)
-    st.caption(
-        "Elke opzoekactie bij ISBNdb (via 'Nieuw boek') legt vast hoeveel van het "
-        "dagquotum nog over was op dat moment — vandaar dat dit alleen bijwerkt "
-        "als er daadwerkelijk een ISBN is opgezocht."
-    )
-else:
-    st.info("Nog geen ISBNdb-gebruik geregistreerd.")
-
-st.divider()
-
 # ---------- Supabase-opslag ----------
 
 st.subheader("Supabase-opslag")
@@ -424,3 +385,57 @@ fig_db = px.pie(
 storage_chart_col, _storage_spacer = st.columns([1, 2])
 with storage_chart_col:
     st.plotly_chart(fig_db, use_container_width=True)
+
+st.divider()
+
+# ---------- Geplande taken (cron-job.org) ----------
+
+st.subheader("⏱️ Geplande taken (cron-job.org)")
+
+cron_jobs = get_cron_job_status()
+if not cron_jobs:
+    st.info(
+        "Geen gegevens van cron-job.org beschikbaar (CRON_JOB_API_KEY niet ingesteld, "
+        "of de opzoeking is mislukt)."
+    )
+else:
+    CRON_STATUS_LABELS = {0: "Nog niet gedraaid", 1: "✅ Geslaagd", 2: "⚠️ Mislukt (gebruiker)", 3: "⚠️ Mislukt (host)"}
+
+    rows = []
+    for job in cron_jobs:
+        last_exec = job.get("lastExecution") or 0
+        next_exec = job.get("nextExecution") or 0
+        rows.append(
+            {
+                "Taak": job.get("title", "(naamloos)"),
+                "Laatste run": format_datetime_nl(dt.datetime.fromtimestamp(last_exec, tz=dt.timezone.utc)) if last_exec else "–",
+                "Status": CRON_STATUS_LABELS.get(job.get("lastStatus"), "–"),
+                "Duur": f"{job.get('lastDuration', 0) / 1000:.1f}s" if job.get("lastDuration") else "–",
+                "Volgende run": format_datetime_nl(dt.datetime.fromtimestamp(next_exec, tz=dt.timezone.utc)) if next_exec else "–",
+            }
+        )
+    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+    st.caption("Duur van de laatste 20 uitvoeringen per taak")
+    history_frames = []
+    for job in cron_jobs:
+        job_history = get_cron_job_history(job["jobId"])
+        for item in job_history:
+            date_val = item.get("date") or item.get("time")
+            if date_val:
+                history_frames.append(
+                    {
+                        "Taak": job.get("title", "(naamloos)"),
+                        "Moment": dt.datetime.fromtimestamp(date_val, tz=dt.timezone.utc),
+                        "Duur (s)": (item.get("duration") or 0) / 1000,
+                    }
+                )
+    if history_frames:
+        history_df = pd.DataFrame(history_frames).sort_values("Moment")
+        fig_cron = px.line(
+            history_df, x="Moment", y="Duur (s)", color="Taak", markers=True,
+            labels={"Duur (s)": "Duur (seconden)"},
+        )
+        st.plotly_chart(fig_cron, use_container_width=True)
+    else:
+        st.caption("Nog geen uitvoeringsgeschiedenis beschikbaar.")
