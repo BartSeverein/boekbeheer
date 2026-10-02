@@ -1,6 +1,6 @@
 name: Dagelijkse CSV-back-up per e-mail
 
-on: { schedule: [{ cron: "17 5 * * *" }], workflow_dispatch: {} }
+on: { workflow_dispatch: {} }  # timing nu via cron-job.org, zie projectnotities
 
 jobs:
   send-daily-csv-export:

@@ -1,9 +1,7 @@
 name: Sync Boekwinkeltjes Afbeeldingen
 
 on:
-  schedule:
-    - cron: "14,34,54 * * * *"   # elke 20 minuten een batch van 200 boeken
-  workflow_dispatch:
+  workflow_dispatch:  # timing nu via cron-job.org, zie projectnotities
 
 concurrency:
   group: boekwinkeltjes-images

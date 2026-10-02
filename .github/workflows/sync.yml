@@ -1,6 +1,6 @@
 name: Sync Boekwinkeltjes
 
-on: { schedule: [{ cron: "3,33 * * * *" }], workflow_dispatch: {} }
+on: { workflow_dispatch: {} }  # timing nu via cron-job.org, zie projectnotities
 
 concurrency:
   group: boekwinkeltjes-sync

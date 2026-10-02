@@ -1,6 +1,6 @@
 name: Snelle voorraadsync (Boekwinkeltjes + Bol)
 
-on: { schedule: [{ cron: "8,23,38,53 * * * *" }], workflow_dispatch: {} }
+on: { workflow_dispatch: {} }  # timing nu via cron-job.org, zie projectnotities
 
 concurrency:
   group: boekwinkeltjes-sync
