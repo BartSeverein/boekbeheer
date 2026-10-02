@@ -1,0 +1,27 @@
+name: Dagelijkse CSV-back-up per e-mail
+
+on: { schedule: [{ cron: "17 5 * * *" }], workflow_dispatch: {} }
+
+jobs:
+  send-daily-csv-export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Stuur de dagelijkse CSV-back-up per e-mail
+        run: python main.py send-daily-csv-export
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          SMTP_TO: ${{ secrets.SMTP_TO }}
+          PYTHONUNBUFFERED: "1"
