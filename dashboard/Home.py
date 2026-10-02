@@ -28,7 +28,6 @@ from common import (
     format_order_status,
     format_datetime_nl,
     get_cron_job_status,
-    get_cron_job_history,
     format_isbn,
     trigger_github_workflow,
     render_logo,
@@ -285,36 +284,17 @@ with sync_tab:
 
 st.divider()
 
-# ---------- Omzet per week ----------
-
-left, right = st.columns(2)
-
-with left:
-    st.subheader("Omzet per week")
-    if not orders.empty and orders["order_date"].notna().any():
-        weekly = (
-            orders.dropna(subset=["order_date"])
-            .set_index("order_date")
-            .resample("W")["revenue"]
-            .sum()
-            .reset_index()
-        )
-        fig = px.bar(weekly, x="order_date", y="revenue", labels={"order_date": "Week", "revenue": "Omzet (€)"})
-        st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.info("Nog geen orders met een geldige datum om te tonen.")
-
 # ---------- Orderstatus overzicht ----------
 
-with right:
-    st.subheader("Orders per status")
-    if not orders.empty:
-        status_counts = orders["status"].map(format_order_status).value_counts().reset_index()
-        status_counts.columns = ["status", "aantal"]
-        fig = px.pie(status_counts, names="status", values="aantal")
-        st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.info("Nog geen orders om te tonen.")
+st.subheader("Orders Boekwinkeltjes per status")
+orders_bw = orders[orders["platform"].fillna("BW") == "BW"] if not orders.empty else orders
+if not orders_bw.empty:
+    status_counts = orders_bw["status"].map(format_order_status).value_counts().reset_index()
+    status_counts.columns = ["status", "aantal"]
+    fig = px.pie(status_counts, names="status", values="aantal")
+    st.plotly_chart(fig, use_container_width=True)
+else:
+    st.info("Nog geen orders om te tonen.")
 
 st.divider()
 
@@ -390,7 +370,7 @@ st.divider()
 
 # ---------- Geplande taken (cron-job.org) ----------
 
-st.subheader("⏱️ Geplande taken (cron-job.org)")
+st.subheader("Geplande taken")
 
 cron_jobs = get_cron_job_status()
 if not cron_jobs:
@@ -415,27 +395,3 @@ else:
             }
         )
     st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-
-    st.caption("Duur van de laatste 20 uitvoeringen per taak")
-    history_frames = []
-    for job in cron_jobs:
-        job_history = get_cron_job_history(job["jobId"])
-        for item in job_history:
-            date_val = item.get("date") or item.get("time")
-            if date_val:
-                history_frames.append(
-                    {
-                        "Taak": job.get("title", "(naamloos)"),
-                        "Moment": dt.datetime.fromtimestamp(date_val, tz=dt.timezone.utc),
-                        "Duur (s)": (item.get("duration") or 0) / 1000,
-                    }
-                )
-    if history_frames:
-        history_df = pd.DataFrame(history_frames).sort_values("Moment")
-        fig_cron = px.line(
-            history_df, x="Moment", y="Duur (s)", color="Taak", markers=True,
-            labels={"Duur (s)": "Duur (seconden)"},
-        )
-        st.plotly_chart(fig_cron, use_container_width=True)
-    else:
-        st.caption("Nog geen uitvoeringsgeschiedenis beschikbaar.")
