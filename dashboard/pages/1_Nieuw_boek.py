@@ -43,8 +43,11 @@ from common import (
     lookup_book_metadata_external,
     match_subjects_to_category,
     find_matching_publisher,
+    record_isbn_prefix_observation,
+    lookup_publisher_by_isbn_prefix,
     info_box,
     find_existing_book_by_isbn,
+    save_book_edits,
     lookup_bol_competing_offers,
     format_price_dot,
     suggest_bulk_price,
@@ -90,13 +93,24 @@ isbn_is_valid = len(re.sub(r"\D", "", isbn_clean)) >= 10
 if isbn_is_valid:
     existing_book = find_existing_book_by_isbn(isbn_clean)
     if existing_book:
+        location_text = f", op {existing_book['location']}" if existing_book.get("location") else ""
         st.warning(
             f"Dit ISBN staat al in je database: **{existing_book['title'] or '(geen titel)'}** "
-            f"(voorraad: {existing_book['amount']})."
+            f"(voorraad: {existing_book['amount']}{location_text})."
         )
-        if st.button("Ga naar dat boek", key="go_to_existing_book"):
-            st.session_state["preselect_book_id"] = existing_book["id"]
-            st.switch_page("pages/3_Boekdetails.py")
+        existing_col_increase, existing_col_button = st.columns([1.3, 1])
+        with existing_col_increase:
+            if st.button("Voorraad +1", key="existing_book_increase"):
+                save_book_edits(
+                    existing_book["id"],
+                    {"amount": (existing_book["amount"] or 0) + 1},
+                    user_short_name=current_user_short_name(),
+                    previous_values={"amount": existing_book["amount"]},
+                )
+                load_books.clear()
+                st.success(f"Voorraad verhoogd naar {(existing_book['amount'] or 0) + 1}.")
+        with existing_col_button:
+            st.link_button("Naar boek", f"Boekdetails?book_id={existing_book['id']}")
 
 
 market_info, market_error = None, None
@@ -190,10 +204,12 @@ if isbn_is_valid and st.session_state.get("new_book_prefilled_isbn") != ean:
         if suggested_publisher:
             if suggested_publisher in known_publishers:
                 st.session_state[k("publisher_dd")] = suggested_publisher
+                record_isbn_prefix_observation(ean, suggested_publisher)
             else:
                 fuzzy_match = find_matching_publisher(suggested_publisher)
                 if fuzzy_match:
                     st.session_state[k("publisher_dd")] = fuzzy_match
+                    record_isbn_prefix_observation(ean, fuzzy_match)
                 else:
                     st.session_state[k("publisher_dd")] = NEW_PUBLISHER_SENTINEL
                     st.session_state[k("publisher_new")] = suggested_publisher
@@ -227,10 +243,12 @@ if isbn_is_valid and st.session_state.get("new_book_prefilled_isbn") != ean:
         if metadata.get("publisher") and not st.session_state.get(k("publisher_new")):
             if metadata["publisher"] in known_publishers:
                 st.session_state[k("publisher_dd")] = metadata["publisher"]
+                record_isbn_prefix_observation(ean, metadata["publisher"])
             else:
                 fuzzy_match = find_matching_publisher(metadata["publisher"])
                 if fuzzy_match:
                     st.session_state[k("publisher_dd")] = fuzzy_match
+                    record_isbn_prefix_observation(ean, fuzzy_match)
                 else:
                     st.session_state[k("publisher_dd")] = NEW_PUBLISHER_SENTINEL
                     st.session_state[k("publisher_new")] = metadata["publisher"]
@@ -275,13 +293,23 @@ if isbn_is_valid and st.session_state.get("new_book_prefilled_isbn") != ean:
             )
             if bol_publisher_candidate in known_publishers:
                 st.session_state[k("publisher_dd")] = bol_publisher_candidate
+                record_isbn_prefix_observation(ean, bol_publisher_candidate)
             else:
                 fuzzy_match = find_matching_publisher(bol_publisher_candidate)
                 if fuzzy_match:
                     st.session_state[k("publisher_dd")] = fuzzy_match
+                    record_isbn_prefix_observation(ean, fuzzy_match)
                 else:
                     st.session_state[k("publisher_dd")] = NEW_PUBLISHER_SENTINEL
                     st.session_state[k("publisher_new")] = bol_publisher_candidate
+
+        # Geen enkele bron kon een uitgever vinden: als laatste redmiddel kijken of
+        # het ISBN-uitgeverscijferblok al vaak genoeg aan een uitgever is gekoppeld.
+        if not st.session_state.get(k("publisher_dd")) and not st.session_state.get(k("publisher_new")):
+            learned_publisher = lookup_publisher_by_isbn_prefix(ean)
+            if learned_publisher:
+                st.session_state[k("publisher_dd")] = learned_publisher
+
         if metadata and metadata.get("subjects") and st.session_state.get(k("category1"), "(leeg)") == "(leeg)":
             matched_cat1, matched_cat2 = match_subjects_to_category(metadata["subjects"])
             if matched_cat1:

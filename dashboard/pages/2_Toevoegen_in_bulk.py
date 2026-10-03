@@ -49,16 +49,16 @@ st.warning(
     "ISBNdb-dagquotum opeisen en enige tijd duren."
 )
 
-bulk_duplicates = st.session_state.pop("bulk_import_duplicates", None)
+bulk_duplicates = st.session_state.get("bulk_import_duplicates", None)
 if bulk_duplicates:
     st.warning(f"{len(bulk_duplicates)} ISBN('s) uit de laatste import stonden al in je database:")
     for isbn, existing in bulk_duplicates:
         dup_col_info, dup_col_increase, dup_col_button = st.columns([4, 1.3, 1])
         with dup_col_info:
             location_text = f", op {existing['location']}" if existing.get("location") else ""
-            st.write(f"ISBN {isbn} — **{existing['title'] or '(geen titel)'}** (voorraad: {existing['amount']}{location_text})")
+            st.write(f"{isbn} — **{existing['title'] or '(geen titel)'}** (voorraad: {existing['amount']}{location_text})")
         with dup_col_increase:
-            if st.button("Verhoog voorraad met 1", key=f"bulk_dup_increase_{existing['id']}"):
+            if st.button("Voorraad +1", key=f"bulk_dup_increase_{existing['id']}"):
                 save_book_edits(
                     existing["id"],
                     {"amount": (existing["amount"] or 0) + 1},
@@ -66,7 +66,11 @@ if bulk_duplicates:
                     previous_values={"amount": existing["amount"]},
                 )
                 load_books.clear()
+                st.session_state["bulk_import_duplicates"] = [
+                    pair for pair in bulk_duplicates if pair[1]["id"] != existing["id"]
+                ]
                 st.success(f"Voorraad verhoogd naar {(existing['amount'] or 0) + 1}.")
+                st.rerun()
         with dup_col_button:
             st.link_button("Naar boek", f"Boekdetails?book_id={existing['id']}")
 
@@ -151,8 +155,7 @@ if uploaded_file is not None:
         progress.empty()
         load_books.clear()
         st.success(f"{created} boek(en) toegevoegd aan de wachtrij.")
-        if duplicates:
-            st.session_state["bulk_import_duplicates"] = duplicates
+        st.session_state["bulk_import_duplicates"] = duplicates
         if failed:
             st.error(
                 "Niet gelukt voor: "

@@ -507,7 +507,7 @@ else:
                 with col_b:
                     if show_logistics:
                         edit_location = st.text_input(
-                            "Locatie (voeg R toe voor Rick, T voor Thuis)",
+                            "Locatie",
                             value=_s(b["location"]),
                             key=f"{edit_prefix}_location",
                         )
@@ -539,7 +539,7 @@ else:
                     edit_queued_choice = st.selectbox(
                         "Wachtrij?",
                         options=["Nee", "Ja"],
-                        index=1 if current_queued else 0,
+                        index=0,  # staat het boek nog in de wachtrij, dan is 'Nee' verreweg het vaakst gewenst
                         key=f"{edit_prefix}_queued",
                         help="'Ja' = dit boek wacht op handmatige controle en wordt niet gesynchroniseerd. "
                         "Zet je dit op 'Nee', dan gaat synchronisatie automatisch aan.",
