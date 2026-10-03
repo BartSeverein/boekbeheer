@@ -349,6 +349,9 @@ FIELD_LABELS = {
     "long_description": "Meer info",
     "push_enabled": "Synchronisatie",
     "queued": "Wachtrij",
+    "length_cm": "Lengte (cm)",
+    "width_cm": "Breedte (cm)",
+    "thickness_cm": "Dikte (cm)",
 }
 
 
@@ -688,6 +691,9 @@ EDITABLE_BOOK_FIELDS = [
     "long_description",
     "push_enabled",
     "queued",
+    "length_cm",
+    "width_cm",
+    "thickness_cm",
 ]
 
 
@@ -1086,6 +1092,8 @@ def lookup_isbndb(isbn):
         result["pages"] = book["pages"]
     if book.get("binding"):
         result["binding"] = book["binding"]
+    if book.get("dimensions"):
+        result["dimensions_raw"] = book["dimensions"]
     date_published = book.get("date_published")
     if date_published:
         year_match = re.search(r"\d{4}", str(date_published))
@@ -1137,6 +1145,115 @@ def _map_language_to_boekwinkeltjes(lang):
     return lang.strip().upper()
 
 
+_DIMENSION_UNIT_TO_CM = {
+    "cm": 1.0, "centimeter": 1.0, "centimeters": 1.0,
+    "mm": 0.1, "millimeter": 0.1, "millimeters": 0.1,
+    "in": 2.54, "inch": 2.54, "inches": 2.54, '"': 2.54,
+}
+
+
+def _dimension_value_to_cm(value, unit):
+    """Zet één maat + eenheid om naar centimeters, afgerond op 1 decimaal."""
+    factor = _DIMENSION_UNIT_TO_CM.get((unit or "cm").strip().lower())
+    if factor is None or value is None:
+        return None
+    return round(value * factor, 1)
+
+
+def _parse_single_dimension_string(text):
+    """Parst een losse maat als '24.00 cm' of '9.21 in' naar centimeters."""
+    if not text:
+        return None
+    match = re.search(r"([\d]+[.,]?[\d]*)\s*(cm|mm|in|inch|inches)\b", str(text), re.IGNORECASE)
+    if not match:
+        return None
+    try:
+        value = float(match.group(1).replace(",", "."))
+    except ValueError:
+        return None
+    return _dimension_value_to_cm(value, match.group(2))
+
+
+def _parse_combined_dimensions_string(text):
+    """
+    Parst een gecombineerde maatvoering als '9.21 x 6.14 x 0.96 inches' (of met
+    '×') naar een lijst van waarden in centimeters. Gebruikt bij bronnen (zoals
+    ISBNdb) die lengte/breedte/dikte als één vrije-tekst-veld teruggeven, met
+    maar één eenheid voor alle getallen samen.
+    """
+    if not text:
+        return []
+    text = str(text)
+    unit_match = re.search(r"(cm|mm|inch|inches|in)\b", text, re.IGNORECASE)
+    unit = unit_match.group(1) if unit_match else "cm"
+    numbers = re.findall(r"\d+[.,]?\d*", text)
+    values = []
+    for n in numbers:
+        try:
+            cm_value = _dimension_value_to_cm(float(n.replace(",", ".")), unit)
+        except ValueError:
+            continue
+        if cm_value:
+            values.append(cm_value)
+    return values
+
+
+def _assign_length_width_thickness(values):
+    """
+    Sorteert 2 of 3 cm-waarden en wijst ze toe volgens een vaste regel (bronnen
+    zijn niet altijd consistent in wat ze zelf 'hoogte'/'breedte'/'dikte'
+    noemen): de hoogste waarde is de lengte, de laagste de dikte, en (bij 3
+    waarden) wat overblijft is de breedte. Geeft (lengte, breedte, dikte) terug,
+    met None voor wat niet te bepalen was.
+    """
+    clean_values = sorted((v for v in values if v and v > 0), reverse=True)
+    if len(clean_values) < 2:
+        return None, None, None
+    if len(clean_values) == 2:
+        return clean_values[0], None, clean_values[1]
+    return clean_values[0], clean_values[1], clean_values[2]
+
+
+BUSSTUK_LENGTH_LIMIT_CM = 37
+BUSSTUK_THICKNESS_LIMIT_CM = 2.2
+
+
+def determine_busstuk(length_cm, thickness_cm, shipping_options_eur):
+    """
+    Bepaalt of een boek met deze afmetingen als 'busstuk' kan worden verstuurd
+    (in plaats van een pakje), en welke verzendkosten daarbij default zouden
+    moeten zijn. 'shipping_options_eur' is de lijst met numerieke
+    verzendkosten-keuzes waartussen gekozen wordt (bijv. [3.75, 7.25]) — bij
+    'Nee' wordt de hoogste daarvan gekozen, bij 'Ja' de laagste, zodat dit blijft
+    kloppen als die keuzes ooit wijzigen. Geeft (is_busstuk, shipping_cost,
+    toelichtende tekst) terug — alle None als er geen afmetingen bekend zijn.
+    """
+    if length_cm is None or thickness_cm is None or not shipping_options_eur:
+        return None, None, None
+    is_too_groot = length_cm > BUSSTUK_LENGTH_LIMIT_CM and thickness_cm > BUSSTUK_THICKNESS_LIMIT_CM
+    is_busstuk = not is_too_groot
+    shipping_cost = min(shipping_options_eur) if is_busstuk else max(shipping_options_eur)
+    length_str = f"{length_cm:.1f}".replace(".", ",")
+    thickness_str = f"{thickness_cm:.1f}".replace(".", ",")
+    if is_busstuk:
+        message = f"Ja, het is {length_str} cm lang en {thickness_str} cm dik. Dit is een busstuk."
+    else:
+        message = f"Nee, het is {length_str} cm lang en {thickness_str} cm dik. Dit is een pakje."
+    return is_busstuk, shipping_cost, message
+
+
+def _strip_html(text):
+    """
+    Haalt HTML-codes uit tekst (bijv. <p>, </p>, <em>, <br>) — van het hele stuk
+    tussen < en > wordt alles vervangen door een spatie, waarna meerdere spaties
+    achter elkaar worden teruggebracht tot één.
+    """
+    if not text:
+        return text
+    without_tags = re.sub(r"<[^>]*>", " ", text)
+    return re.sub(r" {2,}", " ", without_tags).strip()
+
+
 @st.cache_data(ttl=3600)
 def lookup_book_metadata_external(isbn):
     """
@@ -1171,6 +1288,10 @@ def lookup_book_metadata_external(isbn):
             result["prices"] = isbndb_data["prices"]
         if isbndb_data.get("subjects"):
             result["subjects"] = isbndb_data["subjects"]
+        if isbndb_data.get("dimensions_raw"):
+            result["_isbndb_dimension_candidates"] = _parse_combined_dimensions_string(
+                isbndb_data["dimensions_raw"]
+            )
         bijz_parts = []
         if isbndb_data.get("year"):
             bijz_parts.append(str(isbndb_data["year"]))
@@ -1209,6 +1330,14 @@ def lookup_book_metadata_external(isbn):
                     result["description"] = info["description"]
                 if cover_url and "cover_url" not in result:
                     result["cover_url"] = cover_url
+                gb_dimensions = info.get("dimensions") or {}
+                google_dim_candidates = [
+                    _parse_single_dimension_string(gb_dimensions.get("height")),
+                    _parse_single_dimension_string(gb_dimensions.get("width")),
+                    _parse_single_dimension_string(gb_dimensions.get("thickness")),
+                ]
+                if any(google_dim_candidates):
+                    result["_google_dimension_candidates"] = google_dim_candidates
                 result.setdefault("source", "Google Books")
     except (requests.RequestException, ValueError):
         pass
@@ -1259,6 +1388,21 @@ def lookup_book_metadata_external(isbn):
         except requests.RequestException:
             pass
         del result["cover_url"]
+
+    if result.get("description"):
+        result["description"] = _strip_html(result["description"])
+
+    # Afmetingen: Google Books heeft voorkeur (nette, al-gestructureerde cm-waarden),
+    # anders de vrije-tekst maatvoering van ISBNdb als terugval.
+    google_candidates = result.pop("_google_dimension_candidates", [])
+    isbndb_candidates = result.pop("_isbndb_dimension_candidates", [])
+    length_cm, width_cm, thickness_cm = _assign_length_width_thickness(google_candidates)
+    if length_cm is None:
+        length_cm, width_cm, thickness_cm = _assign_length_width_thickness(isbndb_candidates)
+    if length_cm is not None:
+        result["length_cm"] = length_cm
+        result["width_cm"] = width_cm
+        result["thickness_cm"] = thickness_cm
 
     has_content = any(
         result.get(k) for k in ("cover_bytes", "description", "title", "author", "publisher", "bijz", "prices")
@@ -1651,7 +1795,13 @@ def autofill_book_fields_from_isbn(isbn):
 
     # Bol als laatste aanvulling voor wat nog steeds ontbreekt (zie kanttekening
     # in lookup_bol_catalog_product: dit is best-effort, geen gegarandeerde koppeling)
-    if not fields.get("title") or not fields.get("author") or not publisher_candidate or not fields.get("long_description") or not fields.get("short_description"):
+    bol_product = None
+    metadata_has_dimensions = bool(metadata and metadata.get("length_cm"))
+    if (
+        not fields.get("title") or not fields.get("author") or not publisher_candidate
+        or not fields.get("long_description") or not fields.get("short_description")
+        or not metadata_has_dimensions
+    ):
         bol_product = lookup_bol_catalog_product(isbn)
         if bol_product:
             if bol_product.get("title") and not fields.get("title"):
@@ -1659,7 +1809,7 @@ def autofill_book_fields_from_isbn(isbn):
             if bol_product.get("author") and not fields.get("author"):
                 fields["author"] = bol_product["author"]
             if bol_product.get("description") and not fields.get("long_description"):
-                fields["long_description"] = bol_product["description"]
+                fields["long_description"] = _strip_html(bol_product["description"])
             if not fields.get("short_description"):
                 bijz_parts = []
                 if bol_product.get("year"):
@@ -1714,6 +1864,24 @@ def autofill_book_fields_from_isbn(isbn):
         # via save_uploaded_images(), zodat de gevonden omslagfoto ook meekomt.
         fields["_cover_bytes"] = metadata["cover_bytes"]
         fields["_cover_content_type"] = metadata.get("cover_content_type", "image/jpeg")
+
+    # Afmetingen: Google Books/ISBNdb (via metadata) hebben voorkeur, anders Bol
+    # als laatste terugval. Op basis daarvan de verzendkosten bepalen (busstuk
+    # vs. pakje) — alleen als er daadwerkelijk afmetingen gevonden zijn; anders
+    # blijft de aanroeper zijn eigen standaardbedrag (3,75) gebruiken.
+    length_cm = width_cm = thickness_cm = None
+    if metadata and metadata.get("length_cm"):
+        length_cm, width_cm, thickness_cm = metadata["length_cm"], metadata.get("width_cm"), metadata["thickness_cm"]
+    elif bol_product and bol_product.get("length_cm"):
+        length_cm, width_cm, thickness_cm = bol_product["length_cm"], bol_product.get("width_cm"), bol_product["thickness_cm"]
+
+    if length_cm is not None:
+        fields["length_cm"] = length_cm
+        fields["width_cm"] = width_cm
+        fields["thickness_cm"] = thickness_cm
+        _, shipping_cost, _ = determine_busstuk(length_cm, thickness_cm, [3.75, 7.25])
+        if shipping_cost is not None:
+            fields["shipping_cost"] = shipping_cost
 
     return fields
 
@@ -1965,8 +2133,9 @@ def lookup_bol_catalog_product(ean):
     koppeling en mogelijk bijgesteld moet worden na een eerste test.
 
     Geeft een dict terug met evt. 'title', 'author', 'manufacturer_name',
-    'manufacturer_address', 'pages', 'year', 'binding', 'description' — of None
-    bij een fout, ontbrekende sleutels, of onbekend ISBN.
+    'manufacturer_address', 'pages', 'year', 'binding', 'description',
+    'length_cm', 'width_cm', 'thickness_cm' — of None bij een fout, ontbrekende
+    sleutels, of onbekend ISBN.
     """
     ean = (ean or "").strip()
     if not ean or ean == "0":
@@ -2020,6 +2189,7 @@ def lookup_bol_catalog_product(ean):
             result.setdefault("manufacturer_name", result.get("manufacturer_name") or name)
 
     # Overige velden zitten waarschijnlijk in 'attributes' (id + waarde), op trefwoord gezocht
+    bol_dimension_candidates = []
     for attr in product.get("attributes") or []:
         attr_id = (attr.get("id") or "").lower()
         values = attr.get("values") or []
@@ -2044,6 +2214,25 @@ def lookup_bol_catalog_product(ean):
             result.setdefault("binding", value)
         elif "samenvatting" in attr_id or "omschrijving" in attr_id or "beschrijving" in attr_id or "description" in attr_id:
             result.setdefault("description", value)
+        elif "lengte" in attr_id or "length" in attr_id or "hoogte" in attr_id or "height" in attr_id:
+            parsed = _parse_single_dimension_string(value) or _parse_single_dimension_string(f"{value} cm")
+            if parsed:
+                bol_dimension_candidates.append(parsed)
+        elif "breedte" in attr_id or "width" in attr_id:
+            parsed = _parse_single_dimension_string(value) or _parse_single_dimension_string(f"{value} cm")
+            if parsed:
+                bol_dimension_candidates.append(parsed)
+        elif "dikte" in attr_id or "thickness" in attr_id or "diepte" in attr_id or "depth" in attr_id:
+            parsed = _parse_single_dimension_string(value) or _parse_single_dimension_string(f"{value} cm")
+            if parsed:
+                bol_dimension_candidates.append(parsed)
+
+    if bol_dimension_candidates:
+        length_cm, width_cm, thickness_cm = _assign_length_width_thickness(bol_dimension_candidates)
+        if length_cm is not None:
+            result["length_cm"] = length_cm
+            result["width_cm"] = width_cm
+            result["thickness_cm"] = thickness_cm
 
     return result if result else None
 
