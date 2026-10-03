@@ -1,7 +1,14 @@
 name: Sync Boekwinkeltjes Afbeeldingen
 
 on:
-  workflow_dispatch:  # timing nu via cron-job.org, zie projectnotities
+  workflow_dispatch:
+    inputs:
+      trigger_source:
+        description: "Wordt door cron-job.org meegestuurd om een geplande run te herkennen"
+        required: false
+        type: string
+        default: ""
+  # timing nu via cron-job.org, zie projectnotities
 
 concurrency:
   group: boekwinkeltjes-images
@@ -32,6 +39,7 @@ jobs:
           SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
           SMTP_TO: ${{ secrets.SMTP_TO }}
+          TRIGGER_SOURCE: ${{ github.event.inputs.trigger_source }}
           PYTHONUNBUFFERED: "1"
 
       - name: Pull main images batch
@@ -46,6 +54,7 @@ jobs:
           SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
           SMTP_TO: ${{ secrets.SMTP_TO }}
+          TRIGGER_SOURCE: ${{ github.event.inputs.trigger_source }}
           PYTHONUNBUFFERED: "1"
 
       - name: Confirm and pull uploaded images
@@ -60,4 +69,5 @@ jobs:
           SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
           SMTP_TO: ${{ secrets.SMTP_TO }}
+          TRIGGER_SOURCE: ${{ github.event.inputs.trigger_source }}
           PYTHONUNBUFFERED: "1"

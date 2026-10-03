@@ -1,6 +1,14 @@
 name: Druppel nieuwe boeken naar Boekwinkeltjes
 
-on: { workflow_dispatch: {} }  # timing nu via cron-job.org, zie projectnotities
+on:
+  workflow_dispatch:
+    inputs:
+      trigger_source:
+        description: "Wordt door cron-job.org meegestuurd om een geplande run te herkennen"
+        required: false
+        type: string
+        default: ""
+  # timing nu via cron-job.org, zie projectnotities
 
 concurrency:
   group: boekwinkeltjes-sync
@@ -31,4 +39,5 @@ jobs:
           SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
           SMTP_TO: ${{ secrets.SMTP_TO }}
+          TRIGGER_SOURCE: ${{ github.event.inputs.trigger_source }}
           PYTHONUNBUFFERED: "1"
