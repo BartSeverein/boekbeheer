@@ -1785,7 +1785,7 @@ def find_existing_book_by_isbn(isbn, exclude_id=None):
     """
     Zoekt een al bestaand boek (met een echt, positief id) met dit ISBN — voor de
     dubbele-ISBN-waarschuwing bij het toevoegen van een nieuw boek. Geeft een dict
-    terug ({'id', 'title', 'amount'}) of None.
+    terug ({'id', 'title', 'amount', 'location'}) of None.
     """
     isbn = (isbn or "").strip()
     if not isbn or isbn == "0":
@@ -1795,12 +1795,12 @@ def find_existing_book_by_isbn(isbn, exclude_id=None):
         with conn.cursor() as cur:
             if exclude_id is not None:
                 cur.execute(
-                    "SELECT id, title, amount FROM books WHERE ean = %(isbn)s AND id > 0 AND id != %(exclude)s LIMIT 1",
+                    "SELECT id, title, amount, location FROM books WHERE ean = %(isbn)s AND id > 0 AND id != %(exclude)s LIMIT 1",
                     {"isbn": isbn, "exclude": exclude_id},
                 )
             else:
                 cur.execute(
-                    "SELECT id, title, amount FROM books WHERE ean = %(isbn)s AND id > 0 LIMIT 1",
+                    "SELECT id, title, amount, location FROM books WHERE ean = %(isbn)s AND id > 0 LIMIT 1",
                     {"isbn": isbn},
                 )
             return cur.fetchone()
