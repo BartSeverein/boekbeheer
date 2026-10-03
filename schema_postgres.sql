@@ -26,6 +26,9 @@ CREATE TABLE IF NOT EXISTS books (
     listing_date        TEXT,
     weblink             TEXT,
     main_image_url      TEXT,   -- via og:image van de publieke boekpagina gehaald (aparte achtergrondtaak)
+    length_cm           NUMERIC,  -- afmetingen (Google Books/ISBNdb/Bol, bij invoer bepaald): hoogste waarde = lengte
+    width_cm            NUMERIC,  -- middelste waarde
+    thickness_cm        NUMERIC,  -- laagste waarde (altijd de dunste maat van een boek)
     last_synced_at      TIMESTAMPTZ,
     local_updated_at    TIMESTAMPTZ,
     pending_push        BOOLEAN DEFAULT FALSE,
@@ -174,6 +177,21 @@ CREATE TABLE IF NOT EXISTS book_activity_log (
 CREATE INDEX IF NOT EXISTS idx_book_activity_book_id ON book_activity_log (book_id);
 CREATE INDEX IF NOT EXISTS idx_book_activity_user ON book_activity_log (user_short_name);
 
+-- Zelflerende koppeling tussen het ISBN-uitgeverscijferblok (de 2 tot 7 cijfers na
+-- 97890/97894, variabele lengte per uitgever) en een uitgeversnaam. Wordt gevuld
+-- elke keer dat een uitgever via de normale weg (Boekwinkeltjes/ISBNdb/enz.) wél
+-- gevonden wordt; gebruikt als laatste redmiddel wanneer dat een keer niet lukt.
+-- Eén (prefix, uitgever)-paar per rij, met een teller hoe vaak die combinatie is
+-- gezien — pas bij genoeg herhaling (zie MIN_OBSERVATIONS in de code) vertrouwd.
+CREATE TABLE IF NOT EXISTS isbn_prefix_observations (
+    prefix          TEXT NOT NULL,
+    publisher       TEXT NOT NULL,
+    times_seen      INTEGER DEFAULT 1,
+    last_seen_at    TIMESTAMPTZ DEFAULT now(),
+    PRIMARY KEY (prefix, publisher)
+);
+CREATE INDEX IF NOT EXISTS idx_isbn_prefix_observations_prefix ON isbn_prefix_observations (prefix);
+
 -- Row Level Security (RLS) op elke tabel. Dit blokkeert alleen Supabase's eigen,
 -- in dit project ongebruikte publieke webAPI (PostgREST) — de app zelf praat via
 -- een directe databaseverbinding (SUPABASE_DB_URL) en die omzeilt RLS altijd,
@@ -191,3 +209,4 @@ ALTER TABLE app_settings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE known_publishers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE app_users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE book_activity_log ENABLE ROW LEVEL SECURITY;
+ALTER TABLE isbn_prefix_observations ENABLE ROW LEVEL SECURITY;
