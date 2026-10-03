@@ -316,18 +316,19 @@ else:
 
     st.subheader("Duur van de taken")
     history_frames = []
-    for job in cron_jobs:
-        job_history = get_cron_job_history(job["jobId"])
-        for item in job_history:
-            date_val = item.get("date") or item.get("time")
-            if date_val:
-                history_frames.append(
-                    {
-                        "Taak": job.get("title", "(naamloos)"),
-                        "Moment": dt.datetime.fromtimestamp(date_val, tz=dt.timezone.utc).astimezone(AMSTERDAM_TZ),
-                        "Duur (s)": (item.get("duration") or 0) / 1000,
-                    }
-                )
+    with st.spinner("Geschiedenis per taak ophalen (kan, vanwege cron-job.org's limiet, bij een koude cache circa een minuut duren)..."):
+        for job in cron_jobs:
+            job_history = get_cron_job_history(job["jobId"])
+            for item in job_history:
+                date_val = item.get("date") or item.get("time")
+                if date_val:
+                    history_frames.append(
+                        {
+                            "Taak": job.get("title", "(naamloos)"),
+                            "Moment": dt.datetime.fromtimestamp(date_val, tz=dt.timezone.utc).astimezone(AMSTERDAM_TZ),
+                            "Duur (s)": (item.get("duration") or 0) / 1000,
+                        }
+                    )
     if history_frames:
         history_df = pd.DataFrame(history_frames).sort_values("Moment")
         fig_cron = px.line(
