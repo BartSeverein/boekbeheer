@@ -290,12 +290,12 @@ st.divider()
 
 st.subheader("Geplande taken")
 
-cron_jobs = get_cron_job_status()
+cron_jobs, cron_error = get_cron_job_status()
 if not cron_jobs:
-    st.info(
-        "Geen gegevens van cron-job.org beschikbaar (CRON_JOB_API_KEY niet ingesteld, "
-        "of de opzoeking is mislukt)."
-    )
+    if cron_error:
+        st.info(f"Geen gegevens van cron-job.org beschikbaar: {cron_error}")
+    else:
+        st.info("Geen gegevens van cron-job.org beschikbaar (geen taken gevonden).")
 else:
     CRON_STATUS_LABELS = {0: "Nog niet gedraaid", 1: "✅ Geslaagd", 2: "⚠️ Mislukt (gebruiker)", 3: "⚠️ Mislukt (host)"}
 

@@ -2393,13 +2393,13 @@ CRON_JOB_API_BASE = "https://api.cron-job.org"
 def get_cron_job_status():
     """
     Haalt de lijst van alle cron-job.org-taken op, met per taak: titel, laatste
-    uitvoering (tijdstip, status, duur in ms) en eerstvolgende uitvoering. Geeft
-    een lege lijst terug als CRON_JOB_API_KEY niet is ingesteld of de opzoeking
-    om wat voor reden dan ook mislukt (zodat Home nooit stukloopt hierop).
+    uitvoering (tijdstip, status, duur in ms) en eerstvolgende uitvoering.
+    Geeft (taken, foutmelding) terug — foutmelding is None bij succes, zodat
+    Home kan tonen wat er precies misging in plaats van alleen 'niets gevonden'.
     """
     api_key = _get_secret("CRON_JOB_API_KEY")
     if not api_key:
-        return []
+        return [], "CRON_JOB_API_KEY is niet ingesteld."
     try:
         resp = requests.get(
             f"{CRON_JOB_API_BASE}/jobs",
@@ -2407,10 +2407,10 @@ def get_cron_job_status():
             timeout=15,
         )
         if not resp.ok:
-            return []
-        return resp.json().get("jobs", [])
-    except requests.RequestException:
-        return []
+            return [], f"cron-job.org gaf {resp.status_code} terug: {resp.text[:300]}"
+        return resp.json().get("jobs", []), None
+    except requests.RequestException as e:
+        return [], f"Netwerkfout: {e}"
 
 
 @st.cache_data(ttl=3600)
