@@ -12,6 +12,7 @@ import hashlib
 import io
 import os
 import re
+from zoneinfo import ZoneInfo
 
 import psycopg2
 import requests
@@ -667,7 +668,10 @@ def drip_push_new_books():
         if pending_count == 0:
             return  # lege wachtrij: niets te doen, en geen log nodig om de sync-runs niet vol te proppen
 
-        now = dt.datetime.now()
+        # De ingestelde tijden (lunchpauze, enz.) zijn Nederlandse tijd — dus ook
+        # 'nu' als Nederlandse tijd bepalen, niet als de tijd van de server zelf
+        # (die bij GitHub Actions altijd UTC is, en anders 1-2 uur zou verschillen).
+        now = dt.datetime.now(tz=ZoneInfo("Europe/Amsterdam"))
         now_time = now.time()
         today_str = now.date().isoformat()
 
@@ -694,6 +698,10 @@ def drip_push_new_books():
         last_pushed_s = _get_setting(conn, "bw_drip_last_pushed_at")
         if last_pushed_s:
             last_pushed = dt.datetime.fromisoformat(last_pushed_s)
+            if last_pushed.tzinfo is None:
+                # Afkomstig van vóór deze tijdzone-reparatie (toen was 'nu' nog de
+                # naïeve servertijd, in de praktijk altijd UTC) — als zodanig behandelen.
+                last_pushed = last_pushed.replace(tzinfo=dt.timezone.utc)
             if (now - last_pushed).total_seconds() < interval_minutes * 60:
                 return  # nog te vroeg voor het volgende boek in de rij
 
