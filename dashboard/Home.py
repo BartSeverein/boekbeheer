@@ -27,6 +27,7 @@ from common import (
     format_price,
     format_order_status,
     format_datetime_nl,
+    AMSTERDAM_TZ,
     get_cron_job_status,
     get_cron_job_history,
     format_isbn,
@@ -323,7 +324,7 @@ else:
                 history_frames.append(
                     {
                         "Taak": job.get("title", "(naamloos)"),
-                        "Moment": dt.datetime.fromtimestamp(date_val, tz=dt.timezone.utc),
+                        "Moment": dt.datetime.fromtimestamp(date_val, tz=dt.timezone.utc).astimezone(AMSTERDAM_TZ),
                         "Duur (s)": (item.get("duration") or 0) / 1000,
                     }
                 )
