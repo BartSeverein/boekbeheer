@@ -2381,15 +2381,16 @@ def clean_boekwinkeltjes_title_and_bijz(titel, bijz):
 
 
 # ---------- cron-job.org (overzicht van de 5 geplande taken op Home) ----------
-# Rate limit bij cron-job.org: 1 verzoek/seconde, 5 verzoeken/minuut — vandaar de
-# relatief lange cache-tijd (1 uur — dit hoeft niet super actueel te zijn),
-# zodat herhaaldelijk verversen van Home
-# niet per ongeluk tegen die limiet aanloopt.
+# cron-job.org hanteert een DAGLIMIET van standaard 100 API-verzoeken per dag
+# (niet per minuut) — elke ververing kost hier 6 verzoeken (1 voor de lijst + 5
+# voor de geschiedenis per taak). Vandaar de relatief lange cache-tijd (6 uur —
+# dit hoeft niet super actueel te zijn), zodat regelmatig bezoek aan Home
+# gedurende de dag niet alsnog tegen die daglimiet aanloopt.
 
 CRON_JOB_API_BASE = "https://api.cron-job.org"
 
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=21600)
 def get_cron_job_status():
     """
     Haalt de lijst van alle cron-job.org-taken op, met per taak: titel, laatste
@@ -2413,19 +2414,19 @@ def get_cron_job_status():
         return [], f"Netwerkfout: {e}"
 
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=21600)
 def get_cron_job_history(job_id, limit=20):
     """
     Haalt de laatste uitvoeringen van één cron-job.org-taak op (meest recente
     eerst), voor het duur-grafiekje. Geeft een lege lijst terug bij een
     ontbrekende sleutel of een mislukte opzoeking.
 
-    cron-job.org staat maar 5 verzoeken per minuut toe. Deze functie wordt per
-    taak apart aangeroepen (dus meerdere keren vlak na elkaar bij het laden van
-    Home) — de korte wachttijd hieronder zorgt dat die verzoeken over de tijd
-    uitgespreid worden in plaats van allemaal tegelijk te vuren, anders mislukken
-    de latere verzoeken stilzwijgend en verdwijnt die taak zonder uitleg uit de
-    grafiek. Geldt alleen bij een echte (nog niet gecachete) opzoeking.
+    cron-job.org hanteert vooral een daglimiet (zie hierboven), maar noemt
+    daarnaast dat er ook losse, per-eindpunt snelheidslimieten kunnen gelden.
+    Deze functie wordt per taak apart aangeroepen (dus meerdere keren vlak na
+    elkaar bij het laden van Home) — de korte wachttijd hieronder spreidt die
+    verzoeken voor de zekerheid over de tijd uit. Geldt alleen bij een echte
+    (nog niet gecachete) opzoeking.
     """
     api_key = _get_secret("CRON_JOB_API_KEY")
     if not api_key:
