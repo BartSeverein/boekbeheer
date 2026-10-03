@@ -344,9 +344,9 @@ if isbn_is_valid and st.session_state.get("new_book_prefilled_isbn") != ean:
         st.session_state[k("length_cm")] = length_cm
         st.session_state[k("width_cm")] = width_cm
         st.session_state[k("thickness_cm")] = thickness_cm
-        _, suggested_shipping_cost, _ = determine_busstuk(length_cm, thickness_cm, [3.75, 7.25])
-        if suggested_shipping_cost is not None:
-            st.session_state[k("shipping_bw_choice")] = f"{suggested_shipping_cost:.2f}".replace(".", ",")
+    _, suggested_shipping_cost, _ = determine_busstuk(length_cm, thickness_cm, [3.75, 7.25])
+    if suggested_shipping_cost is not None:
+        st.session_state[k("shipping_bw_choice")] = f"{suggested_shipping_cost:.2f}".replace(".", ",")
 
     st.session_state["new_book_prefilled_isbn"] = ean
     st.rerun()
@@ -373,11 +373,8 @@ with col_a:
 
     busstuk_length_cm = st.session_state.get(k("length_cm"))
     busstuk_thickness_cm = st.session_state.get(k("thickness_cm"))
-    if busstuk_length_cm is not None:
-        _, _, busstuk_message = determine_busstuk(busstuk_length_cm, busstuk_thickness_cm, [3.75, 7.25])
-        st.info(f"**Busstuk?** {busstuk_message}")
-    else:
-        st.caption("**Busstuk?** Onbekend (geen afmetingen gevonden).")
+    _, _, busstuk_message = determine_busstuk(busstuk_length_cm, busstuk_thickness_cm, [3.75, 7.25])
+    st.info(f"**Busstuk?** {busstuk_message}")
 
     SHIPPING_BW_OPTIONS = ["Vrije invoer", "3,75", "7,25"]
     shipping_bw_default = st.session_state.get(k("shipping_bw_choice"), "3,75")
