@@ -25,6 +25,7 @@ from common import (
     save_uploaded_images,
     normalize_isbn,
     find_existing_book_by_isbn,
+    save_book_edits,
 )
 from categories import CATEGORY1_OPTIONS, CATEGORY2_OPTIONS
 
@@ -52,13 +53,22 @@ bulk_duplicates = st.session_state.pop("bulk_import_duplicates", None)
 if bulk_duplicates:
     st.warning(f"{len(bulk_duplicates)} ISBN('s) uit de laatste import stonden al in je database:")
     for isbn, existing in bulk_duplicates:
-        dup_col_info, dup_col_button = st.columns([5, 1])
+        dup_col_info, dup_col_increase, dup_col_button = st.columns([4, 1.3, 1])
         with dup_col_info:
-            st.write(f"ISBN {isbn} — **{existing['title'] or '(geen titel)'}** (voorraad: {existing['amount']})")
+            location_text = f", op {existing['location']}" if existing.get("location") else ""
+            st.write(f"ISBN {isbn} — **{existing['title'] or '(geen titel)'}** (voorraad: {existing['amount']}{location_text})")
+        with dup_col_increase:
+            if st.button("Verhoog voorraad met 1", key=f"bulk_dup_increase_{existing['id']}"):
+                save_book_edits(
+                    existing["id"],
+                    {"amount": (existing["amount"] or 0) + 1},
+                    user_short_name=current_user_short_name(),
+                    previous_values={"amount": existing["amount"]},
+                )
+                load_books.clear()
+                st.success(f"Voorraad verhoogd naar {(existing['amount'] or 0) + 1}.")
         with dup_col_button:
-            if st.button("Ga naar dat boek", key=f"bulk_dup_goto_{existing['id']}"):
-                st.session_state["preselect_book_id"] = existing["id"]
-                st.switch_page("pages/3_Boekdetails.py")
+            st.link_button("Naar boek", f"Boekdetails?book_id={existing['id']}")
 
 default_location_prefill = get_user_last_location(current_user_short_name()) or ""
 loc_col, cat1_col, cat2_col = st.columns(3)

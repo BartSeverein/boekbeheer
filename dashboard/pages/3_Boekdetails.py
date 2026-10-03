@@ -78,6 +78,16 @@ EMPTY_MESSAGES = {
 }
 
 preselect_id = st.session_state.pop("preselect_book_id", None)
+if preselect_id is None:
+    # Vanuit een link die in een nieuw tabblad is geopend (bijv. 'Naar boek' bij
+    # Toevoegen in bulk) is er geen sessiestatus om uit te lezen — dan komt het
+    # boek-id via de URL binnen.
+    book_id_param = st.query_params.get("book_id")
+    if book_id_param:
+        try:
+            preselect_id = int(book_id_param)
+        except ValueError:
+            preselect_id = None
 if preselect_id is not None:
     st.session_state["current_book_id"] = preselect_id
     # Kom je vanaf een andere pagina naar één specifiek boek, zet de weergave dan zo
