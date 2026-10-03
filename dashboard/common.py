@@ -1216,29 +1216,56 @@ def _assign_length_width_thickness(values):
 
 BUSSTUK_LENGTH_LIMIT_CM = 37
 BUSSTUK_THICKNESS_LIMIT_CM = 2.2
+# Grenzen waarbinnen een gevonden afmeting nog geloofwaardig is voor een boek —
+# daarbuiten vertrouwen we de bron niet (bronnen zoals ISBNdb geven afmetingen
+# soms in een niet-standaard of dubbelzinnige vorm, wat tot absurde waarden kan
+# leiden, bijv. een 'boek' van 2 meter lang).
+PLAUSIBLE_LENGTH_RANGE_CM = (5, 45)
+PLAUSIBLE_THICKNESS_RANGE_CM = (0.2, 8)
 
 
 def determine_busstuk(length_cm, thickness_cm, shipping_options_eur):
     """
     Bepaalt of een boek met deze afmetingen als 'busstuk' kan worden verstuurd
-    (in plaats van een pakje), en welke verzendkosten daarbij default zouden
+    (in plaats van een pakket), en welke verzendkosten daarbij default zouden
     moeten zijn. 'shipping_options_eur' is de lijst met numerieke
-    verzendkosten-keuzes waartussen gekozen wordt (bijv. [3.75, 7.25]) — bij
-    'Nee' wordt de hoogste daarvan gekozen, bij 'Ja' de laagste, zodat dit blijft
-    kloppen als die keuzes ooit wijzigen. Geeft (is_busstuk, shipping_cost,
-    toelichtende tekst) terug — alle None als er geen afmetingen bekend zijn.
+    verzendkosten-keuzes waartussen gekozen wordt (bijv. [3.75, 7.25]).
+
+    Zijn er geen afmetingen bekend, of vallen ze buiten wat fysiek geloofwaardig
+    is voor een boek, dan wordt dat niet gegokt: de HOOGSTE verzendkosten worden
+    dan als veilige default gekozen (liever een keer iets te veel in rekening
+    gebracht dan marge verliezen aan te lage verzendkosten). Bij wél
+    geloofwaardige afmetingen: de LAAGSTE kosten bij een busstuk, de hoogste bij
+    een pakket — zo blijft dit kloppen als de keuzes ooit wijzigen.
+
+    Geeft (is_busstuk, shipping_cost, toelichtende tekst) terug. is_busstuk is
+    None als er niets geloofwaardigs bekend is; shipping_cost en de tekst zijn
+    altijd gevuld (zolang shipping_options_eur niet leeg is).
     """
-    if length_cm is None or thickness_cm is None or not shipping_options_eur:
+    if not shipping_options_eur:
         return None, None, None
-    is_too_groot = length_cm > BUSSTUK_LENGTH_LIMIT_CM and thickness_cm > BUSSTUK_THICKNESS_LIMIT_CM
-    is_busstuk = not is_too_groot
+
+    plausible = (
+        length_cm is not None and thickness_cm is not None
+        and PLAUSIBLE_LENGTH_RANGE_CM[0] <= length_cm <= PLAUSIBLE_LENGTH_RANGE_CM[1]
+        and PLAUSIBLE_THICKNESS_RANGE_CM[0] <= thickness_cm <= PLAUSIBLE_THICKNESS_RANGE_CM[1]
+    )
+    if not plausible:
+        message = "Het is onbekend hoe lang en dik het boek is, controleer de gekozen verzendkosten goed."
+        if length_cm is not None and thickness_cm is not None:
+            # Niet zomaar stilzwijgend verwerpen: de genegeerde waarde laten zien,
+            # zodat jij een duidelijk foute waarde ook kunt zien en kunt melden.
+            length_str = f"{length_cm:.1f}".replace(".", ",")
+            thickness_str = f"{thickness_cm:.1f}".replace(".", ",")
+            message += f" (Gevonden maar genegeerd, want niet geloofwaardig voor een boek: {length_str} x {thickness_str} cm.)"
+        return None, max(shipping_options_eur), message
+
+    is_busstuk = not (length_cm > BUSSTUK_LENGTH_LIMIT_CM or thickness_cm > BUSSTUK_THICKNESS_LIMIT_CM)
     shipping_cost = min(shipping_options_eur) if is_busstuk else max(shipping_options_eur)
     length_str = f"{length_cm:.1f}".replace(".", ",")
     thickness_str = f"{thickness_cm:.1f}".replace(".", ",")
-    if is_busstuk:
-        message = f"Ja, het is {length_str} cm lang en {thickness_str} cm dik. Dit is een busstuk."
-    else:
-        message = f"Nee, het is {length_str} cm lang en {thickness_str} cm dik. Dit is een pakje."
+    soort = "busstuk" if is_busstuk else "pakket"
+    message = f"Het boek is waarschijnlijk {length_str} cm lang en {thickness_str} cm dik, dan is het een {soort}."
     return is_busstuk, shipping_cost, message
 
 
@@ -1879,9 +1906,9 @@ def autofill_book_fields_from_isbn(isbn):
         fields["length_cm"] = length_cm
         fields["width_cm"] = width_cm
         fields["thickness_cm"] = thickness_cm
-        _, shipping_cost, _ = determine_busstuk(length_cm, thickness_cm, [3.75, 7.25])
-        if shipping_cost is not None:
-            fields["shipping_cost"] = shipping_cost
+    _, shipping_cost, _ = determine_busstuk(length_cm, thickness_cm, [3.75, 7.25])
+    if shipping_cost is not None:
+        fields["shipping_cost"] = shipping_cost
 
     return fields
 
