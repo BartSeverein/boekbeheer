@@ -48,6 +48,7 @@ from common import (
     info_box,
     find_existing_book_by_isbn,
     save_book_edits,
+    determine_busstuk,
     lookup_bol_competing_offers,
     format_price_dot,
     suggest_bulk_price,
@@ -331,6 +332,22 @@ if isbn_is_valid and st.session_state.get("new_book_prefilled_isbn") != ean:
                         bol_cat1, bol_cat2
                     )
 
+    # Afmetingen: Google Books/ISBNdb (via metadata) hebben voorkeur, anders Bol
+    # als laatste terugval — bepaalt het "Busstuk?"-veld en de voorgestelde
+    # verzendkosten hieronder.
+    length_cm = width_cm = thickness_cm = None
+    if metadata and metadata.get("length_cm"):
+        length_cm, width_cm, thickness_cm = metadata["length_cm"], metadata.get("width_cm"), metadata["thickness_cm"]
+    elif bol_product and bol_product.get("length_cm"):
+        length_cm, width_cm, thickness_cm = bol_product["length_cm"], bol_product.get("width_cm"), bol_product["thickness_cm"]
+    if length_cm is not None:
+        st.session_state[k("length_cm")] = length_cm
+        st.session_state[k("width_cm")] = width_cm
+        st.session_state[k("thickness_cm")] = thickness_cm
+        _, suggested_shipping_cost, _ = determine_busstuk(length_cm, thickness_cm, [3.75, 7.25])
+        if suggested_shipping_cost is not None:
+            st.session_state[k("shipping_bw_choice")] = f"{suggested_shipping_cost:.2f}".replace(".", ",")
+
     st.session_state["new_book_prefilled_isbn"] = ean
     st.rerun()
 
@@ -354,9 +371,21 @@ with col_a:
 
     price = st.number_input("Prijs Boekwinkeltjes (€) *", min_value=0.0, step=0.5, key=k("price"))
 
+    busstuk_length_cm = st.session_state.get(k("length_cm"))
+    busstuk_thickness_cm = st.session_state.get(k("thickness_cm"))
+    if busstuk_length_cm is not None:
+        _, _, busstuk_message = determine_busstuk(busstuk_length_cm, busstuk_thickness_cm, [3.75, 7.25])
+        st.info(f"**Busstuk?** {busstuk_message}")
+    else:
+        st.caption("**Busstuk?** Onbekend (geen afmetingen gevonden).")
+
     SHIPPING_BW_OPTIONS = ["Vrije invoer", "3,75", "7,25"]
+    shipping_bw_default = st.session_state.get(k("shipping_bw_choice"), "3,75")
+    shipping_bw_index = (
+        SHIPPING_BW_OPTIONS.index(shipping_bw_default) if shipping_bw_default in SHIPPING_BW_OPTIONS else 1
+    )
     shipping_bw_choice = st.selectbox(
-        "Verzendkosten Boekwinkeltjes (€)", SHIPPING_BW_OPTIONS, index=1, key=k("shipping_bw_choice")
+        "Verzendkosten Boekwinkeltjes (€)", SHIPPING_BW_OPTIONS, index=shipping_bw_index, key=k("shipping_bw_choice")
     )
     if shipping_bw_choice == "Vrije invoer":
         shipping_cost = st.number_input(
@@ -528,6 +557,9 @@ if st.button(button_label, key="new_book_submit"):
                 "short_description": short_description,
                 "long_description": long_description,
                 "push_enabled": push_enabled_choice == "Push naar Boekwinkeltjes en eventueel Bol",
+                "length_cm": st.session_state.get(k("length_cm")),
+                "width_cm": st.session_state.get(k("width_cm")),
+                "thickness_cm": st.session_state.get(k("thickness_cm")),
             },
             user_short_name=current_user_short_name(),
         )
