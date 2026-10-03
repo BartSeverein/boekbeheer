@@ -32,9 +32,12 @@ def _n(count, singular, plural):
 
 
 def _log(conn, direction, resource, status, detail="", platform="BW"):
-    # GitHub Actions zet GITHUB_EVENT_NAME op 'schedule' bij een geplande run;
-    # bij handmatig starten (of lokaal draaien) is dit iets anders/niet gezet.
-    trigger = "Gepland" if os.environ.get("GITHUB_EVENT_NAME") == "schedule" else "Handmatig"
+    # Timing loopt niet meer via GitHub's eigen 'schedule'-trigger (onbetrouwbaar
+    # gebleken) maar via cron-job.org, dat de workflow aanroept als 'workflow_dispatch'
+    # — hetzelfde event-type als een handmatige klik in de Actions-tab. Om toch
+    # onderscheid te houden, stuurt cron-job.org een extra input 'trigger_source' mee,
+    # die de workflow doorzet als de TRIGGER_SOURCE-omgevingsvariabele.
+    trigger = "Gepland" if os.environ.get("TRIGGER_SOURCE") == "cron-job.org" else "Handmatig"
     with conn.cursor() as cur:
         cur.execute(
             """
