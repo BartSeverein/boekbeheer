@@ -374,7 +374,7 @@ with col_a:
     busstuk_length_cm = st.session_state.get(k("length_cm"))
     busstuk_thickness_cm = st.session_state.get(k("thickness_cm"))
     _, _, busstuk_message = determine_busstuk(busstuk_length_cm, busstuk_thickness_cm, [3.75, 7.25])
-    st.info(f"**Busstuk?** {busstuk_message}")
+    st.info(busstuk_message)
 
     SHIPPING_BW_OPTIONS = ["Vrije invoer", "3,75", "7,25"]
     shipping_bw_default = st.session_state.get(k("shipping_bw_choice"), "3,75")

@@ -33,6 +33,7 @@ from common import (
     delete_book_image,
     lookup_bol_competing_offers,
     format_price_dot,
+    determine_busstuk,
 )
 from categories import CATEGORY1_OPTIONS, CATEGORY2_OPTIONS
 
@@ -475,6 +476,15 @@ else:
                         step=0.5,
                         key=f"{edit_prefix}_price",
                     )
+
+                    if show_logistics:
+                        # Advies busstuk/pakket op basis van de bij invoer opgeslagen afmetingen
+                        # (alleen een advies — de gekozen verzendkosten blijven zoals ze zijn).
+                        # Oudere boeken hebben geen opgeslagen afmetingen: die tonen 'onbekend'.
+                        book_length_cm = float(b["length_cm"]) if pd.notna(b.get("length_cm")) else None
+                        book_thickness_cm = float(b["thickness_cm"]) if pd.notna(b.get("thickness_cm")) else None
+                        _, _, busstuk_message = determine_busstuk(book_length_cm, book_thickness_cm, [3.75, 7.25])
+                        st.info(busstuk_message)
 
                     current_shipping_cost = float(b["shipping_cost"]) if pd.notna(b["shipping_cost"]) else 0.0
                     if show_logistics:
