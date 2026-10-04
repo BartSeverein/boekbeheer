@@ -26,6 +26,7 @@ from common import (
     normalize_isbn,
     find_existing_book_by_isbn,
     save_book_edits,
+    get_shipping_costs,
 )
 from categories import CATEGORY1_OPTIONS, CATEGORY2_OPTIONS
 
@@ -136,7 +137,9 @@ if uploaded_file is not None:
                 cover_content_type = fields.pop("_cover_content_type", None)
                 fields.setdefault("amount", 1)
                 fields.setdefault("price", 0.0)
-                fields.setdefault("shipping_cost", 3.75)
+                # Normaal bepaalt autofill dit al (briefpost/pakketpost); alleen als dat om wat
+                # voor reden niet gelukt is: het hoogste van de twee ingestelde bedragen.
+                fields.setdefault("shipping_cost", max(get_shipping_costs()))
                 fields["location"] = import_location
                 if import_category1 and not fields.get("category1"):
                     fields["category1"] = import_category1

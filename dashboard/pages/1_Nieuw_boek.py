@@ -49,6 +49,9 @@ from common import (
     find_existing_book_by_isbn,
     save_book_edits,
     determine_busstuk,
+    get_shipping_costs,
+    shipping_amount_label,
+    shipping_options_labels,
     lookup_bol_competing_offers,
     format_price_dot,
     suggest_bulk_price,
@@ -113,6 +116,12 @@ if isbn_is_valid:
         with existing_col_button:
             st.link_button("Naar boek", f"Boekdetails?book_id={existing_book['id']}")
 
+
+# De verzendkosten voor briefpost en pakketpost komen uit de instellingen (pagina
+# 'Hulp en instellingen'). Eenmaal per run ophalen, zodat de voorinvulling en de
+# keuzelijst verderop gegarandeerd met dezelfde bedragen werken.
+SHIPPING_BRIEFPOST, SHIPPING_PAKKETPOST = get_shipping_costs()
+SHIPPING_BW_OPTIONS = shipping_options_labels(SHIPPING_BRIEFPOST, SHIPPING_PAKKETPOST)
 
 market_info, market_error = None, None
 bol_count, bol_laagste, bol_hoogste = None, None, None
@@ -214,20 +223,6 @@ if isbn_is_valid and st.session_state.get("new_book_prefilled_isbn") != ean:
                 else:
                     st.session_state[k("publisher_dd")] = NEW_PUBLISHER_SENTINEL
                     st.session_state[k("publisher_new")] = suggested_publisher
-
-    # Boekwinkeltjes heeft niets, maar Bol wel: prijs voorstellen op basis van Bol's
-    # laagste prijs (min €2,25 marge, min de verzendkosten — je eigen keuze hieronder,
-    # of het standaardbedrag €3,75 als je dat nog niet hebt gekozen — en afgerond naar
-    # beneden op ,45 of ,95, met €3,95 als bodem).
-    if bw_shows_nothing and bol_count and bol_count > 0 and bol_laagste and k("price") not in st.session_state:
-        shipping_choice_for_suggestion = st.session_state.get(k("shipping_bw_choice"), "3,75")
-        if shipping_choice_for_suggestion == "Vrije invoer":
-            shipping_for_suggestion = st.session_state.get(k("shipping_bw_free"), 3.75)
-        else:
-            shipping_for_suggestion = float(shipping_choice_for_suggestion.replace(",", "."))
-        suggested_bw_price = suggest_bulk_price(float(bol_laagste) - 2.25 - shipping_for_suggestion)
-        if suggested_bw_price is not None:
-            st.session_state[k("price")] = suggested_bw_price
 
     metadata = external_metadata_preview
     if metadata:
@@ -344,9 +339,19 @@ if isbn_is_valid and st.session_state.get("new_book_prefilled_isbn") != ean:
         st.session_state[k("length_cm")] = length_cm
         st.session_state[k("width_cm")] = width_cm
         st.session_state[k("thickness_cm")] = thickness_cm
-    _, suggested_shipping_cost, _ = determine_busstuk(length_cm, thickness_cm, [3.75, 7.25])
-    if suggested_shipping_cost is not None:
-        st.session_state[k("shipping_bw_choice")] = f"{suggested_shipping_cost:.2f}".replace(".", ",")
+    _, suggested_shipping_cost, _ = determine_busstuk(
+        length_cm, thickness_cm, SHIPPING_BRIEFPOST, SHIPPING_PAKKETPOST
+    )
+    st.session_state[k("shipping_bw_choice")] = shipping_amount_label(suggested_shipping_cost)
+
+    # Boekwinkeltjes heeft niets, maar Bol wel: prijs voorstellen op basis van Bol's
+    # laagste prijs (min €2,25 marge, min de verzendkosten die hierboven bij dit boek
+    # zijn gekozen — briefpost of pakketpost — en afgerond naar beneden op ,45 of
+    # ,95, met €3,95 als bodem). Pas hier, omdat de verzendkosten eerst bekend moeten zijn.
+    if bw_shows_nothing and bol_count and bol_count > 0 and bol_laagste and k("price") not in st.session_state:
+        suggested_bw_price = suggest_bulk_price(float(bol_laagste) - 2.25 - suggested_shipping_cost)
+        if suggested_bw_price is not None:
+            st.session_state[k("price")] = suggested_bw_price
 
     st.session_state["new_book_prefilled_isbn"] = ean
     st.rerun()
@@ -373,14 +378,20 @@ with col_a:
 
     busstuk_length_cm = st.session_state.get(k("length_cm"))
     busstuk_thickness_cm = st.session_state.get(k("thickness_cm"))
-    _, _, busstuk_message = determine_busstuk(busstuk_length_cm, busstuk_thickness_cm, [3.75, 7.25])
+    _, shipping_cost_unknown, busstuk_message = determine_busstuk(
+        busstuk_length_cm, busstuk_thickness_cm, SHIPPING_BRIEFPOST, SHIPPING_PAKKETPOST
+    )
     st.info(busstuk_message)
 
-    SHIPPING_BW_OPTIONS = ["Vrije invoer", "3,75", "7,25"]
-    shipping_bw_default = st.session_state.get(k("shipping_bw_choice"), "3,75")
-    shipping_bw_index = (
-        SHIPPING_BW_OPTIONS.index(shipping_bw_default) if shipping_bw_default in SHIPPING_BW_OPTIONS else 1
-    )
+    # Zonder keuze (bijv. nog geen ISBN ingevuld) gaan we uit van 'onbekend': het hoogste
+    # bedrag, net als het advies hierboven. Staat er nog een oude keuze die niet meer in
+    # de lijst voorkomt (bijv. omdat je de bedragen op 'Hulp en instellingen' hebt gewijzigd
+    # terwijl dit formulier openstond), dan terugvallen daarop in plaats van vast te lopen.
+    shipping_bw_fallback = shipping_amount_label(shipping_cost_unknown)
+    if st.session_state.get(k("shipping_bw_choice"), shipping_bw_fallback) not in SHIPPING_BW_OPTIONS:
+        st.session_state[k("shipping_bw_choice")] = shipping_bw_fallback
+    shipping_bw_default = st.session_state.get(k("shipping_bw_choice"), shipping_bw_fallback)
+    shipping_bw_index = SHIPPING_BW_OPTIONS.index(shipping_bw_default)
     shipping_bw_choice = st.selectbox(
         "Verzendkosten Boekwinkeltjes (€)", SHIPPING_BW_OPTIONS, index=shipping_bw_index, key=k("shipping_bw_choice")
     )

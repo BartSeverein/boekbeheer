@@ -16,6 +16,7 @@ from common import (
     require_login,
     get_setting,
     set_setting,
+    get_shipping_costs,
 )
 
 st.set_page_config(page_title="Hulp en instellingen", page_icon="ℹ️", layout="wide")
@@ -224,3 +225,41 @@ st.caption(
     "keer alsnog aangemaakt. Heeft een dag helemaal geen ingevuld blokje, dan gaat "
     "er die dag niets naar Boekwinkeltjes."
 )
+
+
+# ---------- Verzendkosten Boekwinkeltjes ----------
+
+st.divider()
+st.header("Verzendkosten Boekwinkeltjes")
+st.caption(
+    "De verzendkosten die je klanten betalen. Bij een nieuw boek geeft de app een advies "
+    "(busstuk of pakket) op basis van de afmetingen: bij een busstuk worden de kosten voor "
+    "briefpost voorgesteld, bij een pakket die voor pakketpost, en is het onbekend hoe groot "
+    "het boek is, dan het hoogste van de twee. Past de vervoerder zijn prijzen aan, dan kun je "
+    "dat hier doen. De nieuwe bedragen gelden voor boeken die je vanaf nu invoert; boeken die "
+    "al zijn opgeslagen houden hun eigen verzendkosten."
+)
+
+current_briefpost, current_pakketpost = get_shipping_costs()
+shipping_col1, shipping_col2 = st.columns(2)
+with shipping_col1:
+    shipping_briefpost = st.number_input(
+        "✉️ Briefpost (€)", min_value=0.0, value=current_briefpost, step=0.05, format="%.2f",
+        key="shipping_briefpost",
+    )
+with shipping_col2:
+    shipping_pakketpost = st.number_input(
+        "📦 Pakketpost (€)", min_value=0.0, value=current_pakketpost, step=0.05, format="%.2f",
+        key="shipping_pakketpost",
+    )
+
+if st.button("Opslaan", key="save_shipping_costs"):
+    if shipping_briefpost <= 0 or shipping_pakketpost <= 0:
+        st.error("Niet opgeslagen — vul bij allebei een bedrag in dat groter is dan 0.")
+    else:
+        set_setting("bw_shipping_briefpost", f"{shipping_briefpost:.2f}")
+        set_setting("bw_shipping_pakketpost", f"{shipping_pakketpost:.2f}")
+        get_shipping_costs.clear()  # zodat de andere pagina's meteen met de nieuwe bedragen werken
+        st.success("Opgeslagen.")
+        if shipping_briefpost > shipping_pakketpost:
+            st.warning("Let op: briefpost is nu duurder dan pakketpost. Klopt dat? Zo niet, dan staan ze mogelijk verwisseld.")

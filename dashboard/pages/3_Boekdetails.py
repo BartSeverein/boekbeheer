@@ -34,6 +34,8 @@ from common import (
     lookup_bol_competing_offers,
     format_price_dot,
     determine_busstuk,
+    get_shipping_costs,
+    shipping_options_labels,
 )
 from categories import CATEGORY1_OPTIONS, CATEGORY2_OPTIONS
 
@@ -483,23 +485,35 @@ else:
                         # Oudere boeken hebben geen opgeslagen afmetingen: die tonen 'onbekend'.
                         book_length_cm = float(b["length_cm"]) if pd.notna(b.get("length_cm")) else None
                         book_thickness_cm = float(b["thickness_cm"]) if pd.notna(b.get("thickness_cm")) else None
-                        _, _, busstuk_message = determine_busstuk(book_length_cm, book_thickness_cm, [3.75, 7.25])
+                        shipping_briefpost, shipping_pakketpost = get_shipping_costs()
+                        _, _, busstuk_message = determine_busstuk(
+                            book_length_cm, book_thickness_cm, shipping_briefpost, shipping_pakketpost
+                        )
                         st.info(busstuk_message)
 
                     current_shipping_cost = float(b["shipping_cost"]) if pd.notna(b["shipping_cost"]) else 0.0
                     if show_logistics:
-                        SHIPPING_BW_OPTIONS = ["Vrije invoer", "3,75", "7,25"]
+                        # De keuzelijst volgt de ingestelde bedragen (pagina 'Hulp en instellingen').
+                        # Heeft dit boek een bedrag dat daar niet (meer) bij hoort — bijv. een oud
+                        # tarief — dan staat de keuze op 'Vrije invoer' met het bestaande bedrag
+                        # erin, zodat opslaan het niet ongemerkt verandert.
+                        SHIPPING_BW_OPTIONS = shipping_options_labels(shipping_briefpost, shipping_pakketpost)
                         current_shipping_str = f"{current_shipping_cost:.2f}".replace(".", ",")
                         default_shipping_index = (
                             SHIPPING_BW_OPTIONS.index(current_shipping_str)
                             if current_shipping_str in SHIPPING_BW_OPTIONS
                             else 0
                         )
+                        shipping_bw_key = f"{edit_prefix}_shipping_bw_choice"
+                        if shipping_bw_key in st.session_state and st.session_state[shipping_bw_key] not in SHIPPING_BW_OPTIONS:
+                            # Een eerdere keuze uit een lijst met andere bedragen (de instellingen zijn
+                            # intussen gewijzigd): terug naar de standaard voor dit boek.
+                            st.session_state[shipping_bw_key] = SHIPPING_BW_OPTIONS[default_shipping_index]
                         shipping_bw_choice = st.selectbox(
                             "Verzendkosten Boekwinkeltjes (€)",
                             SHIPPING_BW_OPTIONS,
                             index=default_shipping_index,
-                            key=f"{edit_prefix}_shipping_bw_choice",
+                            key=shipping_bw_key,
                         )
                         edit_shipping_cost_free = st.number_input(
                             "Verzendkosten Boekwinkeltjes - vrij bedrag (alleen gebruikt als je hierboven 'Vrije invoer' kiest)",
