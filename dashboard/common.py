@@ -19,10 +19,12 @@ AMSTERDAM_TZ = ZoneInfo("Europe/Amsterdam")
 
 import base64
 import hashlib
+import json
 import os
 import random
 import re
 import secrets
+import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
 from difflib import SequenceMatcher
@@ -2429,6 +2431,316 @@ def clean_boekwinkeltjes_title_and_bijz(titel, bijz):
         cleaned_bijz = cleaned_bijz.replace("Gebonden", "gebonden")
 
     return cleaned_titel, cleaned_bijz
+
+
+# ---------- Abebooks: laagste prijs, voor boeken die elders niet worden aangeboden ----------
+# LET OP: dit gebruikt een onofficieel adres van de AbeBooks-website (geen
+# gedocumenteerde API) en de robots.txt van die site staat geautomatiseerde
+# toegang niet toe. Het kan dus zonder waarschuwing veranderen of geblokkeerd
+# worden. Daarom is alles hieronder zo gemaakt dat een mislukking nooit de pagina
+# breekt, en dat we het alleen aanroepen als een boek bij Boekwinkeltjes én Bol
+# nergens te koop is (dus zelden), met maximaal één verzoek per ISBN per uur.
+# Er is bewust geen enkele omweg ingebouwd als het geblokkeerd wordt.
+# Het antwoord van Abebooks is niet gedocumenteerd: het lezen ervan (hieronder) is
+# voorzichtig en toont bij twijfel liever niets dan een verkeerd bedrag.
+
+ABEBOOKS_PRICING_URL = "https://www.abebooks.com/servlet/DWRestService/pricingservice"
+
+
+class AbebooksError(Exception):
+    """De opzoeking bij Abebooks is mislukt. 'raw' bevat (een stuk van) wat Abebooks teruggaf, voor diagnose."""
+
+    def __init__(self, message, raw=""):
+        super().__init__(message)
+        self.raw = raw
+
+
+@st.cache_data(ttl=3600)
+def _fetch_abebooks_pricing(isbn13):
+    """
+    Haalt het ruwe prijsantwoord van Abebooks op: één verzoek, met een korte
+    time-out (het bestand waar dit op gebaseerd is heeft er geen, waardoor de
+    pagina kon blijven hangen). Een mislukking geeft een AbebooksError, en die
+    wordt door st.cache_data niet onthouden — een tijdelijke storing blijft dus
+    niet een uur hangen. Een geslaagd antwoord (ook 'geen aanbod') wordt wel een
+    uur onthouden.
+    """
+    payload = {
+        "action": "getPricingDataByISBN",
+        "isbn": isbn13,
+        "container": f"pricingService-{isbn13}",
+    }
+    try:
+        resp = requests.post(
+            ABEBOOKS_PRICING_URL, data=payload, timeout=8,
+            headers={"User-Agent": "Boekbeheer-prijscontrole/1.0"},
+        )
+    except requests.RequestException as e:
+        raise AbebooksError(f"geen verbinding met Abebooks ({type(e).__name__})")
+    if not resp.ok:
+        raise AbebooksError(f"Abebooks antwoordde met HTTP {resp.status_code}", resp.text[:1500])
+    try:
+        return resp.json()
+    except ValueError:
+        raise AbebooksError("Abebooks gaf geen leesbaar (JSON-)antwoord", resp.text[:1500])
+
+
+_ABE_CURRENCY_NAMES = {
+    "USD": "US$", "US$": "US$", "EUR": "€", "€": "€", "GBP": "£", "£": "£", "CAD": "CA$", "AUD": "AU$",
+}
+# Sleutels waar 'price' in zit maar die niet de prijs van een aanbod zijn.
+_ABE_PRICE_EXCLUDE = ("max", "high", "avg", "average", "ship", "post", "tax", "list", "retail", "msrp", "original", "discount", "saving")
+# Sleutels die zelf al zeggen dat het om de laagste prijs gaat.
+_ABE_LOWEST_HINTS = ("min", "low", "from", "best", "cheap", "start")
+# Sleutels die een aantal gevonden boeken aangeven.
+_ABE_COUNT_KEYS = ("count", "bookcount", "totalcount", "totalresults", "numresults", "resultcount", "numberofresults", "itemcount", "numbooks", "totalbooks")
+
+
+def _abebooks_currency(text):
+    """Maakt van een gevonden valuta-aanduiding iets veiligs om te tonen ('US$', '€', ...), of None."""
+    if not isinstance(text, str):
+        return None
+    text = text.strip()
+    if text.upper() in _ABE_CURRENCY_NAMES:
+        return _ABE_CURRENCY_NAMES[text.upper()]
+    if re.fullmatch(r"[A-Za-z$€£]{1,4}", text):  # bv. een onbekende code als 'SEK'; geen vrije tekst doorlaten
+        return text
+    return None
+
+
+_ABE_AMOUNT_RE = re.compile(
+    r"\s*(?P<pre>US\$|CA\$|AU\$|[$€£]|[A-Z]{3})?\s*(?P<num>\d[\d.,]*)\s*(?P<post>US\$|CA\$|AU\$|[$€£]|[A-Z]{3})?\s*"
+)
+
+
+def _abebooks_parse_amount(value):
+    """
+    Geeft (bedrag of None, valuta of None). Begrijpt getallen en teksten die ALLEEN
+    uit een bedrag bestaan, eventueel met een valuta ervoor of erachter: 'US$ 2.40',
+    '2,40', '$2.40', 'EUR 3.10' of '1.234,56'. Staat er nog iets anders in de tekst
+    (andere woorden of cijfers, bijv. 'vanaf 3 verkopers: 2,40'), dan wordt er
+    bewust niets gelezen: liever geen bedrag dan het verkeerde cijfer pakken.
+    Een bedrag van 0 of lager telt niet.
+    """
+    if isinstance(value, bool):
+        return None, None
+    if isinstance(value, (int, float)):
+        return (float(value), None) if value > 0 else (None, None)
+    if not isinstance(value, str):
+        return None, None
+    match = _ABE_AMOUNT_RE.fullmatch(value)
+    if not match:
+        return None, None
+    number = match.group("num").rstrip(".,")
+    if "." in number and "," in number:
+        decimal_sep = "." if number.rfind(".") > number.rfind(",") else ","
+        thousands_sep = "," if decimal_sep == "." else "."
+        number = number.replace(thousands_sep, "").replace(decimal_sep, ".")
+    else:
+        sep = "." if "." in number else ("," if "," in number else None)
+        if sep:
+            parts = number.split(sep)
+            if len(parts) > 2 or len(parts[-1]) == 3:  # meerdere scheidingstekens, of 3 cijfers erachter: duizendtallen
+                number = "".join(parts)
+            else:
+                number = parts[0] + "." + parts[1]
+    try:
+        amount = float(number)
+    except ValueError:
+        return None, None
+    if not 0 < amount < 100000:
+        return None, None
+    return amount, _abebooks_currency(match.group("pre") or match.group("post"))
+
+
+def _abebooks_walk(node, key="", path=""):
+    """Geeft van alle 'bladeren' in het antwoord (pad, laatste sleutel, waarde)."""
+    if isinstance(node, dict):
+        for child_key, child in node.items():
+            yield from _abebooks_walk(child, str(child_key), f"{path}.{child_key}" if path else str(child_key))
+    elif isinstance(node, list):
+        for index, child in enumerate(node):
+            yield from _abebooks_walk(child, key, f"{path}[{index}]")
+    else:
+        yield path, key, node
+
+
+def parse_abebooks_pricing(data):
+    """
+    Leest het ruwe antwoord van Abebooks. Geeft (status, bedrag, valuta, bron):
+      'price'      - laagste bedrag gevonden; 'bron' is het veld waar het uit kwam
+      'none'       - er is duidelijk geen aanbod (een aantal van 0, of een lege prijs)
+      'unreadable' - niets herkenbaars; liever niets tonen dan raden
+    Eerst telt wat al in de sleutel zegt dat het de laagste prijs is (minPrice,
+    lowestPrice, ...); anders de laagste van de overige prijsvelden. Maximum-,
+    verzend-, gemiddelde- en adviesprijzen tellen niet mee.
+    """
+    leaves = list(_abebooks_walk(data))
+
+    currency_hint = None
+    for _, key, value in leaves:
+        if "currency" in key.lower() and isinstance(value, str) and currency_hint is None:
+            currency_hint = _abebooks_currency(value)
+
+    candidates = []  # (bedrag, valuta, pad, sleutel)
+    empty_price_seen = False
+    for path, key, value in leaves:
+        lowered = key.lower()
+        if "price" not in lowered or any(word in lowered for word in _ABE_PRICE_EXCLUDE):
+            continue
+        amount, currency = _abebooks_parse_amount(value)
+        if amount is not None:
+            candidates.append((amount, currency, path, lowered))
+        elif value is None or (isinstance(value, str) and value.strip() in ("", "0", "0.00", "0,00")) or value == 0:
+            empty_price_seen = True
+
+    if candidates:
+        hinted = [c for c in candidates if any(hint in c[3] for hint in _ABE_LOWEST_HINTS)]
+        amount, currency, path, _ = min(hinted or candidates, key=lambda c: c[0])
+        return "price", amount, currency or currency_hint, path
+
+    zero_count_seen = any(
+        key.lower() in _ABE_COUNT_KEYS and str(value).strip() == "0" for _, key, value in leaves
+    )
+    if zero_count_seen or empty_price_seen:
+        return "none", None, None, None
+    return "unreadable", None, None, None
+
+
+# --- Omrekenen naar euro: de dagelijkse referentiekoersen van de Europese Centrale Bank ---
+# Officiële bron, gratis en zonder sleutel, bedoeld voor machines. Gepubliceerd rond
+# 16:00 op elke werkdag, voor circa 30 valuta (USD, GBP, CAD, AUD, ...), als het aantal
+# eenheden vreemde valuta per 1 euro. Het is een referentiekoers: je werkelijke
+# omrekenkosten (bank, creditcard) liggen er altijd net even anders — vandaar '±'.
+
+ECB_RATES_URL = "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml"
+_ECB_NS = "{http://www.ecb.int/vocabulary/2002-08-01/eurofxref}"
+# Hoe een valuta in ons vakje getoond wordt -> ISO-code bij de ECB. Een kaal '$' is
+# bewust niet opgenomen: dat kan een Amerikaanse, Canadese of Australische dollar
+# zijn, en dan rekenen we liever niet om dan met de verkeerde.
+_CURRENCY_DISPLAY_TO_ISO = {"US$": "USD", "£": "GBP", "CA$": "CAD", "AU$": "AUD", "€": "EUR"}
+
+
+class ExchangeRateError(Exception):
+    """De wisselkoersen konden niet worden opgehaald of gelezen."""
+
+
+def parse_ecb_rates(xml_bytes):
+    """
+    Leest de ECB-feed. Geeft ({ISO-code: aantal per 1 euro}, datum als 'jjjj-mm-dd').
+    Weigert alles wat niet klopt (geen koersen, onleesbaar, of een bestand met
+    DTD/entiteiten, dat hoort er niet in en is een bekende manier om een
+    XML-lezer te misbruiken) in plaats van door te gaan met half werk.
+    """
+    if b"<!DOCTYPE" in xml_bytes.upper() or b"<!ENTITY" in xml_bytes.upper():
+        raise ExchangeRateError("onverwachte inhoud in het koersbestand")
+    try:
+        root = ET.fromstring(xml_bytes)
+    except ET.ParseError as e:
+        raise ExchangeRateError(f"koersbestand niet te lezen ({e})")
+    rates, rate_date = {}, None
+    for cube in root.iter(_ECB_NS + "Cube"):
+        if "time" in cube.attrib:
+            rate_date = cube.attrib["time"]
+        if "currency" in cube.attrib and "rate" in cube.attrib:
+            try:
+                rate = float(cube.attrib["rate"])
+            except ValueError:
+                continue
+            if rate > 0:
+                rates[cube.attrib["currency"]] = rate
+    if not rates:
+        raise ExchangeRateError("geen koersen in het bestand")
+    if not (isinstance(rate_date, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", rate_date)):
+        rate_date = "onbekende datum"
+    return rates, rate_date
+
+
+@st.cache_data(ttl=21600)
+def _fetch_ecb_rates():
+    """Haalt de koersen op (maximaal eens per 6 uur). Een mislukking wordt niet onthouden."""
+    try:
+        resp = requests.get(ECB_RATES_URL, timeout=8)
+        resp.raise_for_status()
+    except requests.HTTPError as e:
+        status = e.response.status_code if e.response is not None else "onbekend"
+        raise ExchangeRateError(f"de ECB antwoordde met een foutmelding (HTTP {status})")
+    except requests.RequestException as e:
+        raise ExchangeRateError(f"geen verbinding met de ECB ({type(e).__name__})")
+    return parse_ecb_rates(resp.content)
+
+
+def convert_to_eur(amount, display_currency):
+    """
+    Rekent een bedrag in 'display_currency' (zoals getoond: 'US$', '£', 'CA$', 'SEK', ...)
+    om naar euro. Geeft (bedrag in euro of None, toelichting). De toelichting zegt welke
+    koers is gebruikt, of waarom er niet is omgerekend; die is bedoeld voor de
+    technische details, niet voor het vakje zelf.
+    """
+    iso = _CURRENCY_DISPLAY_TO_ISO.get(display_currency)
+    if iso is None and isinstance(display_currency, str) and re.fullmatch(r"[A-Z]{3}", display_currency):
+        iso = display_currency  # een ISO-code als 'SEK'; de ECB publiceert er circa 30
+    if iso is None:
+        return None, f"'{display_currency}' is niet eenduidig genoeg om om te rekenen"
+    if iso == "EUR":
+        return None, "het bedrag staat al in euro"
+    try:
+        rates, rate_date = _fetch_ecb_rates()
+    except ExchangeRateError as e:
+        return None, f"omrekenen naar euro lukte niet: {e}"
+    rate = rates.get(iso)
+    if rate is None:
+        return None, f"de ECB publiceert geen koers voor {iso}"
+    rate_text = f"{rate:.4f}".rstrip("0").rstrip(".").replace(".", ",")
+    return round(amount / rate, 2), f"1 euro = {rate_text} {iso} (referentiekoers van de ECB, {rate_date})"
+
+
+def lookup_abebooks_lowest_price(isbn):
+    """
+    Zoekt het laagste bedrag voor dit ISBN bij Abebooks. Geeft altijd een dict
+    terug (nooit een uitzondering), met 'status' ('price', 'none', 'unreadable' of
+    'error'), 'amount', 'currency', 'source' (uit welk veld het bedrag kwam),
+    'message' (bij 'error') en 'raw' (wat Abebooks teruggaf, voor controle), plus
+    'amount_eur' (het omgerekende bedrag in euro, of None) en 'rate_note' (welke
+    koers is gebruikt, of waarom er niet is omgerekend). Alle velden zijn altijd aanwezig.
+    """
+    result = {
+        "status": "error", "amount": None, "currency": None, "source": None, "message": None, "raw": "",
+        "amount_eur": None, "rate_note": None,
+    }
+    isbn13 = re.sub(r"\D", "", normalize_isbn(isbn) or "")
+    if len(isbn13) != 13:
+        result["message"] = "geen geldig ISBN om op te zoeken"
+        return result
+    try:
+        data = _fetch_abebooks_pricing(isbn13)
+    except AbebooksError as e:
+        result["message"] = str(e)
+        result["raw"] = e.raw
+        return result
+    result["raw"] = json.dumps(data, ensure_ascii=False, indent=1)[:2000]
+    status, amount, currency, source = parse_abebooks_pricing(data)
+    result.update(status=status, amount=amount, currency=currency, source=source)
+    if status == "unreadable":
+        result["message"] = "het antwoord van Abebooks bevat niets wat de app herkent"
+    if status == "price" and currency:
+        result["amount_eur"], result["rate_note"] = convert_to_eur(amount, currency)
+    return result
+
+
+def abebooks_box_line(result):
+    """De regel voor het blauwe vakje, bijv. 'Op Abebooks is het laagste bedrag US$ 2,40'."""
+    if result["status"] == "price":
+        amount_text = f"{result['amount']:.2f}".replace(".", ",")
+        if result["currency"]:
+            line = f"Op Abebooks is het laagste bedrag {result['currency']} {amount_text}"
+            if result.get("amount_eur") is not None:
+                line += f" (± € {result['amount_eur']:.2f})".replace(".", ",")
+            return line
+        return f"Op Abebooks is het laagste bedrag {amount_text} (valuta onbekend)"
+    if result["status"] == "none":
+        return "Ook op Abebooks wordt dit boek momenteel niet aangeboden."
+    return "Abebooks kon niet worden geraadpleegd (zie de technische details hieronder)."
 
 
 # ---------- cron-job.org (overzicht van de 5 geplande taken op Home) ----------
