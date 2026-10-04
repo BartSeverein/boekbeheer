@@ -1258,7 +1258,7 @@ def determine_busstuk(length_cm, thickness_cm, shipping_options_eur):
             # zodat jij een duidelijk foute waarde ook kunt zien en kunt melden.
             length_str = f"{length_cm:.1f}".replace(".", ",")
             thickness_str = f"{thickness_cm:.1f}".replace(".", ",")
-            message += f" (Gevonden maar genegeerd, want niet geloofwaardig voor een boek: {length_str} x {thickness_str} cm.)"
+            message += f" (Gevonden maar genegeerd, want niet geloofwaardig: {length_str} cm lang x {thickness_str} cm dik.)"
         return None, max(shipping_options_eur), message
 
     is_busstuk = not (length_cm > BUSSTUK_LENGTH_LIMIT_CM or thickness_cm > BUSSTUK_THICKNESS_LIMIT_CM)
