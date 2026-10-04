@@ -52,6 +52,8 @@ from common import (
     get_shipping_costs,
     shipping_amount_label,
     shipping_options_labels,
+    lookup_abebooks_lowest_price,
+    abebooks_box_line,
     lookup_bol_competing_offers,
     format_price_dot,
     suggest_bulk_price,
@@ -143,8 +145,10 @@ NEW_PUBLISHER_SENTINEL = "➕ Nieuwe uitgever invoeren..."
 
 box_lines = []
 bw_shows_nothing = False
+bw_no_offers = False  # Boekwinkeltjes heeft nu niets te koop (ook als het boek ooit wel is verkocht)
 if market_info:
     active = market_info.get("activeAmount") or 0
+    bw_no_offers = active == 0
     if active > 0:
         msg = (
             f"Dit boek wordt momenteel {active} keer aangeboden op Boekwinkeltjes "
@@ -178,7 +182,19 @@ if bol_count is not None:
             f"€{format_price_dot(bol_laagste)} t/m €{format_price_dot(bol_hoogste)}."
         )
     else:
-        box_lines.append("Bij Bol wordt dit boek momenteel niet aangeboden.")
+        box_lines.append(
+            "Ook bij Bol wordt dit boek momenteel niet aangeboden."
+            if bw_no_offers
+            else "Bij Bol wordt dit boek momenteel niet aangeboden."
+        )
+
+# Is het boek bij zowel Boekwinkeltjes als Bol nergens te koop? Dan als hulpmiddel de laagste
+# prijs bij Abebooks erbij (anders ga je daar buiten de app handmatig kijken). Alleen dan
+# wordt Abebooks aangeroepen — zie de toelichting bij lookup_abebooks_lowest_price in common.py.
+abebooks_result = None
+if isbn_is_valid and bw_no_offers and bol_count == 0:
+    abebooks_result = lookup_abebooks_lowest_price(isbn_clean)
+    box_lines.append(abebooks_box_line(abebooks_result))
 
 if isbn_is_valid:
     bol_url = f"https://www.bol.com/nl/nl/s/?searchtext={isbn_clean}"
@@ -190,6 +206,21 @@ if isbn_is_valid:
             st.link_button("Open op Bol", bol_url, width="stretch")
     else:
         st.link_button("Open op Bol", bol_url)
+
+if abebooks_result:
+    with st.expander("Technische details van de Abebooks-opzoeking"):
+        st.caption(
+            "Wat Abebooks teruggaf. Handig om te controleren of het bedrag klopt, of om door te geven "
+            "als er iets niet goed gelezen wordt."
+        )
+        if abebooks_result["status"] == "price":
+            st.write("Bedrag gelezen uit het veld:")
+            st.code(abebooks_result["source"] or "(onbekend)", language=None)
+            if abebooks_result.get("rate_note"):
+                st.write(f"Omrekening naar euro: {abebooks_result['rate_note']}.")
+        elif abebooks_result["message"]:
+            st.write(f"Melding: {abebooks_result['message']}.")
+        st.code(abebooks_result["raw"] or "(geen antwoord ontvangen)", language="json")
 
 # Titel/Auteur/Taal/Bijzonderheden/Uitgever (marktinfo + ISBNdb) en omslagfoto/
 # beschrijving als uitgangswaarde voorinvullen — maar alleen de eerste keer voor
