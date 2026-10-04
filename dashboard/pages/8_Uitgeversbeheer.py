@@ -37,7 +37,7 @@ df = pd.DataFrame({"Uitgever": known_publishers})
 edited_df = st.data_editor(
     df,
     num_rows="dynamic",
-    use_container_width=True,
+    width="stretch",
     key="publishers_editor",
     column_config={
         "Uitgever": st.column_config.TextColumn("Uitgever", width="large"),

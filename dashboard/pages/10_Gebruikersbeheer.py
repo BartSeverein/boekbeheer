@@ -77,7 +77,7 @@ if users:
             "Boeken aangepast",
         ]
     ]
-    st.dataframe(df, use_container_width=True)
+    st.dataframe(df, width="stretch")
 else:
     st.info("Nog geen gebruikers aangemaakt.")
 

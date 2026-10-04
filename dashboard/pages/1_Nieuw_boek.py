@@ -187,7 +187,7 @@ if isbn_is_valid:
         with box_col:
             info_box("<br>".join(box_lines))
         with bol_col:
-            st.link_button("Open op Bol", bol_url, use_container_width=True)
+            st.link_button("Open op Bol", bol_url, width="stretch")
     else:
         st.link_button("Open op Bol", bol_url)
 

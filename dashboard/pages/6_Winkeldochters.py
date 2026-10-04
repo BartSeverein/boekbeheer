@@ -111,7 +111,7 @@ else:
     df = pd.DataFrame(rows)
     event = st.dataframe(
         df.drop(columns=["id"]),
-        use_container_width=True,
+        width="stretch",
         on_select="rerun",
         selection_mode="single-row",
         key="winkeldochters_table",

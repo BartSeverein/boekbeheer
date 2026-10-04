@@ -89,7 +89,7 @@ df = pd.DataFrame(rows)[["label", "subjects_display"]].rename(
 
 edited_df = st.data_editor(
     df,
-    use_container_width=True,
+    width="stretch",
     num_rows="fixed",
     key="category_mapping_editor",
     column_config={

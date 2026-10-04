@@ -29,7 +29,7 @@ st.title("ℹ️ Hulp en instellingen")
 st.subheader("Architectuur")
 architecture_path = Path(__file__).parent.parent / "assets" / "Architectuur.png"
 if architecture_path.exists():
-    st.image(str(architecture_path), use_container_width=True)
+    st.image(str(architecture_path), width="stretch")
 else:
     st.info("Architectuur.png is nog niet gevonden in de assets-map.")
 
@@ -182,7 +182,7 @@ edited_grid = st.data_editor(
     hide_index=True,
     num_rows="fixed",
     disabled=["Dag"],
-    use_container_width=True,
+    width="stretch",
     column_config={
         "Dag": st.column_config.TextColumn("Dag", width="small"),
         **{
