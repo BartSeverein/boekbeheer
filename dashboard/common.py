@@ -1252,7 +1252,7 @@ def determine_busstuk(length_cm, thickness_cm, shipping_options_eur):
         and PLAUSIBLE_THICKNESS_RANGE_CM[0] <= thickness_cm <= PLAUSIBLE_THICKNESS_RANGE_CM[1]
     )
     if not plausible:
-        message = "Het is onbekend hoe lang en dik het boek is, controleer de gekozen verzendkosten goed."
+        message = "⚠️ Het is onbekend hoe lang en dik het boek is, controleer de gekozen verzendkosten goed."
         if length_cm is not None and thickness_cm is not None:
             # Niet zomaar stilzwijgend verwerpen: de genegeerde waarde laten zien,
             # zodat jij een duidelijk foute waarde ook kunt zien en kunt melden.
@@ -1266,7 +1266,8 @@ def determine_busstuk(length_cm, thickness_cm, shipping_options_eur):
     length_str = f"{length_cm:.1f}".replace(".", ",")
     thickness_str = f"{thickness_cm:.1f}".replace(".", ",")
     soort = "busstuk" if is_busstuk else "pakket"
-    message = f"Het boek is waarschijnlijk {length_str} cm lang en {thickness_str} cm dik, dan is het een {soort}."
+    emoji = "✉️" if is_busstuk else "📦"
+    message = f"{emoji} Het boek is waarschijnlijk {length_str} cm lang en {thickness_str} cm dik, dan is het een {soort}."
     return is_busstuk, shipping_cost, message
 
 
