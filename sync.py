@@ -10,6 +10,7 @@ import datetime as dt
 import csv
 import hashlib
 import io
+import json
 import os
 import re
 from zoneinfo import ZoneInfo
@@ -600,6 +601,12 @@ def push_new_books():
 # instellingen staan in app_settings, en zijn aan te passen op de pagina
 # 'Hulp en instellingen'. Geldt uitsluitend voor Boekwinkeltjes — Bol kent dit
 # 'nieuw toegevoegd'-mechanisme niet en blijft altijd direct synchroniseren.
+#
+# De drukke perioden zijn per dag van de week in te stellen (het weekend is
+# vaak anders dan doordeweeks), en elk blokje mag leeg blijven. Dat schema
+# staat als JSON onder 'bw_drip_schedule'. De oude, losse instellingen
+# (bw_drip_lunch_start enz., voor elke dag hetzelfde) gelden alleen nog als
+# terugval zolang er nog geen schema is opgeslagen.
 
 DRIP_SETTING_DEFAULTS = {
     "bw_drip_interval_minutes": "8",
@@ -636,38 +643,73 @@ def _parse_hhmm(text):
     return dt.time(int(hours), int(minutes))
 
 
-def _drip_windows(conn):
-    """Geeft de drie ingestelde (start, eind)-tijden terug, als dt.time-objecten."""
+DRIP_DAY_KEYS = ["ma", "di", "wo", "do", "vr", "za", "zo"]  # positie = datetime.weekday()
+DRIP_WINDOW_KEYS = ["lunch", "endwork", "evening"]
+
+
+def _drip_schedule_raw(conn):
+    """
+    Het druppelschema als {dag: {periode: [van, tot] of None}}. Staat als JSON
+    onder 'bw_drip_schedule' (bewaard vanuit het dashboard). Is dat er nog niet,
+    of is het onleesbaar, dan wordt het afgeleid van de oude losse instellingen
+    — dezelfde tijden voor elke dag — zodat alles blijft werken zoals het was.
+    """
+    raw = _get_setting(conn, "bw_drip_schedule")
+    if raw:
+        try:
+            data = json.loads(raw)
+            if isinstance(data, dict):
+                return data
+        except ValueError:
+            pass
+    legacy = {}
+    for window in DRIP_WINDOW_KEYS:
+        legacy[window] = [
+            _get_setting(conn, f"bw_drip_{window}_start", DRIP_SETTING_DEFAULTS[f"bw_drip_{window}_start"]),
+            _get_setting(conn, f"bw_drip_{window}_end", DRIP_SETTING_DEFAULTS[f"bw_drip_{window}_end"]),
+        ]
+    return {day: {window: list(pair) for window, pair in legacy.items()} for day in DRIP_DAY_KEYS}
+
+
+def _drip_windows_for_day(conn, weekday):
+    """
+    De (start, eind)-perioden (als dt.time) waarin het op deze weekdag
+    (0 = maandag) mag druppelen. Een leeg, onvolledig of ongeldig blokje telt
+    niet mee; een dag zonder enig blokje geeft een lege lijst (dan gebeurt er
+    die dag niets).
+    """
+    day = _drip_schedule_raw(conn).get(DRIP_DAY_KEYS[weekday])
+    if not isinstance(day, dict):
+        return []
     windows = []
-    for start_key, end_key in [
-        ("bw_drip_lunch_start", "bw_drip_lunch_end"),
-        ("bw_drip_endwork_start", "bw_drip_endwork_end"),
-        ("bw_drip_evening_start", "bw_drip_evening_end"),
-    ]:
-        start_s = _get_setting(conn, start_key, DRIP_SETTING_DEFAULTS[start_key])
-        end_s = _get_setting(conn, end_key, DRIP_SETTING_DEFAULTS[end_key])
-        windows.append((_parse_hhmm(start_s), _parse_hhmm(end_s)))
+    for window in DRIP_WINDOW_KEYS:
+        pair = day.get(window)
+        if not isinstance(pair, (list, tuple)) or len(pair) != 2 or not pair[0] or not pair[1]:
+            continue
+        try:
+            start, end = _parse_hhmm(pair[0]), _parse_hhmm(pair[1])
+        except (ValueError, AttributeError, TypeError):
+            continue
+        if start < end:
+            windows.append((start, end))
     return windows
 
 
 def drip_push_new_books():
     """
     Druppelt nieuwe, via de app aangemaakte boeken één voor één naar Boekwinkeltjes
-    — alleen tijdens de ingestelde drukke bezoekperioden, met het ingestelde
-    interval ertussen. Buiten die perioden gebeurt er niets, BEHALVE: is de
-    avondperiode net afgelopen en staan er nog boeken te wachten, dan gaan die
-    alsnog in één keer de deur uit (zodat een boek nooit een hele dag blijft
-    liggen). Bedoeld om vaak te draaien (bijv. elke 5 minuten).
+    — alleen tijdens de voor VANDAAG (dag van de week) ingestelde drukke
+    bezoekperioden, met het ingestelde interval ertussen. Buiten die perioden
+    gebeurt er niets, BEHALVE: is het laatste blokje van vandaag net voorbij en
+    staan er nog boeken te wachten, dan gaan die alsnog in één keer de deur uit
+    (zodat een boek nooit een hele dag blijft liggen). Dat gebeurt maximaal één
+    keer per dag, ook als de wachtrij op dat moment leeg was — een boek dat pas
+    daarna binnenkomt wacht gewoon op het eerstvolgende blokje. Een dag zonder
+    enig ingevuld blokje: dan gebeurt er die dag niets. Bedoeld om vaak te
+    draaien (bijv. elke 5 minuten).
     """
     conn = get_connection()
     try:
-        with conn.cursor() as cur:
-            cur.execute("SELECT COUNT(*) AS n FROM books WHERE pending_create = TRUE AND push_enabled = TRUE")
-            pending_count = cur.fetchone()["n"]
-
-        if pending_count == 0:
-            return  # lege wachtrij: niets te doen, en geen log nodig om de sync-runs niet vol te proppen
-
         # De ingestelde tijden (lunchpauze, enz.) zijn Nederlandse tijd — dus ook
         # 'nu' als Nederlandse tijd bepalen, niet als de tijd van de server zelf
         # (die bij GitHub Actions altijd UTC is, en anders 1-2 uur zou verschillen).
@@ -675,22 +717,31 @@ def drip_push_new_books():
         now_time = now.time()
         today_str = now.date().isoformat()
 
-        evening_end_s = _get_setting(conn, "bw_drip_evening_end", DRIP_SETTING_DEFAULTS["bw_drip_evening_end"])
-        evening_end_t = _parse_hhmm(evening_end_s)
+        windows_today = _drip_windows_for_day(conn, now.weekday())
+        if not windows_today:
+            return  # vandaag mag er niet gedruppeld worden
 
-        if now_time >= evening_end_t:
-            # Noodgreep: na de avondperiode blijft er nooit iets onnodig liggen.
-            # Maximaal één keer per dag, zodat een boek dat 's nachts binnenkomt
-            # gewoon op de volgende drukke periode wacht in plaats van meteen weg te gaan.
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) AS n FROM books WHERE pending_create = TRUE AND push_enabled = TRUE")
+            pending_count = cur.fetchone()["n"]
+
+        if now_time > max(end for _, end in windows_today):
+            # Noodgreep: na het laatste blokje van vandaag blijft er nooit iets
+            # onnodig liggen. Maximaal één keer per dag — en dat ook vastleggen als
+            # er niets te doen was, zodat een boek dat 's avonds laat of 's nachts
+            # binnenkomt op het eerstvolgende blokje wacht in plaats van meteen weg te gaan.
             if _get_setting(conn, "bw_drip_last_flush_date") == today_str:
                 return
-            n = push_new_books()  # opent/sluit zijn eigen verbinding en logt zelf
+            if pending_count > 0:
+                push_new_books()  # opent/sluit zijn eigen verbinding en logt zelf
             _set_setting(conn, "bw_drip_last_flush_date", today_str)
             return
 
-        in_window = any(start <= now_time <= end for start, end in _drip_windows(conn))
-        if not in_window:
-            return  # buiten alle drukke perioden: wachten tot de volgende
+        if pending_count == 0:
+            return  # lege wachtrij: niets te doen, en geen log nodig om de sync-runs niet vol te proppen
+
+        if not any(start <= now_time <= end for start, end in windows_today):
+            return  # buiten alle blokjes van vandaag: wachten tot het volgende
 
         interval_minutes = int(
             _get_setting(conn, "bw_drip_interval_minutes", DRIP_SETTING_DEFAULTS["bw_drip_interval_minutes"])
