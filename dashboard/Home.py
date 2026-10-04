@@ -202,7 +202,7 @@ with books_tab:
         )
         event = st.dataframe(
             books_display,
-            use_container_width=True,
+            width="stretch",
             on_select="rerun",
             selection_mode="single-row",
             key="books_overview_table",
@@ -217,7 +217,7 @@ with books_tab:
 
 with orders_tab:
     if orders.empty:
-        st.dataframe(orders, use_container_width=True)
+        st.dataframe(orders, width="stretch")
     else:
         orders_sorted = orders.sort_values(
             "order_date", ascending=False, na_position="last"
@@ -249,7 +249,7 @@ with orders_tab:
         )
         event = st.dataframe(
             orders_display,
-            use_container_width=True,
+            width="stretch",
             on_select="rerun",
             selection_mode="single-row",
             key="orders_overview_table",
@@ -282,7 +282,7 @@ with sync_tab:
         }
     )
     log = log[["ID", "Datum en tijd", "Met", "Type", "Richting", "Bron", "Status", "Details"]]
-    st.dataframe(log, use_container_width=True)
+    st.dataframe(log, width="stretch")
 
 st.divider()
 
@@ -312,7 +312,7 @@ else:
                 "Volgende run": format_datetime_nl(dt.datetime.fromtimestamp(next_exec, tz=dt.timezone.utc)) if next_exec else "–",
             }
         )
-    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+    st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
 
     st.subheader("Duur van de taken")
     history_frames = []
@@ -335,7 +335,7 @@ else:
             history_df, x="Moment", y="Duur (s)", color="Taak", markers=True,
             labels={"Duur (s)": "Duur (seconden)"},
         )
-        st.plotly_chart(fig_cron, use_container_width=True)
+        st.plotly_chart(fig_cron, width="stretch")
     else:
         st.caption("Nog geen uitvoeringsgeschiedenis beschikbaar.")
 
@@ -352,7 +352,7 @@ with left1:
         status_counts = orders_bw["status"].map(format_order_status).value_counts().reset_index()
         status_counts.columns = ["status", "aantal"]
         fig = px.pie(status_counts, names="status", values="aantal")
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
     else:
         st.info("Nog geen orders om te tonen.")
 
@@ -363,7 +363,7 @@ with right1:
         rick_counts = is_rick.map({True: "Van Rick", False: "Niet van Rick"}).value_counts().reset_index()
         rick_counts.columns = ["wie", "aantal boeken"]
         fig = px.pie(rick_counts, names="wie", values="aantal boeken")
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
         st.caption("Gebaseerd op een 'r' (hoofd- of kleine letter) in het locatieveld.")
     else:
         st.info("Nog geen boeken om te tonen.")
@@ -383,7 +383,7 @@ if not books.empty:
     cat_counts = combined_category.fillna("onbekend").value_counts().head(20).reset_index()
     cat_counts.columns = ["categorie", "aantal titels"]
     fig = px.bar(cat_counts, x="categorie", y="aantal titels")
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 else:
     st.info("Nog geen boeken om te tonen.")
 
@@ -400,7 +400,7 @@ with left2:
         pub_counts = pub_series[pub_series != ""].value_counts().head(20).reset_index()
         pub_counts.columns = ["uitgever", "aantal boeken"]
         fig = px.bar(pub_counts, x="uitgever", y="aantal boeken")
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
     else:
         st.info("Nog geen boeken om te tonen.")
 
@@ -415,4 +415,4 @@ with right2:
         title=f"Databaseopslag: {db_used_pct:.1f}% van {DB_LIMIT_MB:.0f} MB",
         hole=0.4,
     )
-    st.plotly_chart(fig_db, use_container_width=True)
+    st.plotly_chart(fig_db, width="stretch")
