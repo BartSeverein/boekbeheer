@@ -1225,27 +1225,70 @@ PLAUSIBLE_LENGTH_RANGE_CM = (5, 45)
 PLAUSIBLE_THICKNESS_RANGE_CM = (0.2, 8)
 
 
-def determine_busstuk(length_cm, thickness_cm, shipping_options_eur):
+SHIPPING_DEFAULT_BRIEFPOST = 3.75
+SHIPPING_DEFAULT_PAKKETPOST = 7.25
+
+
+@st.cache_data(ttl=300)
+def get_shipping_costs():
     """
-    Bepaalt of een boek met deze afmetingen als 'busstuk' kan worden verstuurd
-    (in plaats van een pakket), en welke verzendkosten daarbij default zouden
-    moeten zijn. 'shipping_options_eur' is de lijst met numerieke
-    verzendkosten-keuzes waartussen gekozen wordt (bijv. [3.75, 7.25]).
+    De verzendkosten voor briefpost (busstuk) en pakketpost, als (briefpost,
+    pakketpost) in euro's. Instelbaar op 'Hulp en instellingen' (opgeslagen in
+    app_settings), zodat een prijswijziging van de vervoerder geen codewijziging
+    vraagt. Is er nog niets ingesteld, of is een waarde onleesbaar of niet groter
+    dan 0, dan geldt het oude standaardbedrag (3,75 resp. 7,25).
+    """
+    conn = psycopg2.connect(get_db_url())
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT key, value FROM app_settings WHERE key IN (%s, %s)",
+                ("bw_shipping_briefpost", "bw_shipping_pakketpost"),
+            )
+            stored = dict(cur.fetchall())
+    finally:
+        conn.close()
+
+    def _amount(key, default):
+        try:
+            value = float(str(stored.get(key)).replace(",", "."))
+        except ValueError:
+            return default
+        return round(value, 2) if 0 < value < 1000 else default
+
+    return (
+        _amount("bw_shipping_briefpost", SHIPPING_DEFAULT_BRIEFPOST),
+        _amount("bw_shipping_pakketpost", SHIPPING_DEFAULT_PAKKETPOST),
+    )
+
+
+def shipping_amount_label(amount):
+    """3.75 -> '3,75': zoals een bedrag in de keuzelijst met verzendkosten staat."""
+    return f"{amount:.2f}".replace(".", ",")
+
+
+def shipping_options_labels(briefpost_eur, pakketpost_eur):
+    """De keuzelijst voor de verzendkosten: 'Vrije invoer' plus de twee ingestelde bedragen, van laag naar hoog."""
+    amounts = sorted({round(briefpost_eur, 2), round(pakketpost_eur, 2)})
+    return ["Vrije invoer"] + [shipping_amount_label(amount) for amount in amounts]
+
+
+def determine_busstuk(length_cm, thickness_cm, briefpost_eur, pakketpost_eur):
+    """
+    Bepaalt of een boek met deze afmetingen als 'busstuk' (briefpost) kan worden
+    verstuurd of als pakket moet, en welke verzendkosten daarbij default zijn:
+    de ingestelde briefpost-kosten bij een busstuk, de pakketpost-kosten bij een
+    pakket. De bedragen komen uit de instellingen (zie get_shipping_costs).
 
     Zijn er geen afmetingen bekend, of vallen ze buiten wat fysiek geloofwaardig
-    is voor een boek, dan wordt dat niet gegokt: de HOOGSTE verzendkosten worden
-    dan als veilige default gekozen (liever een keer iets te veel in rekening
-    gebracht dan marge verliezen aan te lage verzendkosten). Bij wél
-    geloofwaardige afmetingen: de LAAGSTE kosten bij een busstuk, de hoogste bij
-    een pakket — zo blijft dit kloppen als de keuzes ooit wijzigen.
+    is voor een boek, dan wordt dat niet gegokt: het HOOGSTE van de twee
+    bedragen wordt dan als veilige default gekozen (liever een keer iets te veel
+    in rekening gebracht dan marge verliezen aan te lage verzendkosten).
 
     Geeft (is_busstuk, shipping_cost, toelichtende tekst) terug. is_busstuk is
     None als er niets geloofwaardigs bekend is; shipping_cost en de tekst zijn
-    altijd gevuld (zolang shipping_options_eur niet leeg is).
+    altijd gevuld.
     """
-    if not shipping_options_eur:
-        return None, None, None
-
     plausible = (
         length_cm is not None and thickness_cm is not None
         and PLAUSIBLE_LENGTH_RANGE_CM[0] <= length_cm <= PLAUSIBLE_LENGTH_RANGE_CM[1]
@@ -1259,10 +1302,10 @@ def determine_busstuk(length_cm, thickness_cm, shipping_options_eur):
             length_str = f"{length_cm:.1f}".replace(".", ",")
             thickness_str = f"{thickness_cm:.1f}".replace(".", ",")
             message += f" (Gevonden maar genegeerd, want niet geloofwaardig: {length_str} cm lang x {thickness_str} cm dik.)"
-        return None, max(shipping_options_eur), message
+        return None, max(briefpost_eur, pakketpost_eur), message
 
     is_busstuk = not (length_cm > BUSSTUK_LENGTH_LIMIT_CM or thickness_cm > BUSSTUK_THICKNESS_LIMIT_CM)
-    shipping_cost = min(shipping_options_eur) if is_busstuk else max(shipping_options_eur)
+    shipping_cost = briefpost_eur if is_busstuk else pakketpost_eur
     length_str = f"{length_cm:.1f}".replace(".", ",")
     thickness_str = f"{thickness_cm:.1f}".replace(".", ",")
     soort = "busstuk" if is_busstuk else "pakket"
@@ -1766,6 +1809,7 @@ def autofill_book_fields_from_isbn(isbn):
         metadata = future_metadata.result()
         bol_count, bol_laagste, _ = future_bol_offers.result()
 
+    bol_price_basis = None  # Bol's laagste prijs, als daar de prijssuggestie op gebaseerd moet worden
     if market_info:
         cleaned_titel, cleaned_bijz = clean_boekwinkeltjes_title_and_bijz(
             market_info.get("titel"), market_info.get("bijz")
@@ -1791,14 +1835,12 @@ def autofill_book_fields_from_isbn(isbn):
             except (TypeError, ValueError):
                 pass
         elif not market_info.get("lastOrder") and bol_count and bol_laagste:
-            # Boekwinkeltjes heeft niets, maar Bol wel: prijs voorstellen op basis
-            # van Bol's laagste prijs (min €2,25 marge, min de verzendkosten —
-            # standaard €3,75 hier — afgerond naar beneden op ,45 of ,95, met
-            # €3,95 als bodem), in plaats van de kale €0.
+            # Boekwinkeltjes heeft niets, maar Bol wel: de prijs wordt voorgesteld op
+            # basis van Bol's laagste prijs. Dat rekenen we pas helemaal onderaan uit,
+            # want we moeten daarvoor eerst weten welke verzendkosten bij dit boek horen
+            # (briefpost of pakketpost, afhankelijk van de afmetingen).
             try:
-                suggested = suggest_bulk_price(float(bol_laagste) - 2.25 - 3.75)
-                if suggested is not None:
-                    fields["price"] = suggested
+                bol_price_basis = float(bol_laagste)
             except (TypeError, ValueError):
                 pass
 
@@ -1895,9 +1937,9 @@ def autofill_book_fields_from_isbn(isbn):
         fields["_cover_content_type"] = metadata.get("cover_content_type", "image/jpeg")
 
     # Afmetingen: Google Books/ISBNdb (via metadata) hebben voorkeur, anders Bol
-    # als laatste terugval. Op basis daarvan de verzendkosten bepalen (busstuk
-    # vs. pakje) — alleen als er daadwerkelijk afmetingen gevonden zijn; anders
-    # blijft de aanroeper zijn eigen standaardbedrag (3,75) gebruiken.
+    # als laatste terugval. Op basis daarvan de verzendkosten bepalen (briefpost
+    # bij een busstuk, pakketpost bij een pakket; onbekend = het hoogste van de
+    # twee, zie determine_busstuk). De bedragen komen uit de instellingen.
     length_cm = width_cm = thickness_cm = None
     if metadata and metadata.get("length_cm"):
         length_cm, width_cm, thickness_cm = metadata["length_cm"], metadata.get("width_cm"), metadata["thickness_cm"]
@@ -1908,9 +1950,17 @@ def autofill_book_fields_from_isbn(isbn):
         fields["length_cm"] = length_cm
         fields["width_cm"] = width_cm
         fields["thickness_cm"] = thickness_cm
-    _, shipping_cost, _ = determine_busstuk(length_cm, thickness_cm, [3.75, 7.25])
-    if shipping_cost is not None:
-        fields["shipping_cost"] = shipping_cost
+    briefpost_eur, pakketpost_eur = get_shipping_costs()
+    _, shipping_cost, _ = determine_busstuk(length_cm, thickness_cm, briefpost_eur, pakketpost_eur)
+    fields["shipping_cost"] = shipping_cost
+
+    # De prijssuggestie op basis van Bol (zie hierboven): Bol's laagste prijs, min
+    # €2,25 marge, min de verzendkosten die hierboven zijn bepaald, afgerond naar
+    # beneden op ,45 of ,95 en met €3,95 als bodem — in plaats van de kale €0.
+    if bol_price_basis is not None:
+        suggested = suggest_bulk_price(bol_price_basis - 2.25 - shipping_cost)
+        if suggested is not None:
+            fields["price"] = suggested
 
     return fields
 
