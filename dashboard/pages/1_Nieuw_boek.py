@@ -38,6 +38,7 @@ from common import (
     require_login,
     current_user_short_name,
     get_user_last_location,
+    order_main_first,
     save_uploaded_images,
     lookup_boekwinkeltjes_market_info,
     lookup_book_metadata_external,
@@ -284,9 +285,16 @@ if isbn_is_valid and st.session_state.get("new_book_prefilled_isbn") != ean:
                 {
                     "data": metadata["cover_bytes"],
                     "content_type": metadata.get("cover_content_type", "image/jpeg"),
-                    "label": f"Omslag via {metadata.get('source', 'internet')}",
+                    "label": f"Omslag via {metadata.get('cover_source') or metadata.get('source', 'internet')}",
                 }
             ]
+            st.session_state[k("cover_note")] = None
+        else:
+            rejected_sources = metadata.get("cover_rejected")
+            st.session_state[k("cover_note")] = (
+                f"Geen omslag toegevoegd: {', '.join(rejected_sources)} gaf alleen een plaatshouder (\"geen omslag beschikbaar\")."
+                if rejected_sources else None
+            )
 
     # Bol als laatste aanvulling voor wat nog steeds ontbreekt (best-effort, zie
     # kanttekening bij lookup_bol_catalog_product)
@@ -528,6 +536,9 @@ all_images = [
 ]
 external_images = st.session_state.get(k("external_images"), [])
 all_images.extend(external_images)
+cover_note = st.session_state.get(k("cover_note"))
+if cover_note and not external_images:
+    st.caption(cover_note)
 
 main_image_index = 0
 if all_images:
@@ -604,15 +615,11 @@ if st.button(button_label, key="new_book_submit"):
         )
 
         if all_images:
-            images_to_save = []
-            for i, img in enumerate(all_images):
-                images_to_save.append(
-                    {
-                        "data": img["data"],
-                        "content_type": img["content_type"],
-                        "is_main": (i == main_image_index),
-                    }
-                )
+            # De gekozen hoofdfoto vooraan: de volgorde bepaalt wat Boekwinkeltjes als eerste krijgt.
+            images_to_save = order_main_first(
+                [{"data": img["data"], "content_type": img["content_type"]} for img in all_images],
+                main_image_index,
+            )
             save_uploaded_images(temp_id, images_to_save)
 
         load_books.clear()

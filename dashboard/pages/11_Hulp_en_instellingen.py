@@ -12,6 +12,9 @@ import pandas as pd
 import streamlit as st
 
 from common import (
+    delete_placeholder_uploads,
+    find_placeholder_uploads,
+    get_all_images,
     render_logo,
     require_login,
     get_setting,
@@ -263,3 +266,42 @@ if st.button("Opslaan", key="save_shipping_costs"):
         st.success("Opgeslagen.")
         if shipping_briefpost > shipping_pakketpost:
             st.warning("Let op: briefpost is nu duurder dan pakketpost. Klopt dat? Zo niet, dan staan ze mogelijk verwisseld.")
+
+
+st.divider()
+st.header("Nepfoto's in de wachtrij")
+st.caption(
+    "Soms geeft Google of een andere bron als omslag alleen een plaatshouder (\"BOOK COVER NOT AVAILABLE\"). "
+    "Nieuwe boeken krijgen die niet meer mee, maar boeken die al eerder in de wachtrij kwamen, kunnen er nog een hebben. "
+    "Hier zoek je ze op en verwijder je ze, **voordat** ze naar Boekwinkeltjes gaan. Alleen foto's die nog niet zijn "
+    "doorgestuurd worden bekeken, en je ziet eerst welke het zijn."
+)
+
+delete_message = st.session_state.pop("placeholder_delete_message", None)
+if delete_message:
+    st.success(delete_message)
+
+if st.button("Zoek nepfoto's", key="find_placeholder_uploads"):
+    st.session_state["placeholder_uploads_found"] = find_placeholder_uploads()
+
+found_placeholders = st.session_state.get("placeholder_uploads_found")
+if found_placeholders is not None:
+    if not found_placeholders:
+        st.success("Geen nepfoto's gevonden.")
+    else:
+        st.warning(f"{len(found_placeholders)} nepfoto('s) gevonden bij {len({f['book_id'] for f in found_placeholders})} boek(en).")
+        st.dataframe(
+            pd.DataFrame(
+                [{"Boek": f["title"], "ISBN": f["ean"], "Boek-id": f["book_id"]} for f in found_placeholders]
+            ),
+            width="stretch",
+            hide_index=True,
+        )
+        if st.button(f"Verwijder deze {len(found_placeholders)} nepfoto('s)", key="delete_placeholder_uploads"):
+            deleted_count = delete_placeholder_uploads([f["upload_id"] for f in found_placeholders])
+            get_all_images.clear()  # zodat Boekdetails de foto's meteen opnieuw laadt
+            st.session_state["placeholder_uploads_found"] = None
+            st.session_state["placeholder_delete_message"] = (
+                f"{deleted_count} nepfoto('s) verwijderd. De boeken zelf zijn niet aangeraakt."
+            )
+            st.rerun()
