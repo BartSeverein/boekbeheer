@@ -1,0 +1,48 @@
+name: Test Bol aanbiedingen v11
+
+# Veilige controle van versie 11 van Bol's aanbiedingen-API, vóór de overstap. Alleen lezen en
+# vergelijken met wat de app nu via versie 10 ziet. Met de optie hieronder wordt bij één
+# aanbieding de voorraad "bijgewerkt" naar precies het aantal dat er al staat (dus zonder iets
+# te veranderen), om te laten zien dat het bijwerken werkt.
+on:
+  workflow_dispatch:
+    inputs:
+      voorraad_test:
+        description: "Ook testen of het bijwerken van de voorraad werkt (verandert niets: zelfde aantal)"
+        type: boolean
+        default: false
+
+jobs:
+  test-bol-offers-v11:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Controleer Bol aanbiedingen v11
+        run: |
+          if [ "$VOORRAAD_TEST" = "true" ]; then
+            python main.py test-bol-offers-v11 write-noop
+          else
+            python main.py test-bol-offers-v11
+          fi
+        env:
+          VOORRAAD_TEST: ${{ github.event.inputs.voorraad_test }}
+          BOL_CLIENT_ID: ${{ secrets.BOL_CLIENT_ID }}
+          BOL_CLIENT_SECRET: ${{ secrets.BOL_CLIENT_SECRET }}
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          BOEKWINKELTJES_ENV: ${{ secrets.BOEKWINKELTJES_ENV }}
+          BOEKWINKELTJES_API_KEY_SANDBOX: ${{ secrets.BOEKWINKELTJES_API_KEY_SANDBOX }}
+          BOEKWINKELTJES_API_KEY_LIVE: ${{ secrets.BOEKWINKELTJES_API_KEY_LIVE }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          SMTP_TO: ${{ secrets.SMTP_TO }}
+          PYTHONUNBUFFERED: "1"
