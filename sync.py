@@ -1106,10 +1106,12 @@ def pull_main_images(limit=200):
 
 # Afbeeldingen die langer dan dit aantal uren geleden zijn vastgelegd, komen in aanmerking.
 PHOTO_VACUUM_MIN_AGE_HOURS = 48
-# Pas na het opruimen 'VACUUM FULL' draaien als er minstens zoveel vrijkomt. Pas dat geeft de
-# schijfruimte echt terug: zonder blijft de grootte die Supabase meldt gelijk (de ruimte wordt dan
-# alleen hergebruikt voor nieuwe gegevens).
-PHOTO_VACUUM_FULL_THRESHOLD_BYTES = 5 * 1024 * 1024
+# Per tabel pas 'VACUUM FULL' draaien als er minstens zoveel is vrijgekomen. Pas dat geeft de schijfruimte
+# echt terug: zonder blijft de grootte die Supabase meldt gelijk (de ruimte wordt dan alleen hergebruikt).
+PHOTO_VACUUM_FULL_THRESHOLD_BYTES = 1 * 1024 * 1024
+# Voor book_uploaded_images, waar we zelf niets wissen maar waar na verwerkte uploads veel lege ruimte
+# kan achterblijven: pas teruggeven als er minstens zoveel leeg staat.
+PHOTO_VACUUM_EMPTY_SPACE_THRESHOLD_BYTES = 10 * 1024 * 1024
 
 
 def _mb(num_bytes):
@@ -1127,10 +1129,11 @@ def _plan_photo_cleanup(rows, cutoff):
     'cutoff' is het moment waarvóór iets "oud genoeg" is.
 
     Per boek blijft de voorkant altijd staan. Dat is hetzelfde plaatje als in Boekdetails (met de
-    ster): het plaatje waar books.main_image_url naar wijst, anders het eerste. Van de rest wordt
-    het bestand alleen gewist als: het ouder is dan 'cutoff', én de rij nog een link naar
-    Boekwinkeltjes heeft (dan is het plaatje daar te zien en gaat er niets verloren).
-    Geeft (op_te_ruimen, telling) terug.
+    ster): het plaatje waar books.main_image_url naar wijst. Staat die als hele afbeelding (tekst) in de
+    boekenrij, dan is het de foto waarvan het bestand er precies mee overeenkomt ('star_match').
+    Anders de eerste foto. Van de rest wordt het bestand alleen gewist als: het ouder is dan 'cutoff',
+    én de rij nog een link naar Boekwinkeltjes heeft (dan is het plaatje daar te zien en gaat er
+    niets verloren). Geeft (op_te_ruimen, telling) terug.
     """
     by_book = {}
     for row in rows:
@@ -1145,6 +1148,11 @@ def _plan_photo_cleanup(rows, cutoff):
         if main_url:
             for img in images:
                 if main_url in (img["url_large"], img["url_medium"], img["url_small"]):
+                    front_id = img["image_id"]
+                    break
+        if front_id is None:
+            for img in images:
+                if img.get("star_match"):
                     front_id = img["image_id"]
                     break
         if front_id is None:
@@ -1176,6 +1184,33 @@ def _plan_photo_cleanup(rows, cutoff):
     return to_clean, stats
 
 
+def _plan_main_url_fixes(rows):
+    """
+    Sommige boeken hebben als voorkant (books.main_image_url) de hele afbeelding als tekst (een data-URI).
+    Dat kwam doordat de ster in Boekdetails vroeger de getoonde afbeelding opsloeg, en dat is honderden kB
+    per boek in de boekenrij zelf. Voor elk zo'n boek waarvan we het bestand van die foto nog hebben (de rij
+    waarvan het bestand er precies mee overeenkomt: 'star_match') bestaat ook de echte link naar
+    Boekwinkeltjes. Die komt dan in de plaats, en de voorkant blijft dezelfde foto. Boeken zonder
+    overeenkomende foto laten we met rust. Geeft een lijst {'book_id', 'url', 'bytes'}.
+    """
+    by_book = {}
+    for row in rows:
+        by_book.setdefault(row["book_id"], []).append(row)
+    fixes = []
+    for book_id, images in by_book.items():
+        if not any(img.get("data_uri_main") for img in images):
+            continue
+        images.sort(key=lambda r: (r["position"], r["image_id"]))
+        for img in images:
+            if not img.get("star_match"):
+                continue
+            url = img["url_large"] or img["url_medium"] or img["url_small"]
+            if url:
+                fixes.append({"book_id": book_id, "url": url, "bytes": img.get("data_uri_len") or 0})
+                break
+    return fixes
+
+
 def _safe_rows(conn, sql, params=None):
     """Voert een rapportage-query uit. Bij een fout (bijvoorbeeld ontbrekende rechten) krijg je None
     terug, zodat het rapport niet de hele opruimtaak laat mislukken."""
@@ -1195,18 +1230,20 @@ def _safe_rows(conn, sql, params=None):
 
 def photo_vacuum(real=False, min_age_hours=PHOTO_VACUUM_MIN_AGE_HOURS):
     """
-    De fotostofzuiger: wist de afbeeldingsbestanden (niet de rijen, niet de links) van oude
-    foto's die niet de voorkant zijn, zodat de database niet vol loopt met foto's.
+    De fotostofzuiger: houdt de database klein door
+      1. van oude foto's die niet de voorkant zijn het bestand te wissen (niet de rij, niet de link),
+      2. voorkanten die als hele afbeelding (tekst) in de boekenrij staan om te zetten naar een gewone
+         link, en
+      3. de vrijgekomen en de leegstaande ruimte aan de database terug te geven (VACUUM FULL).
 
-    Zonder real=True is het een proefrun: er wordt niets gewijzigd, alleen getoond wat er zou
-    gebeuren, samen met een rapport over waar de ruimte zit. Geeft regels tekst terug.
+    Zonder real=True is het een proefrun: er wordt niets gewijzigd, alleen getoond wat er zou gebeuren,
+    samen met een rapport over waar de ruimte zit. Geeft regels tekst terug.
 
     Bewust NIET aangeraakt:
       - book_uploaded_images: foto's die nog niet (bevestigd) bij Boekwinkeltjes staan. Voor een boek
-        in de wachtrij zijn dat de enige exemplaren.
+        in de wachtrij zijn dat de enige exemplaren. (Alleen de lege ruimte in die tabel wordt teruggegeven.)
       - de rijen in book_images zelf (met de links): pull_images haalt foto's alleen op voor boeken
         zonder enige rij, dus weggooien van rijen zou een nieuwe ronde ophalen veroorzaken.
-      - books.main_image_url.
     """
     lines = []
 
@@ -1298,6 +1335,7 @@ def photo_vacuum(real=False, min_age_hours=PHOTO_VACUUM_MIN_AGE_HOURS):
             "FROM book_uploaded_images u LEFT JOIN books b ON b.id = u.book_id "
             "GROUP BY 1, 2 ORDER BY bytes DESC",
         )
+        empty_space = 0
         if uploaded is not None:
             if uploaded:
                 say("book_uploaded_images (eigen uploads, niet aangeraakt):")
@@ -1308,12 +1346,20 @@ def photo_vacuum(real=False, min_age_hours=PHOTO_VACUUM_MIN_AGE_HOURS):
                     )
             else:
                 say("book_uploaded_images: leeg")
+            table_size = _safe_rows(conn, "SELECT pg_total_relation_size('book_uploaded_images') AS bytes")
+            if table_size:
+                live = sum(u["bytes"] for u in uploaded)
+                empty_space = max(table_size[0]["bytes"] - live, 0)
+                say(
+                    f"   Tabelgrootte {_mb(table_size[0]['bytes'])}, echte inhoud {_mb(live)}: {_mb(empty_space)} staat leeg "
+                    f"(dat wordt hergebruikt voor nieuwe uploads)"
+                )
         data_uri = _safe_rows(
             conn, "SELECT count(*) AS n, COALESCE(sum(length(main_image_url)), 0) AS bytes FROM books WHERE main_image_url LIKE 'data:%'"
         )
         if data_uri:
             say(
-                f"Boeken waarvan de voorkant als tekst in de boekenrij zelf staat (data-URI): {data_uri[0]['n']}"
+                f"Boeken waarvan de voorkant als hele afbeelding (tekst) in de boekenrij zelf staat: {data_uri[0]['n']}"
                 f" ({_mb(data_uri[0]['bytes'])})"
             )
 
@@ -1328,7 +1374,18 @@ def photo_vacuum(real=False, min_age_hours=PHOTO_VACUUM_MIN_AGE_HOURS):
                        bi.last_synced_at,
                        COALESCE(octet_length(bi.image_large_data), 0) AS large_bytes,
                        COALESCE(octet_length(bi.image_medium_data), 0) AS medium_bytes,
-                       CASE WHEN b.main_image_url LIKE 'data:%' THEN NULL ELSE b.main_image_url END AS main_image_url
+                       CASE WHEN b.main_image_url LIKE 'data:%' THEN NULL ELSE b.main_image_url END AS main_image_url,
+                       COALESCE(b.main_image_url LIKE 'data:%', FALSE) AS data_uri_main,
+                       CASE WHEN b.main_image_url LIKE 'data:%' THEN length(b.main_image_url) END AS data_uri_len,
+                       CASE WHEN b.main_image_url LIKE 'data:%'
+                                 AND (bi.image_large_data IS NOT NULL OR bi.image_medium_data IS NOT NULL)
+                            THEN COALESCE(
+                                   b.main_image_url = ('data:image/jpeg;base64,'
+                                       || replace(encode(bi.image_large_data, 'base64'), chr(10), ''))
+                                   OR b.main_image_url = ('data:image/jpeg;base64,'
+                                       || replace(encode(bi.image_medium_data, 'base64'), chr(10), '')),
+                                   FALSE)
+                            ELSE FALSE END AS star_match
                 FROM book_images bi
                 JOIN books b ON b.id = bi.book_id
                 WHERE bi.image_id != -1
@@ -1341,9 +1398,11 @@ def photo_vacuum(real=False, min_age_hours=PHOTO_VACUUM_MIN_AGE_HOURS):
             )
             rows = cur.fetchall()
         to_clean, plan = _plan_photo_cleanup(rows, cutoff)
+        fixes = _plan_main_url_fixes(rows)
         large_total = sum(i["large_bytes"] for i in to_clean)
         medium_total = sum(i["medium_bytes"] for i in to_clean)
         freed_planned = large_total + medium_total
+        fix_bytes_planned = sum(f["bytes"] for f in fixes)
         say(f"Boeken met bewaarde bestanden: {plan['books']}")
         say(f"Voorkanten die blijven staan: {plan['front_kept']}")
         say(f"Nog te jong (minder dan {min_age_hours} uur): {plan['too_young']}")
@@ -1357,13 +1416,36 @@ def photo_vacuum(real=False, min_age_hours=PHOTO_VACUUM_MIN_AGE_HOURS):
         )
         for item in sorted(to_clean, key=lambda i: -(i["large_bytes"] + i["medium_bytes"]))[:8]:
             say(f"   boek {item['book_id']}, afbeelding {item['image_id']}: {_kb(item['large_bytes'] + item['medium_bytes'])}")
+        if data_uri and data_uri[0]["n"]:
+            say(
+                f"Voorkanten als tekst in de boekenrij om te zetten naar een gewone link: "
+                f"{len(fixes)} van de {data_uri[0]['n']} ({_mb(fix_bytes_planned)}); de overige "
+                f"{max(data_uri[0]['n'] - len(fixes), 0)} hebben geen bijbehorende foto meer en blijven zoals ze zijn."
+            )
+        elif fixes:
+            say(f"Voorkanten om te zetten naar een gewone link: {len(fixes)} ({_mb(fix_bytes_planned)})")
 
         # ---------- 4. Opruimen ----------
+        migrated = 0
+        migrated_bytes = 0
         cleaned = 0
         freed_actual = 0
-        size_after = None
-        vacuum_error = None
-        did_vacuum = False
+        if real and fixes:
+            for index, fix in enumerate(fixes, start=1):
+                with conn.cursor() as cur:
+                    # Alleen als de voorkant nog steeds een hele afbeelding (tekst) is: is hij tussentijds
+                    # aangepast, dan blijft die keuze staan.
+                    cur.execute(
+                        "UPDATE books SET main_image_url = %(url)s WHERE id = %(book_id)s AND LEFT(main_image_url, 5) = 'data:'",
+                        {"url": fix["url"], "book_id": fix["book_id"]},
+                    )
+                    if cur.rowcount and cur.rowcount > 0:
+                        migrated += 1
+                        migrated_bytes += fix["bytes"]
+                if index % 50 == 0:
+                    conn.commit()
+            conn.commit()
+
         if real and to_clean:
             per_book = {}
             for item in to_clean:
@@ -1386,24 +1468,38 @@ def photo_vacuum(real=False, min_age_hours=PHOTO_VACUUM_MIN_AGE_HOURS):
                 if index % 50 == 0:
                     conn.commit()
             conn.commit()
-
             # Raakte het wissen minder rijen dan gepland (er was tussen kiezen en wissen iets veranderd),
             # dan rekenen we met het evenredige deel.
             freed_actual = freed_planned * (cleaned / len(to_clean))
 
-            if freed_actual >= PHOTO_VACUUM_FULL_THRESHOLD_BYTES:
+        # Welke tabellen krijgen hun ruimte teruggegeven? Pas dat maakt de gemelde grootte kleiner.
+        def _vacuum_plan(images_bytes, books_bytes):
+            tables = []
+            if images_bytes >= PHOTO_VACUUM_FULL_THRESHOLD_BYTES:
+                tables.append("book_images")
+            if books_bytes >= PHOTO_VACUUM_FULL_THRESHOLD_BYTES:
+                tables.append("books")
+            if empty_space >= PHOTO_VACUUM_EMPTY_SPACE_THRESHOLD_BYTES:
+                tables.append("book_uploaded_images")
+            return tables
+
+        vacuumed = []
+        vacuum_errors = []
+        size_after = None
+        if real:
+            for table in _vacuum_plan(freed_actual, migrated_bytes):
                 try:
                     vacuum_conn = get_connection()
                     try:
                         vacuum_conn.autocommit = True  # VACUUM kan niet binnen een transactie
                         with vacuum_conn.cursor() as cur:
                             cur.execute("SET lock_timeout = '30s'")
-                            cur.execute("VACUUM FULL book_images")
-                        did_vacuum = True
+                            cur.execute(f"VACUUM FULL {table}")  # 'table' komt uit een vaste lijst hierboven
+                        vacuumed.append(table)
                     finally:
                         vacuum_conn.close()
                 except Exception as e:
-                    vacuum_error = e
+                    vacuum_errors.append(f"{table}: {e}")
             after = _safe_rows(conn, "SELECT COALESCE(sum(pg_database_size(datname)), 0) AS all_dbs FROM pg_database")
             size_after = after[0]["all_dbs"] if after else None
 
@@ -1412,35 +1508,43 @@ def photo_vacuum(real=False, min_age_hours=PHOTO_VACUUM_MIN_AGE_HOURS):
             say(f"Opgeruimd: {cleaned} afbeeldingen ({_mb(freed_actual)} aan bestanden gewist).")
             if cleaned != len(to_clean):
                 say(f"LET OP: {len(to_clean)} gepland, maar {cleaned} gewist; de rest was intussen veranderd en is met rust gelaten.")
-            if did_vacuum:
-                say("Ruimte teruggegeven aan de database (VACUUM FULL op book_images).")
-            elif freed_actual and not vacuum_error:
-                say(
-                    f"Er kwam minder dan {_mb(PHOTO_VACUUM_FULL_THRESHOLD_BYTES)} vrij; de ruimte wordt hergebruikt maar de "
-                    f"gemelde grootte daalt pas bij de volgende keer dat het meer is."
-                )
-            if vacuum_error:
-                say(f"LET OP: VACUUM FULL mislukte ({vacuum_error}); de ruimte is vrij maar de gemelde grootte daalt nog niet.")
+            if fixes:
+                say(f"Voorkanten omgezet naar een gewone link: {migrated} van de {len(fixes)} ({_mb(migrated_bytes)}).")
+            if vacuumed:
+                say("Ruimte teruggegeven aan de database (VACUUM FULL): " + ", ".join(vacuumed) + ".")
+            elif not vacuum_errors:
+                say("Er was te weinig om aan de database terug te geven; de ruimte wordt hergebruikt.")
+            for error in vacuum_errors:
+                say(f"LET OP: VACUUM FULL mislukte voor {error}; de ruimte is vrij maar de gemelde grootte daalt nog niet.")
             if size_before is not None and size_after is not None:
                 say(f"Database: {_mb(size_before)} -> {_mb(size_after)}")
         else:
+            would = _vacuum_plan(freed_planned, fix_bytes_planned)
+            if would:
+                say("Bij echt opruimen wordt daarna de ruimte teruggegeven (VACUUM FULL) voor: " + ", ".join(would) + ".")
             say("Proefrun: er is niets gewijzigd. Draai opnieuw met echt_verwijderen = ja om werkelijk op te ruimen.")
-            say("Let op: de grootte die Supabase meldt daalt pas als de ruimte aan de database wordt teruggegeven (VACUUM FULL); dat gebeurt automatisch bij echt opruimen.")
 
         if real:
-            detail = f"{cleaned} {_n(cleaned, 'afbeelding', 'afbeeldingen')} opgeruimd ({_mb(freed_actual)}), {plan['front_kept']} voorkanten bewaard"
+            parts = [f"{cleaned} {_n(cleaned, 'afbeelding', 'afbeeldingen')} opgeruimd ({_mb(freed_actual)})"]
             if cleaned != len(to_clean):
-                detail += f" ({len(to_clean)} gepland, de rest was intussen veranderd)"
+                parts[0] += f" ({len(to_clean)} gepland, de rest was intussen veranderd)"
+            if fixes:
+                parts.append(f"{migrated} {_n(migrated, 'voorkant', 'voorkanten')} omgezet naar een gewone link ({_mb(migrated_bytes)})")
+            parts.append(f"{plan['front_kept']} voorkanten bewaard")
+            if vacuumed:
+                parts.append("ruimte teruggegeven: " + ", ".join(vacuumed))
+            detail = ", ".join(parts)
             if size_before is not None and size_after is not None:
                 detail += f"; database {_mb(size_before)} -> {_mb(size_after)}"
-            if vacuum_error:
-                detail += f" — VACUUM FULL mislukte: {vacuum_error}"
+            if vacuum_errors:
+                detail += " — VACUUM FULL mislukte: " + "; ".join(vacuum_errors)
         else:
             detail = (
                 f"proefrun: {len(to_clean)} {_n(len(to_clean), 'afbeelding', 'afbeeldingen')} ({_mb(freed_planned)}) "
-                f"zouden worden opgeruimd, {plan['front_kept']} voorkanten blijven"
+                f"zouden worden opgeruimd, {len(fixes)} {_n(len(fixes), 'voorkant', 'voorkanten')} omgezet ({_mb(fix_bytes_planned)}), "
+                f"{plan['front_kept']} voorkanten blijven"
             )
-        _log(conn, "cleanup", "images", "error" if vacuum_error else "ok", detail)
+        _log(conn, "cleanup", "images", "error" if vacuum_errors else "ok", detail)
         conn.commit()
     except Exception as e:
         conn.rollback()
@@ -1450,7 +1554,6 @@ def photo_vacuum(real=False, min_age_hours=PHOTO_VACUUM_MIN_AGE_HOURS):
     finally:
         conn.close()
     return lines
-
 
 
 # ---------- Nieuwe boeken pushen naar Bol ----------
