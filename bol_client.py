@@ -20,6 +20,7 @@ Controleer na de eerste run in de sync-log of dit voor jouw export klopt.
 import base64
 import csv
 import io
+import itertools
 import os
 import time
 
@@ -294,6 +295,27 @@ def get_economic_operator_id_from_offers():
     return None
 
 
+def get_delivery_profile_id_from_offers(sample_size=300):
+    """
+    Het leverbelofte-profiel (profileId) dat je bestaande aanbiedingen gebruiken, zodat
+    nieuwe aanbiedingen hetzelfde profiel krijgen. Kijkt naar de eerste paar honderd
+    aanbiedingen met je eigen leverbelofte en neemt het profiel dat daar het meest
+    voorkomt. Alleen relevant voor versie 11; bij versie 10 (die een leveringscode
+    gebruikt) of als er geen profiel te vinden is: None, dan beslist Bol zelf.
+    """
+    if _offers_version() != 11:
+        return None
+    counts = {}
+    for offer in itertools.islice(_iter_offers_v11(), sample_size):
+        fulfilment = offer.get("fulfilment") or {}
+        profile_id = fulfilment.get("profileId")
+        if fulfilment.get("schedule") == "MY_DELIVERY_PROMISE" and profile_id:
+            counts[profile_id] = counts.get(profile_id, 0) + 1
+    if not counts:
+        return None
+    return max(counts, key=lambda pid: (counts[pid], pid))
+
+
 def get_economic_operator_id(name):
     """
     Zoekt de economicOperatorId op die bij Bol hoort bij de marktdeelnemer met
@@ -404,7 +426,8 @@ def get_new_offer_id(process_status_id):
     return _wait_for_process(process_status_id)
 
 
-def _create_offer_v11(ean, condition, price, stock_amount, reference, economic_operator_id, comment=None):
+def _create_offer_v11(ean, condition, price, stock_amount, reference, economic_operator_id, comment=None,
+                      delivery_profile_id=None):
     """
     Versie 11: Bol verwerkt dit direct en geeft meteen het nieuwe offerId terug (geen
     processtatus meer). Landen laten we weg, dan geldt de landinstelling van je Bol-account
@@ -415,13 +438,18 @@ def _create_offer_v11(ean, condition, price, stock_amount, reference, economic_o
         raise BolAPIError(
             "Geen economicOperatorId bekend: een aanbieding zonder verantwoordelijke partij in de EU komt bij Bol nooit online."
         )
+    fulfilment = {"method": "FBR", "schedule": "MY_DELIVERY_PROMISE"}
+    if delivery_profile_id:
+        # Je bestaande aanbiedingen verwijzen naar een eigen leverbelofte-profiel; nieuwe doen dat
+        # dan ook, zodat ze niet per ongeluk een ander profiel krijgen.
+        fulfilment["profileId"] = delivery_profile_id
     payload = {
         "ean": ean,
         "condition": _condition_payload(condition, comment, 11),
         "economicOperatorId": economic_operator_id,
         "onHoldByRetailer": False,
         "pricing": {"bundlePrices": [{"quantity": 1, "unitPrice": price}]},
-        "fulfilment": {"method": "FBR", "schedule": "MY_DELIVERY_PROMISE"},
+        "fulfilment": fulfilment,
         "stock": {"amount": stock_amount, "managedByRetailer": True},
     }
     if reference:
@@ -445,15 +473,19 @@ def _create_offer_v11(ean, condition, price, stock_amount, reference, economic_o
     return offer_id
 
 
-def create_offer(ean, condition, price, stock_amount, reference, delivery_code, economic_operator_id, comment=None):
+def create_offer(ean, condition, price, stock_amount, reference, delivery_code, economic_operator_id, comment=None,
+                 delivery_profile_id=None):
     """
     Maakt een nieuwe aanbieding aan bij Bol en geeft het nieuwe offerId terug. Welke
     versie van Bol's API daarvoor wordt gebruikt, staat bovenin dit bestand
     (OFFERS_API_VERSION). 'delivery_code' geldt alleen voor versie 10; versie 11 gebruikt
-    altijd je eigen leverbelofte ('MY_DELIVERY_PROMISE').
+    altijd je eigen leverbelofte ('MY_DELIVERY_PROMISE'), eventueel met het profiel
+    'delivery_profile_id' (zie get_delivery_profile_id_from_offers).
     """
     if _offers_version() == 11:
-        return _create_offer_v11(ean, condition, price, stock_amount, reference, economic_operator_id, comment)
+        return _create_offer_v11(
+            ean, condition, price, stock_amount, reference, economic_operator_id, comment, delivery_profile_id
+        )
     return _create_offer_v10(ean, condition, price, stock_amount, reference, delivery_code, economic_operator_id, comment)
 
 
@@ -564,14 +596,25 @@ def _offer_to_row(offer):
     }
 
 
-def _get_all_offers_v11():
-    """Versie 11: alle eigen aanbiedingen via de lijst met pagina's, in dezelfde vorm als de CSV-export."""
-    rows = []
-    for offer in _iter_offers_v11():
+def _get_all_offers_v11_from(offers):
+    """Zet een al opgehaalde lijst om naar regels en ontdubbelt op offerId (de laatste keer geldt)."""
+    by_offer_id = {}
+    for offer in offers:
         row = _offer_to_row(offer)
         if row:
-            rows.append(row)
-    return rows
+            by_offer_id.pop(row["offer_id"], None)
+            by_offer_id[row["offer_id"]] = row
+    return list(by_offer_id.values())
+
+
+def _get_all_offers_v11():
+    """
+    Versie 11: alle eigen aanbiedingen via de lijst met pagina's, in dezelfde vorm als de
+    CSV-export. Bol zet de lijst op volgorde van laatste wijziging. Wordt een aanbieding
+    gewijzigd terwijl we pagina's aan het ophalen zijn (bijv. door een verkoop), dan schuift
+    hij naar het einde en komt hij twee keer langs; dan geldt de laatste, meest actuele keer.
+    """
+    return _get_all_offers_v11_from(_iter_offers_v11())
 
 
 def get_all_offers():
@@ -630,18 +673,37 @@ def check_offers_v11(write_noop=False):
     say()
     say("== 2. Alle aanbiedingen ophalen (alleen lezen) ==")
     all_offers = list(_iter_offers_v11())
-    rows11 = [r for r in (_offer_to_row(o) for o in all_offers) if r]
-    say(f"Totaal: {len(all_offers)} aanbiedingen, waarvan {len(rows11)} bruikbaar (met ean en offerId)")
+    rows11 = _get_all_offers_v11_from(all_offers)
+    say(f"Totaal: {len(all_offers)} aanbiedingen, waarvan {len(rows11)} bruikbaar en uniek (met ean en offerId)")
     with_operator = sum(1 for r in rows11 if r["economic_operator_id"])
     say(f"Met verantwoordelijke partij (economicOperatorId): {with_operator} van {len(rows11)}")
-    methods = {}
-    categories = {}
+    methods, categories, schedules, profiles = {}, {}, {}, {}
     for o in all_offers:
-        method = (o.get("fulfilment") or {}).get("method") or "onbekend"
+        fulfilment = o.get("fulfilment") or {}
+        methods[fulfilment.get("method") or "onbekend"] = methods.get(fulfilment.get("method") or "onbekend", 0) + 1
+        schedules[fulfilment.get("schedule") or "-"] = schedules.get(fulfilment.get("schedule") or "-", 0) + 1
+        profile = fulfilment.get("profileId")
+        if profile:
+            profiles[profile] = profiles.get(profile, 0) + 1
         category = (o.get("condition") or {}).get("category") or "onbekend"
-        methods[method] = methods.get(method, 0) + 1
         categories[category] = categories.get(category, 0) + 1
-    say(f"Levering: {methods}  |  conditie: {categories}")
+    say(f"Levering: {methods}  |  leverbelofte: {schedules}  |  conditie: {categories}")
+    say(f"Leverbelofte-profielen op je aanbiedingen: {profiles or 'geen'}")
+    say(f"Dit profiel krijgen nieuwe aanbiedingen: {get_delivery_profile_id_from_offers() if _offers_version() == 11 else '(alleen bij versie 11)'}")
+    offers_per_ean = {}
+    for r in rows11:
+        offers_per_ean.setdefault(r["ean"], []).append(r["offer_id"])
+    duplicates = {ean: ids for ean, ids in offers_per_ean.items() if len(ids) > 1}
+    if duplicates:
+        by_id = {str(o.get("offerId")): o for o in all_offers}
+        say(f"Meer dan één aanbieding voor hetzelfde ean: {len(duplicates)} ean's (de app koppelt er per ean maar één):")
+        for ean, ids in sorted(duplicates.items())[:15]:
+            parts = []
+            for offer_id in sorted(ids):
+                o = by_id.get(offer_id, {})
+                stock = o.get("stock") or {}
+                parts.append(f"{offer_id[:8]} ({(o.get('condition') or {}).get('state') or (o.get('condition') or {}).get('category')}, voorraad {stock.get('correctedStock', stock.get('amount'))})")
+            say(f"   {ean}: " + "  |  ".join(parts))
 
     say()
     say("== 3. Vergelijken met wat de app nu ziet (versie 10, CSV-export) ==")
@@ -650,20 +712,21 @@ def check_offers_v11(write_noop=False):
     except BolAPIError as e:
         say(f"Vergelijking niet mogelijk, versie 10 gaf een fout: {e}")
     else:
-        by_ean10 = {r["ean"]: r for r in rows10}
-        by_ean11 = {r["ean"]: r for r in rows11}
-        only10 = sorted(set(by_ean10) - set(by_ean11))
-        only11 = sorted(set(by_ean11) - set(by_ean10))
-        both = sorted(set(by_ean10) & set(by_ean11))
-        diff_stock = [e for e in both if by_ean10[e]["stock"] != by_ean11[e]["stock"]]
-        diff_offer = [e for e in both if by_ean10[e]["offer_id"] != by_ean11[e]["offer_id"]]
-        say(f"Versie 10: {len(rows10)} (uniek op ean: {len(by_ean10)})  |  versie 11: {len(rows11)} (uniek op ean: {len(by_ean11)})")
+        # Per aanbieding vergelijken (offerId is uniek); per ean zou dubbele ean's als ruis geven.
+        map10 = {r["offer_id"]: r for r in rows10}
+        map11 = {r["offer_id"]: r for r in rows11}
+        only10 = sorted(set(map10) - set(map11))
+        only11 = sorted(set(map11) - set(map10))
+        both = sorted(set(map10) & set(map11))
+        diff_stock = [oid for oid in both if map10[oid]["stock"] != map11[oid]["stock"]]
+        diff_ean = [oid for oid in both if map10[oid]["ean"] != map11[oid]["ean"]]
+        say(f"Versie 10: {len(map10)} aanbiedingen  |  versie 11: {len(map11)} aanbiedingen  |  in beide: {len(both)}")
         say(f"Alleen in versie 10: {len(only10)} {only10[:5]}")
         say(f"Alleen in versie 11: {len(only11)} {only11[:5]}")
-        say(f"Zelfde ean, ander offerId: {len(diff_offer)} {diff_offer[:5]}")
-        say(f"Zelfde ean, ander voorraadgetal: {len(diff_stock)}")
-        for ean in diff_stock[:5]:
-            say(f"   {ean}: versie 10 = {by_ean10[ean]['stock']}, versie 11 = {by_ean11[ean]['stock']}")
+        say(f"Zelfde aanbieding, ander ean: {len(diff_ean)} {diff_ean[:5]}")
+        say(f"Zelfde aanbieding, ander voorraadgetal: {len(diff_stock)}")
+        for offer_id in diff_stock[:5]:
+            say(f"   {offer_id[:8]} (ean {map10[offer_id]['ean']}): versie 10 = {map10[offer_id]['stock']}, versie 11 = {map11[offer_id]['stock']}")
         say("(Een klein verschil in voorraad kan komen doordat Bol 'correctedStock' met enige vertraging bijwerkt.)")
 
     if write_noop:
@@ -692,7 +755,7 @@ def check_offers_v11(write_noop=False):
                 say(f"Gelukt. Voorraad daarna: {after} ({'ongewijzigd, zoals bedoeld' if after == amount else 'LET OP: anders dan verwacht'}).")
     else:
         say()
-        say("(Het bijwerken van voorraad is niet getest; dat kan door de workflow met 'voorraad-test' aan te zetten.)")
+        say("(Het bijwerken van voorraad is niet getest; dat kan door bij de workflow de optie 'voorraad_test' aan te zetten.)")
     return lines
 
 

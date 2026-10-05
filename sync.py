@@ -1193,13 +1193,6 @@ def push_new_books_to_bol():
     """
     conn = get_connection()
     try:
-        # Eerst proberen af te lezen uit een bestaande aanbieding (betrouwbaarder
-        # gebleken dan de aparte Economic Operators-API); pas als dat niets
-        # oplevert, de opzoeking op naam proberen als reserveweg.
-        economic_operator_id = bol_client.get_economic_operator_id_from_offers()
-        if not economic_operator_id:
-            economic_operator_id = bol_client.get_economic_operator_id(BOL_ECONOMIC_OPERATOR_NAME)
-
         with conn.cursor() as cur:
             cur.execute(
                 """
@@ -1214,6 +1207,22 @@ def push_new_books_to_bol():
                 """
             )
             candidates = cur.fetchall()
+
+        # De verantwoordelijke partij en het leverbelofte-profiel worden alleen opgezocht als er
+        # echt een aanbieding aangemaakt moet worden. Bij versie 10 kost dat opzoeken een
+        # volledige export, en Bol staat er maar 9 per uur toe; dit liep bij elke sync, ook
+        # als er niets te doen was.
+        economic_operator_id = None
+        delivery_profile_id = None
+        if candidates:
+            # Eerst proberen af te lezen uit een bestaande aanbieding (betrouwbaarder
+            # gebleken dan de aparte Economic Operators-API); pas als dat niets
+            # oplevert, de opzoeking op naam proberen als reserveweg.
+            economic_operator_id = bol_client.get_economic_operator_id_from_offers()
+            if not economic_operator_id:
+                economic_operator_id = bol_client.get_economic_operator_id(BOL_ECONOMIC_OPERATOR_NAME)
+            # Het leverbelofte-profiel van je bestaande aanbiedingen (alleen nodig bij versie 11).
+            delivery_profile_id = bol_client.get_delivery_profile_id_from_offers()
 
         created = 0
         errors = []
@@ -1230,6 +1239,7 @@ def push_new_books_to_bol():
                     delivery_code=BOL_DELIVERY_CODE,
                     economic_operator_id=economic_operator_id,
                     comment=comment,
+                    delivery_profile_id=delivery_profile_id,
                 )
 
                 with conn.cursor() as cur:
@@ -1260,6 +1270,30 @@ def push_new_books_to_bol():
         raise
 
 
+def _choose_one_offer_per_ean(offers, mapped_offer_ids):
+    """
+    Bol kan meer dan één aanbieding voor hetzelfde ean hebben (bijvoorbeeld een nieuwe én een
+    tweedehands, of eentje die ooit via het Bol-dashboard is aangemaakt). De koppeltabel kent
+    er maar één per ean. Welke dat is, mag niet afhangen van de volgorde waarin Bol ze
+    toevallig teruggeeft: bij versie 11 is dat de volgorde van laatste wijziging, en die
+    wisselt zodra een van de aanbiedingen wordt aangeraakt (ook door onze eigen voorraadupdate).
+    Regel: de aanbieding waar de koppeling al naar wijst blijft gekozen; bestaat die nog niet,
+    dan de aanbieding met het kleinste offerId. Zo is de keuze stabiel van run tot run.
+    'mapped_offer_ids' is {ean: offer_id} zoals nu in de koppeltabel staat.
+    """
+    chosen = {}
+    for offer in offers:
+        ean = offer["ean"]
+
+        def rank(o):
+            return (0 if mapped_offer_ids.get(ean) == o["offer_id"] else 1, o["offer_id"])
+
+        best = chosen.get(ean)
+        if best is None or rank(offer) <= rank(best):  # bij gelijke stand: de laatste, meest actuele
+            chosen[ean] = offer
+    return list(chosen.values())
+
+
 def sync_stock_with_bol():
     """
     Voorraad afstemmen met Bol — met opzet ASYMMETRISCH:
@@ -1284,6 +1318,10 @@ def sync_stock_with_bol():
     conn = get_connection()
     try:
         bol_offers = bol_client.get_all_offers()
+        with conn.cursor() as cur:
+            cur.execute("SELECT ean, offer_id FROM bol_offer_mapping")
+            mapped_offer_ids = {row["ean"]: row["offer_id"] for row in cur.fetchall()}
+        bol_offers = _choose_one_offer_per_ean(bol_offers, mapped_offer_ids)
         with conn.cursor() as cur:
             for offer in bol_offers:
                 cur.execute(
