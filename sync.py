@@ -2197,7 +2197,7 @@ def sync_stock_with_bol():
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT b.id, b.amount, m.offer_id, m.bol_stock
+                SELECT b.id, b.ean, b.amount, m.offer_id, m.bol_stock
                 FROM books b
                 JOIN bol_offer_mapping m ON m.ean = b.ean
                 WHERE b.id > 0 AND COALESCE(b.queued, FALSE) = FALSE
@@ -2208,6 +2208,7 @@ def sync_stock_with_bol():
 
         bol_adjustments = 0
         errors = []
+        gone = []  # aanbiedingen die bij Bol niet meer bestaan (bijvoorbeeld daar handmatig verwijderd)
         for row in rows:
             local_amount = row["amount"] or 0
             bol_stock = row["bol_stock"] or 0
@@ -2216,12 +2217,44 @@ def sync_stock_with_bol():
                     bol_client.update_offer_stock(row["offer_id"], local_amount)
                     bol_adjustments += 1
                 except bol_client.BolAPIError as e:
-                    errors.append(f"Bol {row['offer_id']}: {e}")
+                    if getattr(e, "status_code", None) != 404:
+                        errors.append(f"Bol {row['offer_id']}: {e}")
+                        continue
+                    # Een 404 betekent meestal dat de aanbieding bij Bol niet meer bestaat. Dan hield de koppeltabel
+                    # nog het laatste voorraadgetal van toen, en probeerde elke sync opnieuw het aantal aan te passen.
+                    # Eerst nagaan of de aanbieding echt weg is, anders is er iets anders aan de hand.
+                    try:
+                        exists = bol_client.offer_exists(row["offer_id"])
+                    except Exception:
+                        exists = None
+                    if exists is False:
+                        # De koppeling blijft staan (anders zou de app denken dat dit boek nog geen Bol-aanbieding heeft
+                        # en er een nieuwe aanmaken); alleen het onthouden getal gaat naar 0. Verschijnt de aanbieding
+                        # later weer bij Bol, dan wordt dit bij de volgende sync vanzelf ververst.
+                        with conn.cursor() as cur:
+                            cur.execute(
+                                "UPDATE bol_offer_mapping SET bol_stock = 0 WHERE offer_id = %(offer_id)s",
+                                {"offer_id": row["offer_id"]},
+                            )
+                        conn.commit()
+                        gone.append(f"{row.get('ean') or '?'} ({str(row['offer_id'])[:8]})")
+                    elif exists is True:
+                        errors.append(
+                            f"Bol {row['offer_id']}: {e} — maar de aanbieding bestaat wel (opvragen lukt), dus dit is "
+                            f"niet 'verwijderd bij Bol'"
+                        )
+                    else:
+                        errors.append(f"Bol {row['offer_id']}: {e}")
 
         detail = (
             f"{sold_count} {_n(sold_count, 'Bol-verkoop', 'Bol-verkopen')} verwerkt, "
             f"{bol_adjustments} {_n(bol_adjustments, 'Bol-aanbieding', 'Bol-aanbiedingen')} naar beneden bijgesteld"
         )
+        if gone:
+            detail += (
+                f", {len(gone)} {_n(len(gone), 'aanbieding bestaat', 'aanbiedingen bestaan')} niet meer bij Bol "
+                f"(onthouden getal op 0 gezet, voorraad niet aangepast): " + ", ".join(gone[:5])
+            )
         if errors:
             detail += f" — {len(errors)} fout(en): " + "; ".join(errors[:5])
         _log(conn, "sync", "stock", "ok" if not errors else "error", detail, platform="Bol")

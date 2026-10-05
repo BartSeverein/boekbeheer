@@ -49,7 +49,9 @@ _token_cache = {"token": None, "expires_at": 0}
 
 
 class BolAPIError(Exception):
-    pass
+    def __init__(self, message="", status_code=None):
+        super().__init__(message)
+        self.status_code = status_code  # de HTTP-status van Bol, als die er is (bijv. 404)
 
 
 def _error_detail(resp, limit=700):
@@ -265,7 +267,9 @@ def _update_offer_stock_v10(offer_id, amount, managed_by_retailer=True):
         timeout=20,
     )
     if resp.status_code not in (200, 202):
-        raise BolAPIError(f"Kon voorraad niet bijwerken bij Bol ({resp.status_code}): {_error_detail(resp)}")
+        raise BolAPIError(
+            f"Kon voorraad niet bijwerken bij Bol ({resp.status_code}): {_error_detail(resp)}", status_code=resp.status_code
+        )
     return resp.json()
 
 
@@ -500,7 +504,9 @@ def _update_offer_stock_v11(offer_id, amount, managed_by_retailer=True):
         timeout=20,
     )
     if resp.status_code not in (200, 202, 204):
-        raise BolAPIError(f"Kon voorraad niet bijwerken bij Bol ({resp.status_code}): {_error_detail(resp)}")
+        raise BolAPIError(
+            f"Kon voorraad niet bijwerken bij Bol ({resp.status_code}): {_error_detail(resp)}", status_code=resp.status_code
+        )
     body = (resp.text or "").strip()
     if not body:
         return {}
@@ -508,6 +514,22 @@ def _update_offer_stock_v11(offer_id, amount, managed_by_retailer=True):
         return resp.json()
     except ValueError:
         return {}
+
+
+def offer_exists(offer_id):
+    """
+    Bestaat deze aanbieding (nog) bij Bol? True of False; None als dat niet te zeggen is (versie 10, of Bol
+    geeft een andere fout). Wordt gebruikt om bij een 404 op een voorraadupdate te controleren of de
+    aanbieding echt weg is, of dat er iets anders aan de hand is.
+    """
+    if _offers_version() != 11:
+        return None
+    resp = _send("GET", f"{BASE_URL}/offers/{offer_id}", headers=_headers(accept=V11_MEDIA_TYPE), timeout=20)
+    if resp.status_code == 404:
+        return False
+    if resp.ok:
+        return True
+    return None
 
 
 def update_offer_stock(offer_id, amount, managed_by_retailer=True):
