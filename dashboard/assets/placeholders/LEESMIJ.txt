@@ -1,0 +1,12 @@
+Plaatjes in DEZE map zijn voorbeelden van "geen omslag beschikbaar"-plaatshouders (bijvoorbeeld
+"BOOK COVER NOT AVAILABLE"). De app vergelijkt elke automatisch opgehaalde omslag hiermee en slaat
+plaatjes over die erop lijken, zodat ze niet als foto bij een boek komen en niet naar Boekwinkeltjes gaan.
+
+BELANGRIJK: zet hier alleen plaatshouders in, nooit een echte omslag, een logo of een ander plaatje.
+Elk plaatje in deze map wordt als "nep" behandeld, en omslagen die erop lijken worden dan overgeslagen.
+Alleen deze map wordt gelezen. Andere plaatjes in assets (zoals het logo) doen niet mee, en ook
+geen mappen binnen deze map.
+
+Kom je een nieuwe soort plaatshouder tegen? Bewaar hem hier als .png, .jpg, .gif of .webp (elke naam,
+elk formaat) en commit hem. De vergelijking is ongevoelig voor formaat en compressie, dus een
+voorbeeld is genoeg. De app leest nieuwe voorbeelden direct in, zonder herstart.
