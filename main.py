@@ -13,6 +13,7 @@ Gebruik:
     python main.py pull-uploaded-images   # checken of gepushte afbeeldingen zijn verwerkt, en zo ja lokaal bevestigen
     python main.py quick-stock-sync       # lichte, snelle synchronisatie van alleen de voorraad (Boekwinkeltjes + Bol)
     python main.py test-bol-economic-operator   # veilige test: zoekt alleen de marktdeelnemer-ID op, verandert niets
+    python main.py photo-vacuum [real]   # fotostofzuiger: proefrun, of met 'real' echt afbeeldingsbestanden opruimen
     python main.py test-bol-offers-v11 [write-noop]   # veilige controle van Bol's aanbiedingen-API v11 (alleen lezen)
     python main.py push-new-books-to-bol  # ALLEEN nieuwe boeken (via de app aangemaakt) naar Bol pushen, verder niets
     python main.py drip-push-new-books    # druppelsgewijs (max 1 per interval, alleen in drukke perioden) nieuwe boeken naar Boekwinkeltjes
@@ -80,6 +81,12 @@ def main():
                 print(f"Gevonden! economicOperatorId voor '{sync.BOL_ECONOMIC_OPERATOR_NAME}': {operator_id}")
         except bol_client.BolAPIError as e:
             print(f"Mislukt: {e}")
+    elif command == "photo-vacuum":
+        # Fotostofzuiger: wist van oude foto's (die niet de voorkant zijn) het bestand, om de database
+        # klein te houden. Zonder 'real' is het een proefrun: er wordt niets gewijzigd.
+        real = len(sys.argv) > 2 and sys.argv[2] == "real"
+        for line in sync.photo_vacuum(real=real):
+            print(line)
     elif command == "test-bol-offers-v11":
         # Veilige controle van versie 11 van Bol's aanbiedingen-API: alleen lezen en vergelijken met
         # wat de app nu via versie 10 ziet. Met 'write-noop' wordt bij één aanbieding de voorraad
