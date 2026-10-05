@@ -33,6 +33,40 @@ class BolAPIError(Exception):
     pass
 
 
+def _error_detail(resp, limit=700):
+    """
+    Een leesbare samenvatting van een foutantwoord van Bol. Bij een validatiefout (400)
+    staat de echte reden in 'violations' (welk veld, en waarom). In de ruwe tekst komt
+    dat pas na de eerste ~300 tekens, dus daar afkappen verstopte precies wat je nodig
+    hebt om het te kunnen oplossen. Het request-id blijft erbij, want daar heeft Bol's
+    support iets aan. Is het antwoord geen JSON, dan blijft het de eerste 300 tekens.
+    """
+    raw = (resp.text or "")[:300]
+    try:
+        data = resp.json()
+    except ValueError:
+        return raw
+    if not isinstance(data, dict):
+        return raw
+    parts = []
+    violations = data.get("violations")
+    if isinstance(violations, list) and violations:
+        shown = [
+            ", ".join(f"{key}: {value}" for key, value in violation.items())
+            if isinstance(violation, dict) else str(violation)
+            for violation in violations[:5]
+        ]
+        parts.append("; ".join(shown))
+    else:
+        parts.extend(str(data[key]) for key in ("detail", "title") if data.get(key))
+    if not parts:
+        return raw
+    summary = " — ".join(parts)[:limit]
+    if data.get("X-Request-ID"):
+        summary += f" (request-id {data['X-Request-ID']})"
+    return summary
+
+
 def _is_retryable_response(response):
     """429 (te druk) en 503 (tijdelijk niet beschikbaar) komen in aanmerking voor een nieuwe poging."""
     return response.status_code in (429, 503)
@@ -71,7 +105,7 @@ def _get_access_token():
         timeout=15,
     )
     if not resp.ok:
-        raise BolAPIError(f"Bol-login mislukt ({resp.status_code}): {resp.text[:300]}")
+        raise BolAPIError(f"Bol-login mislukt ({resp.status_code}): {_error_detail(resp)}")
     data = resp.json()
     token = data.get("access_token")
     if not token:
@@ -95,7 +129,7 @@ def _request_offer_export():
         timeout=20,
     )
     if resp.status_code not in (200, 202):
-        raise BolAPIError(f"Kon offer-export niet aanvragen ({resp.status_code}): {resp.text[:300]}")
+        raise BolAPIError(f"Kon offer-export niet aanvragen ({resp.status_code}): {_error_detail(resp)}")
     data = resp.json()
     return data.get("processStatusId")
 
@@ -108,7 +142,7 @@ def _wait_for_process(process_status_id, max_wait_seconds=180, poll_interval=5):
             "GET", f"https://api.bol.com/shared/process-status/{process_status_id}", headers=_headers(), timeout=15
         )
         if not resp.ok:
-            raise BolAPIError(f"Kon processtatus niet ophalen ({resp.status_code}): {resp.text[:300]}")
+            raise BolAPIError(f"Kon processtatus niet ophalen ({resp.status_code}): {_error_detail(resp)}")
         status = resp.json()
         state = status.get("status")
         if state == "SUCCESS":
@@ -194,7 +228,7 @@ def get_all_offers():
         timeout=30,
     )
     if not resp.ok:
-        raise BolAPIError(f"Kon exportbestand niet downloaden ({resp.status_code}): {resp.text[:300]}")
+        raise BolAPIError(f"Kon exportbestand niet downloaden ({resp.status_code}): {_error_detail(resp)}")
     return _parse_offer_export_csv(resp.text)
 
 
@@ -212,7 +246,7 @@ def update_offer_stock(offer_id, amount, managed_by_retailer=True):
         timeout=20,
     )
     if resp.status_code not in (200, 202):
-        raise BolAPIError(f"Kon voorraad niet bijwerken bij Bol ({resp.status_code}): {resp.text[:300]}")
+        raise BolAPIError(f"Kon voorraad niet bijwerken bij Bol ({resp.status_code}): {_error_detail(resp)}")
     return resp.json()
 
 
@@ -260,7 +294,7 @@ def get_economic_operator_id(name):
     except requests.RequestException as e:
         raise BolAPIError(f"Kon marktdeelnemers niet ophalen: {e}")
     if not resp.ok:
-        raise BolAPIError(f"Kon marktdeelnemers niet ophalen ({resp.status_code}): {resp.text[:300]}")
+        raise BolAPIError(f"Kon marktdeelnemers niet ophalen ({resp.status_code}): {_error_detail(resp)}")
     try:
         data = resp.json()
     except ValueError:
@@ -309,7 +343,7 @@ def create_offer(ean, condition, price, stock_amount, reference, delivery_code, 
         timeout=20,
     )
     if resp.status_code not in (200, 202):
-        raise BolAPIError(f"Kon aanbieding niet aanmaken ({resp.status_code}): {resp.text[:300]}")
+        raise BolAPIError(f"Kon aanbieding niet aanmaken ({resp.status_code}): {_error_detail(resp)}")
     return resp.json().get("processStatusId")
 
 
@@ -335,7 +369,7 @@ def get_orders(status="ALL", fulfilment_method="ALL", max_pages=20):
             timeout=20,
         )
         if not resp.ok:
-            raise BolAPIError(f"Kon orders niet ophalen ({resp.status_code}): {resp.text[:300]}")
+            raise BolAPIError(f"Kon orders niet ophalen ({resp.status_code}): {_error_detail(resp)}")
         data = resp.json()
         orders = data.get("orders") or []
         if not orders:

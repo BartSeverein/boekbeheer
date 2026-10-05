@@ -1113,6 +1113,36 @@ BOL_DELIVERY_CODE = "MijnLeverbelofte"
 BOL_ECONOMIC_OPERATOR_NAME = "Severein Services"
 
 
+# Termen in 'Bijzonderheden' die de app zelf neerzet (jaar, bladzijden, band) of die
+# gewoon een standaardkenmerk zijn: dat is geen opmerking over de staat van het boek,
+# dus die gaan nooit als toelichting naar Bol.
+_BOL_STANDARD_TERM = re.compile(
+    r"\d{4}|\d+\s*(?:pp|p|blz|pag)\.?|\d*e?\s*(?:druk|herdruk)"
+    r"|gebonden|paperback|mass market paperback|hardcover|hardback|softcover|pocket|ingenaaid|geniet"
+    r"|spiraalgebonden|spiraal|spiral-bound|board book|library binding|kartonboek|gebrocheerd",
+    re.IGNORECASE,
+)
+# Bol wijst een toelichting af met een e-mailadres of telefoonnummer erin. Zo'n opmerking
+# dan liever weglaten dan de aanbieding laten mislukken (die zou elke halfuur opnieuw
+# geprobeerd worden, met steeds een foutmelding).
+_BOL_COMMENT_FORBIDDEN = re.compile(r"@|\+?\d[\d\s().-]{6,}\d")
+_BOL_COMMENT_MAX_CHARS = 500  # Bol staat 2000 toe; dit blijft er ruim onder
+
+
+def _bol_condition_remark(short_description):
+    """
+    Het laatste deel van 'Bijzonderheden' (na de laatste komma), als dat een opmerking
+    over de staat van het boek is, bijv. 'kaft ontbreekt' in '1999, 200pp, gebonden,
+    kaft ontbreekt'. Is het laatste deel een standaardterm (jaar, bladzijden, band,
+    druk) of bevat het een e-mailadres/telefoonnummer, dan is er geen opmerking: None.
+    """
+    last = (short_description or "").split(",")[-1]
+    last = re.sub(r"\s+", " ", last).strip(" .;:-\u2013\u2014\t")
+    if not last or _BOL_STANDARD_TERM.fullmatch(last) or _BOL_COMMENT_FORBIDDEN.search(last):
+        return None
+    return last[:_BOL_COMMENT_MAX_CHARS]
+
+
 def _derive_bol_condition(short_description):
     """
     Leidt de Bol-conditie (en een toelichtend commentaar) af uit het veld
@@ -1121,15 +1151,31 @@ def _derive_bol_condition(short_description):
       - 'nieuwstaat' -> tweedehands / zo goed als nieuw, 'Geen leessporen'
       - 'leessporen' -> tweedehands / redelijk, 'Leessporen'
       - anders -> tweedehands / goed, 'Leessporen'
+    Bij 'redelijk' en 'goed' (dus niet bij nieuw en zo goed als nieuw) komt daar de
+    laatste opmerking uit 'Bijzonderheden' achter, zodat een koper het ook weet als er
+    bijv. een kaft ontbreekt: '1999, 200pp, gebonden, kaft ontbreekt' wordt
+    'Leessporen, kaft ontbreekt'. Bevat die opmerking zelf al 'leessporen' (bijv. 'veel
+    leessporen'), dan vervangt zij het vaste woord in plaats van erbij te komen.
     """
     text = (short_description or "").lower()
     if ("nieuw" in text and "nieuwstaat" not in text) or "folie" in text:
         return {"category": "NEW"}, None
     if "nieuwstaat" in text:
         return {"category": "SECONDHAND", "name": "AS_NEW"}, "Geen leessporen"
-    if "leessporen" in text:
-        return {"category": "SECONDHAND", "name": "MODERATE"}, "Leessporen"
-    return {"category": "SECONDHAND", "name": "GOOD"}, "Leessporen"
+
+    condition = (
+        {"category": "SECONDHAND", "name": "MODERATE"}
+        if "leessporen" in text
+        else {"category": "SECONDHAND", "name": "GOOD"}
+    )
+    comment = "Leessporen"
+    remark = _bol_condition_remark(short_description)
+    if remark:
+        if "leessporen" in remark.lower():
+            comment = remark[0].upper() + remark[1:]
+        else:
+            comment = f"Leessporen, {remark}"
+    return condition, comment
 
 
 def push_new_books_to_bol():
