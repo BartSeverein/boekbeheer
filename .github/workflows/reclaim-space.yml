@@ -1,0 +1,53 @@
+name: Ruimte terugwinnen (wist niets)
+
+# Geeft lege ruimte in de database terug aan Supabase, zonder iets te wissen of te wijzigen: geen foto, geen
+# boek, geen enkel gegeven. Het herschrijft alleen de tabel met tijdelijke uploads (book_uploaded_images) als daar
+# minstens 10 MB leegstaat, en alleen als de database daarna nog ruim onder de limiet blijft.
+# Timing via cron-job.org. Zet uitvoeren op "nee" voor alleen een rapport.
+on:
+  workflow_dispatch:
+    inputs:
+      trigger_source:
+        description: "Wordt door cron-job.org meegestuurd om een geplande run te herkennen"
+        required: false
+        type: string
+        default: ""
+      uitvoeren:
+        description: 'Laat op "ja" om de lege ruimte echt terug te geven. Zet op "nee" voor alleen een rapport.'
+        required: false
+        type: string
+        default: "ja"
+
+jobs:
+  reclaim-space:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Ruimte terugwinnen
+        run: |
+          if [ "$UITVOEREN" = "nee" ]; then
+            python main.py reclaim-space rapport
+          else
+            python main.py reclaim-space
+          fi
+        env:
+          UITVOEREN: ${{ github.event.inputs.uitvoeren }}
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          BOEKWINKELTJES_ENV: ${{ secrets.BOEKWINKELTJES_ENV }}
+          BOEKWINKELTJES_API_KEY_SANDBOX: ${{ secrets.BOEKWINKELTJES_API_KEY_SANDBOX }}
+          BOEKWINKELTJES_API_KEY_LIVE: ${{ secrets.BOEKWINKELTJES_API_KEY_LIVE }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          SMTP_TO: ${{ secrets.SMTP_TO }}
+          TRIGGER_SOURCE: ${{ github.event.inputs.trigger_source }}
+          PYTHONUNBUFFERED: "1"
