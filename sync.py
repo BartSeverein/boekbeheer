@@ -1304,6 +1304,7 @@ def _vacuum_full_tables(tables):
             except Exception as e:
                 errors.append(f"{table}: {e}")
                 continue
+            conn.commit()  # de meting is klaar: geen transactie laten openstaan terwijl er herschreven wordt
             if not rows:
                 skipped.append((table, "de grootte is niet te meten"))
                 continue
@@ -1597,6 +1598,10 @@ def photo_vacuum(real=False, min_age_hours=PHOTO_VACUUM_MIN_AGE_HOURS):
         vacuum_errors = []
         size_after = None
         if real:
+            # Zelfde reden als bij reclaim_space: de rapportage hierboven heeft tabellen gelezen in een transactie die
+            # nog openstaat (bijvoorbeeld als er niets te wissen viel en dus nergens is gecommit). Eerst afsluiten,
+            # anders houdt deze verbinding de tabellen vast die hieronder worden herschreven.
+            conn.commit()
             vacuumed, vacuum_skipped, vacuum_errors = _vacuum_full_tables(_vacuum_plan(freed_actual, migrated_bytes))
             after = _safe_rows(conn, "SELECT COALESCE(sum(pg_database_size(datname)), 0) AS all_dbs FROM pg_database")
             size_after = after[0]["all_dbs"] if after else None
@@ -1723,6 +1728,10 @@ def reclaim_space(real=True):
         if will and not real:
             say(f"Bij uitvoeren wordt book_uploaded_images herschreven; dat geeft ongeveer {_mb(empty)} terug.")
         if will and real:
+            # De metingen hierboven hebben een transactie geopend waarin book_uploaded_images is gelezen. Zolang die
+            # openstaat, houdt deze verbinding de tabel vast en kan de herschrijving (op een andere verbinding) er niet
+            # bij: dan wacht de taak op zichzelf. Daarom die transactie eerst afsluiten.
+            conn.commit()
             vacuumed, skipped, errors = _vacuum_full_tables(["book_uploaded_images"])
             after = _safe_rows(conn, "SELECT COALESCE(sum(pg_database_size(datname)), 0) AS bytes FROM pg_database")
             size_after = after[0]["bytes"] if after else None
