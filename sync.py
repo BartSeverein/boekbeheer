@@ -1159,7 +1159,10 @@ def _derive_bol_condition(short_description):
     """
     text = (short_description or "").lower()
     if ("nieuw" in text and "nieuwstaat" not in text) or "folie" in text:
-        return {"category": "NEW"}, None
+        # Net als bij de tweedehands-condities hieronder zowel 'name' als 'category' meesturen:
+        # in Bol's eigen voorbeelden (v10) heeft elke conditie een 'name', ook NEW. Alleen
+        # {'category': 'NEW'} gaf een 400-validatiefout bij Bol.
+        return {"name": "NEW", "category": "NEW"}, None
     if "nieuwstaat" in text:
         return {"category": "SECONDHAND", "name": "AS_NEW"}, "Geen leessporen"
 
