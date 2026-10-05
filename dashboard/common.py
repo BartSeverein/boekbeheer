@@ -2095,11 +2095,14 @@ def find_existing_book_by_isbn(isbn, exclude_id=None):
 
 
 def get_database_size_mb():
-    """Huidige grootte van de Postgres-database in MB (via Postgres' eigen pg_database_size)."""
+    """
+    Huidige grootte van de database in MB, zoals Supabase de limiet toepast: de som over alle databases
+    (niet alleen die van de app). Zo geeft de grafiek op Home hetzelfde getal als de opslagmelding per mail.
+    """
     conn = psycopg2.connect(get_db_url())
     try:
         with conn.cursor() as cur:
-            cur.execute("SELECT pg_database_size(current_database())")
+            cur.execute("SELECT COALESCE(sum(pg_database_size(datname)), 0) FROM pg_database")
             size_bytes = cur.fetchone()[0]
             return size_bytes / (1024 * 1024)
     finally:
