@@ -38,6 +38,7 @@ import streamlit as st
 from dotenv import load_dotenv
 
 from categories import CATEGORY1_OPTIONS, CATEGORY2_OPTIONS
+from cover_check import check_cover_image
 
 load_dotenv()  # leest .env, ook als die in de bovenliggende (project)map staat
 
@@ -839,14 +840,15 @@ def get_all_images(book_id):
             # Eigen geüploade originelen die nog niet (bevestigd) gepusht zijn
             cur.execute(
                 """
-                SELECT id, image_data, content_type FROM book_uploaded_images
+                SELECT id, image_data, content_type, pushed_to_boekwinkeltjes FROM book_uploaded_images
                 WHERE book_id = %(book_id)s
-                ORDER BY position ASC
+                ORDER BY position ASC, id ASC
                 """,
                 {"book_id": book_id},
             )
-            for row_id, image_data, content_type in cur.fetchall():
-                data_uri = f"data:{content_type};base64,{base64.b64encode(bytes(image_data)).decode('ascii')}"
+            for row_id, image_data, content_type, pushed in cur.fetchall():
+                raw_bytes = bytes(image_data)
+                data_uri = f"data:{content_type};base64,{base64.b64encode(raw_bytes).decode('ascii')}"
                 results.append(
                     {
                         "url_large": data_uri,
@@ -855,6 +857,8 @@ def get_all_images(book_id):
                         "real_urls": [],  # nog niet door Boekwinkeltjes verwerkt: er is nog geen echte link
                         "source": "uploaded",
                         "ref_id": row_id,
+                        "pushed": bool(pushed),
+                        "is_placeholder": check_cover_image(raw_bytes) == "placeholder",
                     }
                 )
 
@@ -905,6 +909,16 @@ def get_all_images(book_id):
                     )
     finally:
         conn.close()
+
+    # Welke eigen upload is de hoofdfoto? De eerste in de volgorde, want die krijgt Boekwinkeltjes als eerste. Een
+    # andere kiezen kan alleen zolang er nog niets van dit boek bij Boekwinkeltjes staat (geen gepushte of
+    # bevestigde foto's): daarna is de eerste foto daar al bepaald.
+    uploaded = [img for img in results if img["source"] == "uploaded"]
+    has_confirmed = any(img["source"] == "confirmed" for img in results)
+    can_be_main = bool(uploaded) and not has_confirmed and not any(img["pushed"] for img in uploaded)
+    for index, img in enumerate(uploaded):
+        img["can_be_main"] = can_be_main
+        img["is_main"] = can_be_main and index == 0
     return results
 
 
@@ -938,7 +952,15 @@ def save_uploaded_images(book_id, images):
     conn = psycopg2.connect(get_db_url())
     try:
         with conn.cursor() as cur:
-            for position, img in enumerate(images):
+            # Nieuwe foto's komen NA de bestaande: de volgorde (position) bepaalt welke foto Boekwinkeltjes als
+            # eerste krijgt en dus als hoofdfoto toont. Zonder dit begon elke nieuwe reeks weer bij 0.
+            cur.execute(
+                "SELECT COALESCE(MAX(position), -1) + 1 FROM book_uploaded_images WHERE book_id = %(book_id)s",
+                {"book_id": int(book_id)},
+            )
+            start_position = cur.fetchone()[0]
+            for offset, img in enumerate(images):
+                position = start_position + offset
                 cur.execute(
                     """
                     INSERT INTO book_uploaded_images (book_id, image_data, content_type, is_main, position, pushed_to_boekwinkeltjes)
@@ -953,6 +975,121 @@ def save_uploaded_images(book_id, images):
                     },
                 )
         conn.commit()
+    finally:
+        conn.close()
+
+
+def order_main_first(images, main_index):
+    """
+    Zet de gekozen hoofdfoto vooraan en markeert alleen die als hoofdfoto. De volgorde bepaalt wat
+    Boekwinkeltjes als eerste krijgt, en dus als hoofdfoto toont; de vlag is_main alleen is daarvoor niet
+    genoeg. Een ongeldige keuze valt terug op de eerste foto.
+    """
+    if not images:
+        return []
+    if not (isinstance(main_index, int) and 0 <= main_index < len(images)):
+        main_index = 0
+    ordered = [images[main_index]] + [img for i, img in enumerate(images) if i != main_index]
+    return [{**img, "is_main": i == 0} for i, img in enumerate(ordered)]
+
+
+def set_uploaded_main(book_id, upload_id):
+    """
+    Maakt een eigen upload de hoofdfoto door hem vooraan te zetten. Dat werkt alleen zolang er nog niets van dit boek
+    bij Boekwinkeltjes staat (geen gepushte of bevestigde foto's): daarna is de eerste foto daar al bepaald.
+    Geeft True terug als het gelukt is, anders False (en wordt er niets gewijzigd).
+    """
+    conn = psycopg2.connect(get_db_url())
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT COUNT(*) FROM book_uploaded_images WHERE id = %(id)s AND book_id = %(book_id)s",
+                {"id": int(upload_id), "book_id": int(book_id)},
+            )
+            if cur.fetchone()[0] == 0:
+                return False
+            cur.execute(
+                "SELECT COUNT(*) FROM book_uploaded_images WHERE book_id = %(book_id)s AND pushed_to_boekwinkeltjes = TRUE",
+                {"book_id": int(book_id)},
+            )
+            already_pushed = cur.fetchone()[0]
+            cur.execute(
+                "SELECT COUNT(*) FROM book_images WHERE book_id = %(book_id)s AND image_id != -1",
+                {"book_id": int(book_id)},
+            )
+            already_confirmed = cur.fetchone()[0]
+            if already_pushed or already_confirmed:
+                return False
+            cur.execute(
+                """
+                WITH ordered AS (
+                    SELECT id, ROW_NUMBER() OVER (ORDER BY (id = %(id)s) DESC, position, id) - 1 AS new_position
+                    FROM book_uploaded_images WHERE book_id = %(book_id)s
+                )
+                UPDATE book_uploaded_images u
+                SET position = o.new_position, is_main = (u.id = %(id)s)
+                FROM ordered o WHERE u.id = o.id
+                """,
+                {"id": int(upload_id), "book_id": int(book_id)},
+            )
+        conn.commit()
+        return True
+    finally:
+        conn.close()
+
+
+def find_placeholder_uploads():
+    """
+    Zoekt eigen uploads die nog NIET naar Boekwinkeltjes zijn gestuurd en een plaatshouder blijken te zijn
+    ("BOOK COVER NOT AVAILABLE"). Geeft een lijst dicts {upload_id, book_id, title, ean}. Alleen kleine plaatjes
+    worden opgehaald (een plaatshouder is klein), zodat dit niet alle foto's door de lijn trekt.
+    """
+    conn = psycopg2.connect(get_db_url())
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT u.id, u.book_id, b.title, b.ean, u.image_data
+                FROM book_uploaded_images u JOIN books b ON b.id = u.book_id
+                WHERE u.pushed_to_boekwinkeltjes = FALSE AND octet_length(u.image_data) < 200000
+                ORDER BY u.book_id, u.position
+                """
+            )
+            rows = cur.fetchall()
+    finally:
+        conn.close()
+    return [
+        {"upload_id": r[0], "book_id": r[1], "title": r[2], "ean": r[3]}
+        for r in rows
+        if check_cover_image(bytes(r[4])) == "placeholder"
+    ]
+
+
+def delete_placeholder_uploads(upload_ids):
+    """
+    Verwijdert de opgegeven eigen uploads, maar alleen als ze nog niet gepusht zijn én nog steeds een plaatshouder
+    zijn (dat wordt hier opnieuw gecontroleerd). Geeft het aantal verwijderde foto's terug.
+    """
+    ids = [int(i) for i in upload_ids]
+    if not ids:
+        return 0
+    conn = psycopg2.connect(get_db_url())
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, image_data FROM book_uploaded_images WHERE id = ANY(%(ids)s) AND pushed_to_boekwinkeltjes = FALSE",
+                {"ids": ids},
+            )
+            confirmed = [row[0] for row in cur.fetchall() if check_cover_image(bytes(row[1])) == "placeholder"]
+            if not confirmed:
+                return 0
+            cur.execute(
+                "DELETE FROM book_uploaded_images WHERE id = ANY(%(ids)s) AND pushed_to_boekwinkeltjes = FALSE",
+                {"ids": confirmed},
+            )
+            deleted = cur.rowcount
+        conn.commit()
+        return deleted
     finally:
         conn.close()
 
@@ -1366,6 +1503,40 @@ def _strip_html(text):
 
 
 @st.cache_data(ttl=3600)
+def _download_cover(url):
+    """Haalt een omslagplaatje op. Geeft (bytes, content_type), of None als het niet lukt."""
+    try:
+        resp = requests.get(url, timeout=10)
+    except requests.RequestException:
+        return None
+    if resp.ok and resp.content:
+        return resp.content, resp.headers.get("Content-Type", "image/jpeg")
+    return None
+
+
+def pick_cover(candidates, open_library_url=None):
+    """
+    Probeert de omslag-bronnen in volgorde (lijst van (naam, url)) en neemt de eerste die een echte omslag is.
+    Een plaatshouder zoals "BOOK COVER NOT AVAILABLE", een onleesbaar of te klein plaatje wordt overgeslagen en
+    de volgende bron is aan de beurt; zo komt zo'n plaatje nooit als foto bij een boek terecht en gaat het niet
+    naar Boekwinkeltjes. Open Library komt als laatste terugval. Geeft
+    {'bytes', 'content_type', 'source', 'rejected'} terug; 'rejected' is een lijst van (bron, reden).
+    """
+    rejected = []
+    sources = list(candidates)
+    if open_library_url:
+        sources.append(("Open Library", open_library_url))
+    for name, url in sources:
+        downloaded = _download_cover(url)
+        if not downloaded:
+            continue
+        verdict = check_cover_image(downloaded[0])
+        if verdict == "ok":
+            return {"bytes": downloaded[0], "content_type": downloaded[1], "source": name, "rejected": rejected}
+        rejected.append((name, verdict))
+    return {"bytes": None, "content_type": None, "source": None, "rejected": rejected}
+
+
 def lookup_book_metadata_external(isbn):
     """
     Haalt boekgegevens (titel, auteur, uitgever, taal, omslagfoto, beschrijving,
@@ -1379,6 +1550,7 @@ def lookup_book_metadata_external(isbn):
         return None
 
     result = {}
+    cover_candidates = []  # (bron, url) in volgorde van voorkeur; zie pick_cover
 
     # 1) ISBNdb eerst — vaak Nederlandstalige beschrijvingen en heeft ook prijzen
     isbndb_data = lookup_isbndb(isbn)
@@ -1394,7 +1566,7 @@ def lookup_book_metadata_external(isbn):
         if isbndb_data.get("description"):
             result["description"] = isbndb_data["description"]
         if isbndb_data.get("cover_url"):
-            result["cover_url"] = isbndb_data["cover_url"]
+            cover_candidates.append(("ISBNdb", isbndb_data["cover_url"]))
         if isbndb_data.get("prices"):
             result["prices"] = isbndb_data["prices"]
         if isbndb_data.get("subjects"):
@@ -1439,8 +1611,8 @@ def lookup_book_metadata_external(isbn):
                     cover_url = cover_url.replace("http://", "https://").replace("&edge=curl", "")
                 if info.get("description") and "description" not in result:
                     result["description"] = info["description"]
-                if cover_url and "cover_url" not in result:
-                    result["cover_url"] = cover_url
+                if cover_url:
+                    cover_candidates.append(("Google Books", cover_url))
                 gb_dimensions = info.get("dimensions") or {}
                 google_dim_candidates = [
                     _parse_single_dimension_string(gb_dimensions.get("height")),
@@ -1453,16 +1625,20 @@ def lookup_book_metadata_external(isbn):
     except (requests.RequestException, ValueError):
         pass
 
-    # 3) Open Library als laatste terugval, vooral voor de omslagfoto
-    if "cover_url" not in result:
-        ol_cover = f"https://covers.openlibrary.org/b/isbn/{isbn}-L.jpg"
-        try:
-            head = requests.head(ol_cover, timeout=10, allow_redirects=True)
-            if head.ok and int(head.headers.get("Content-Length", "0")) > 1000:
-                result["cover_url"] = ol_cover
-                result.setdefault("source", "Open Library")
-        except requests.RequestException:
-            pass
+    # 3) De omslagfoto: de bronnen in volgorde proberen (ISBNdb, Google Books en als laatste Open Library) en de
+    # eerste nemen die een echte omslag is. Een plaatshouder als "BOOK COVER NOT AVAILABLE" wordt overgeslagen
+    # (zie cover_check); anders komt die als foto bij het boek en gaat hij naar Boekwinkeltjes.
+    cover = pick_cover(cover_candidates, open_library_url=f"https://covers.openlibrary.org/b/isbn/{isbn}-L.jpg")
+    if cover["bytes"]:
+        result["cover_bytes"] = cover["bytes"]
+        result["cover_content_type"] = cover["content_type"]
+        result["cover_source"] = cover["source"]
+        if cover["source"] == "Open Library":
+            result.setdefault("source", "Open Library")
+    else:
+        placeholders = [name for name, verdict in cover["rejected"] if verdict == "placeholder"]
+        if placeholders:
+            result["cover_rejected"] = placeholders
 
     if "description" not in result:
         try:
@@ -1488,17 +1664,6 @@ def lookup_book_metadata_external(isbn):
 
     if not result:
         return None
-
-    # De omslagfoto direct als bytes ophalen, zodat de pagina zelf geen netwerkcode nodig heeft
-    if "cover_url" in result:
-        try:
-            img_resp = requests.get(result["cover_url"], timeout=10)
-            if img_resp.ok and img_resp.content:
-                result["cover_bytes"] = img_resp.content
-                result["cover_content_type"] = img_resp.headers.get("Content-Type", "image/jpeg")
-        except requests.RequestException:
-            pass
-        del result["cover_url"]
 
     if result.get("description"):
         result["description"] = _strip_html(result["description"])
