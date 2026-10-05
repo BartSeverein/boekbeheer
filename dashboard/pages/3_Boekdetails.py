@@ -14,10 +14,13 @@ from pathlib import Path
 from common import (
     load_books,
     load_orders,
+    find_main_image_index,
     get_all_images,
+    image_identity_urls,
     format_price,
     format_datetime_nl,
     set_main_image_url,
+    star_url_for,
     format_isbn,
     save_book_edits,
     get_known_publishers,
@@ -208,12 +211,7 @@ else:
         images = get_all_images(chosen_id)
         main_image_url = b.get("main_image_url")
 
-        default_idx = 0
-        if main_image_url:
-            for i, img in enumerate(images):
-                if main_image_url in (img["url_large"], img["url_medium"], img["url_small"]):
-                    default_idx = i
-                    break
+        default_idx = find_main_image_index(images, main_image_url)
 
         idx_key = f"selected_image_idx_{chosen_id}"
         if idx_key not in st.session_state:
@@ -284,24 +282,29 @@ else:
                             f'<img src="{thumb_url}" style="height:160px; width:auto; max-width:100%; object-fit:contain;" />',
                             unsafe_allow_html=True,
                         )
-                        is_current_main = bool(main_image_url) and main_image_url in (
-                            img["url_large"],
-                            img["url_medium"],
-                            img["url_small"],
-                        )
+                        is_current_main = bool(main_image_url) and main_image_url in image_identity_urls(img)
                         b1, b2, b3 = st.columns([1, 1, 1])
                         with b1:
                             if st.button("🔍", key=f"thumb_btn_{chosen_id}_{i}"):
                                 st.session_state[idx_key] = i
                                 st.rerun()
                         with b2:
+                            star_url = star_url_for(img)
                             if is_current_main:
                                 st.markdown(
                                     "<div style='text-align:center;'>⭐</div>", unsafe_allow_html=True
                                 )
+                            elif star_url is None:
+                                # Nog geen echte link: de hele afbeelding als tekst in de boekenrij zetten
+                                # kost honderden kB per boek. Kan zodra Boekwinkeltjes de foto heeft verwerkt.
+                                st.button(
+                                    "⭐",
+                                    key=f"main_btn_{chosen_id}_{i}",
+                                    disabled=True,
+                                    help="Kan pas als Boekwinkeltjes deze foto heeft verwerkt",
+                                )
                             elif st.button("⭐", key=f"main_btn_{chosen_id}_{i}"):
-                                new_main_url = img["url_large"] or img["url_medium"] or img["url_small"]
-                                set_main_image_url(chosen_id, new_main_url)
+                                set_main_image_url(chosen_id, star_url)
                                 st.session_state[idx_key] = i
                                 get_all_images.clear()
                                 load_books.clear()
