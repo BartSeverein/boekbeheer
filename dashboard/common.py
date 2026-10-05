@@ -788,6 +788,39 @@ def create_new_book_draft(fields, user_short_name=None):
     return temp_id
 
 
+def image_identity_urls(img):
+    """
+    Alle links waaraan je een foto kunt herkennen: de echte links naar Boekwinkeltjes (die blijven
+    gelijk, ook als het lokale bestand wordt opgeruimd) en wat er getoond wordt (kan een
+    data-URI zijn, voor oudere voorkanten die zo zijn opgeslagen).
+    """
+    urls = list(img.get("real_urls") or [])
+    urls += [img.get("url_large"), img.get("url_medium"), img.get("url_small")]
+    return [u for u in urls if u]
+
+
+def star_url_for(img):
+    """
+    Wat in books.main_image_url hoort als je een foto met de ster aanwijst: een echte link naar
+    Boekwinkeltjes, nooit een data-URI. Een data-URI is de hele afbeelding als tekst, en zet dan
+    honderden kB in de boekenrij. None als de foto nog geen echte link heeft (nog niet verwerkt
+    door Boekwinkeltjes); die kan dan nog niet worden aangewezen.
+    """
+    for url in img.get("real_urls") or []:
+        if url:
+            return url
+    return None
+
+
+def find_main_image_index(images, main_image_url):
+    """Welke foto in de lijst is de hoofdafbeelding? De eerste die bij main_image_url past, anders de eerste."""
+    if main_image_url:
+        for i, img in enumerate(images):
+            if main_image_url in image_identity_urls(img):
+                return i
+    return 0
+
+
 @st.cache_data(ttl=300)
 def get_all_images(book_id):
     """
@@ -819,6 +852,7 @@ def get_all_images(book_id):
                         "url_large": data_uri,
                         "url_medium": data_uri,
                         "url_small": data_uri,
+                        "real_urls": [],  # nog niet door Boekwinkeltjes verwerkt: er is nog geen echte link
                         "source": "uploaded",
                         "ref_id": row_id,
                     }
@@ -836,6 +870,7 @@ def get_all_images(book_id):
                 {"book_id": book_id},
             )
             for image_id, url_large, url_medium, url_small, large_data, medium_data in cur.fetchall():
+                real_urls = [u for u in (url_large, url_medium, url_small) if u]
                 if large_data or medium_data:
                     large_src = (
                         f"data:image/jpeg;base64,{base64.b64encode(bytes(large_data)).decode('ascii')}"
@@ -852,6 +887,7 @@ def get_all_images(book_id):
                             "url_large": large_src or medium_src,
                             "url_medium": medium_src or large_src,
                             "url_small": medium_src or large_src,
+                            "real_urls": real_urls,
                             "source": "confirmed",
                             "ref_id": image_id,
                         }
@@ -862,6 +898,7 @@ def get_all_images(book_id):
                             "url_large": url_large,
                             "url_medium": url_medium,
                             "url_small": url_small,
+                            "real_urls": real_urls,
                             "source": "confirmed",
                             "ref_id": image_id,
                         }
