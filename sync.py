@@ -1234,6 +1234,56 @@ def _safe_rows(conn, sql, params=None):
         return None
 
 
+# Een herschrijving (VACUUM FULL) heeft tijdelijk ongeveer zoveel extra ruimte nodig als de tabel zelf.
+# Hij gebeurt alleen als de database daarna nog ruim onder de limiet blijft: anders kan de herschrijving de
+# database juist alleen-lezen maken.
+VACUUM_SAFETY_FRACTION = 0.95
+
+
+def _vacuum_full_tables(tables):
+    """
+    Herschrijft de opgegeven tabellen (VACUUM FULL), elk op een eigen verbinding, en geeft zo de lege ruimte
+    terug aan de database. Er wordt niets gewist of gewijzigd. De namen komen uit een vaste lijst van de
+    aanroeper. Een tabel wordt overgeslagen als de database na de herschrijving te dicht tegen de limiet
+    zou komen, of als de grootte niet te meten is. Geeft (herschreven, overgeslagen, fouten) terug, met bij
+    'overgeslagen' paren (tabel, reden) en bij 'fouten' teksten 'tabel: fout'.
+    """
+    done, skipped, errors = [], [], []
+    if not tables:
+        return done, skipped, errors
+    conn = get_connection()
+    try:
+        for table in tables:
+            try:
+                used = _database_size_bytes(conn)
+                rows = _safe_rows(conn, f"SELECT pg_total_relation_size('{table}') AS bytes")
+            except Exception as e:
+                errors.append(f"{table}: {e}")
+                continue
+            if not rows:
+                skipped.append((table, "de grootte is niet te meten"))
+                continue
+            table_bytes = rows[0]["bytes"]
+            if used + table_bytes > VACUUM_SAFETY_FRACTION * STORAGE_LIMIT_MB * 1024 * 1024:
+                skipped.append((table, f"de database zit op {_mb(used)} en de herschrijving heeft tijdelijk {_mb(table_bytes)} extra nodig"))
+                continue
+            try:
+                vacuum_conn = get_connection()
+                try:
+                    vacuum_conn.autocommit = True  # VACUUM kan niet binnen een transactie
+                    with vacuum_conn.cursor() as cur:
+                        cur.execute("SET lock_timeout = '30s'")
+                        cur.execute(f"VACUUM FULL {table}")
+                    done.append(table)
+                finally:
+                    vacuum_conn.close()
+            except Exception as e:
+                errors.append(f"{table}: {e}")
+    finally:
+        conn.close()
+    return done, skipped, errors
+
+
 def photo_vacuum(real=False, min_age_hours=PHOTO_VACUUM_MIN_AGE_HOURS):
     """
     De fotostofzuiger: houdt de database klein door
@@ -1490,22 +1540,11 @@ def photo_vacuum(real=False, min_age_hours=PHOTO_VACUUM_MIN_AGE_HOURS):
             return tables
 
         vacuumed = []
+        vacuum_skipped = []
         vacuum_errors = []
         size_after = None
         if real:
-            for table in _vacuum_plan(freed_actual, migrated_bytes):
-                try:
-                    vacuum_conn = get_connection()
-                    try:
-                        vacuum_conn.autocommit = True  # VACUUM kan niet binnen een transactie
-                        with vacuum_conn.cursor() as cur:
-                            cur.execute("SET lock_timeout = '30s'")
-                            cur.execute(f"VACUUM FULL {table}")  # 'table' komt uit een vaste lijst hierboven
-                        vacuumed.append(table)
-                    finally:
-                        vacuum_conn.close()
-                except Exception as e:
-                    vacuum_errors.append(f"{table}: {e}")
+            vacuumed, vacuum_skipped, vacuum_errors = _vacuum_full_tables(_vacuum_plan(freed_actual, migrated_bytes))
             after = _safe_rows(conn, "SELECT COALESCE(sum(pg_database_size(datname)), 0) AS all_dbs FROM pg_database")
             size_after = after[0]["all_dbs"] if after else None
 
@@ -1518,8 +1557,10 @@ def photo_vacuum(real=False, min_age_hours=PHOTO_VACUUM_MIN_AGE_HOURS):
                 say(f"Voorkanten omgezet naar een gewone link: {migrated} van de {len(fixes)} ({_mb(migrated_bytes)}).")
             if vacuumed:
                 say("Ruimte teruggegeven aan de database (VACUUM FULL): " + ", ".join(vacuumed) + ".")
-            elif not vacuum_errors:
+            elif not vacuum_errors and not vacuum_skipped:
                 say("Er was te weinig om aan de database terug te geven; de ruimte wordt hergebruikt.")
+            for table, reason in vacuum_skipped:
+                say(f"Overgeslagen (niet veilig): {table}, want {reason}.")
             for error in vacuum_errors:
                 say(f"LET OP: VACUUM FULL mislukte voor {error}; de ruimte is vrij maar de gemelde grootte daalt nog niet.")
             if size_before is not None and size_after is not None:
@@ -1539,6 +1580,8 @@ def photo_vacuum(real=False, min_age_hours=PHOTO_VACUUM_MIN_AGE_HOURS):
             parts.append(f"{plan['front_kept']} voorkanten bewaard")
             if vacuumed:
                 parts.append("ruimte teruggegeven: " + ", ".join(vacuumed))
+            if vacuum_skipped:
+                parts.append("overgeslagen omdat het niet veilig was: " + ", ".join(t for t, _ in vacuum_skipped))
             detail = ", ".join(parts)
             if size_before is not None and size_after is not None:
                 detail += f"; database {_mb(size_before)} -> {_mb(size_after)}"
@@ -1560,6 +1603,114 @@ def photo_vacuum(real=False, min_age_hours=PHOTO_VACUUM_MIN_AGE_HOURS):
     finally:
         conn.close()
     return lines
+
+
+# ---------- Ruimte terugwinnen: alleen lege ruimte teruggeven, niets wissen ----------
+
+def reclaim_space(real=True):
+    """
+    Geeft lege ruimte in de database terug aan Supabase, zonder iets te wissen of te wijzigen: geen foto,
+    geen boek, geen enkel gegeven. Het gaat om book_uploaded_images: daar worden eigen uploads tijdelijk
+    bewaard en na verwerking weer verwijderd. Wat vrijkomt blijft als lege ruimte in de tabel staan, en
+    telt zo mee voor de limiet, tot de tabel wordt herschreven (VACUUM FULL). Dat gebeurt pas als er
+    minstens 10 MB leegstaat, en alleen als de database daarna nog ruim onder de limiet blijft.
+
+    Met real=False alleen een rapport. Geeft regels tekst terug.
+    """
+    lines = []
+
+    def say(text=""):
+        lines.append(text)
+
+    say(f"== Ruimte terugwinnen: {'UITVOEREN' if real else 'ALLEEN RAPPORT'} (wist niets) ==")
+    say("Geeft lege ruimte in de database terug. Er wordt geen foto, boek of ander gegeven gewist of gewijzigd.")
+
+    conn = get_connection()
+    try:
+        sizes = _safe_rows(
+            conn,
+            "SELECT pg_database_size(current_database()) AS this_db, "
+            "(SELECT COALESCE(sum(pg_database_size(datname)), 0) FROM pg_database) AS all_dbs",
+        )
+        size_before = sizes[0]["all_dbs"] if sizes else None
+        say(
+            f"Database, zoals Supabase het telt: {_mb(sizes[0]['all_dbs'])} van {STORAGE_LIMIT_MB} MB"
+            if sizes else "Databasegrootte: niet op te vragen"
+        )
+        top = _safe_rows(
+            conn,
+            "SELECT n.nspname AS schema, c.relname AS name, pg_total_relation_size(c.oid) AS bytes "
+            "FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+            "WHERE c.relkind IN ('r', 'm') ORDER BY bytes DESC LIMIT 5",
+        )
+        if top:
+            say("Grootste onderdelen:")
+            for t in top:
+                say(f"   {t['schema']}.{t['name']}: {_mb(t['bytes'])}")
+
+        total = _safe_rows(conn, "SELECT pg_total_relation_size('book_uploaded_images') AS bytes")
+        live = _safe_rows(conn, "SELECT COALESCE(sum(octet_length(image_data)), 0) AS bytes FROM book_uploaded_images")
+        measured = bool(total) and live is not None and bool(live)
+        empty = 0
+        if measured:
+            empty = max(total[0]["bytes"] - live[0]["bytes"], 0)
+            say(
+                f"book_uploaded_images: tabelgrootte {_mb(total[0]['bytes'])}, echte inhoud {_mb(live[0]['bytes'])}, "
+                f"leeg {_mb(empty)}"
+            )
+        else:
+            say("LET OP: de lege ruimte in book_uploaded_images is niet te bepalen.")
+        will = measured and empty >= PHOTO_VACUUM_EMPTY_SPACE_THRESHOLD_BYTES
+        if measured and not will:
+            say(f"Minder dan {_mb(PHOTO_VACUUM_EMPTY_SPACE_THRESHOLD_BYTES)} leeg: niets te doen.")
+
+        vacuumed, skipped, errors = [], [], []
+        size_after = None
+        say()
+        if will and not real:
+            say(f"Bij uitvoeren wordt book_uploaded_images herschreven; dat geeft ongeveer {_mb(empty)} terug.")
+        if will and real:
+            vacuumed, skipped, errors = _vacuum_full_tables(["book_uploaded_images"])
+            after = _safe_rows(conn, "SELECT COALESCE(sum(pg_database_size(datname)), 0) AS bytes FROM pg_database")
+            size_after = after[0]["bytes"] if after else None
+            if vacuumed:
+                say(f"Ruimte teruggegeven: book_uploaded_images ({_mb(empty)} was leeg).")
+            for table, reason in skipped:
+                say(f"Overgeslagen (niet veilig): {table}, want {reason}.")
+            for error in errors:
+                say(f"LET OP: herschrijven mislukte voor {error}.")
+            if size_before is not None and size_after is not None:
+                say(f"Database: {_mb(size_before)} -> {_mb(size_after)}")
+
+        if not measured:
+            detail, status = "lege ruimte niet te bepalen", "error"
+        elif not will:
+            detail, status = f"niets te doen: {_mb(empty)} leeg in book_uploaded_images (onder {_mb(PHOTO_VACUUM_EMPTY_SPACE_THRESHOLD_BYTES)})", "ok"
+        elif not real:
+            detail, status = f"alleen rapport: {_mb(empty)} leeg in book_uploaded_images, zou worden teruggegeven", "ok"
+        else:
+            parts = []
+            if vacuumed:
+                parts.append(f"ruimte teruggegeven: book_uploaded_images ({_mb(empty)} was leeg)")
+            if skipped:
+                parts.append("overgeslagen omdat het niet veilig was: " + ", ".join(t for t, _ in skipped))
+            if errors:
+                parts.append("herschrijven mislukte: " + "; ".join(errors))
+            detail = ", ".join(parts)
+            if size_before is not None and size_after is not None and vacuumed:
+                detail += f"; database {_mb(size_before)} -> {_mb(size_after)}"
+            status = "error" if errors else "ok"
+        _log(conn, "cleanup", "space", status, detail)
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        _log(conn, "cleanup", "space", "error", str(e))
+        conn.commit()
+        raise
+    finally:
+        conn.close()
+    return lines
+
 
 
 # ---------- Opslagbewaking: een mail als de database vol raakt ----------

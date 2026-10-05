@@ -13,6 +13,7 @@ Gebruik:
     python main.py pull-uploaded-images   # checken of gepushte afbeeldingen zijn verwerkt, en zo ja lokaal bevestigen
     python main.py quick-stock-sync       # lichte, snelle synchronisatie van alleen de voorraad (Boekwinkeltjes + Bol)
     python main.py test-bol-economic-operator   # veilige test: zoekt alleen de marktdeelnemer-ID op, verandert niets
+    python main.py reclaim-space [rapport]  # geeft lege ruimte terug aan de database; wist NIETS (met 'rapport' alleen een rapport)
     python main.py check-storage [test]  # opslagcontrole: mailt bij 90/95/98/100% van de limiet; met 'test' een proefbericht
     python main.py photo-vacuum [real]   # fotostofzuiger: proefrun, of met 'real' echt afbeeldingsbestanden opruimen
     python main.py test-bol-offers-v11 [write-noop]   # veilige controle van Bol's aanbiedingen-API v11 (alleen lezen)
@@ -82,6 +83,12 @@ def main():
                 print(f"Gevonden! economicOperatorId voor '{sync.BOL_ECONOMIC_OPERATOR_NAME}': {operator_id}")
         except bol_client.BolAPIError as e:
             print(f"Mislukt: {e}")
+    elif command == "reclaim-space":
+        # Geeft lege ruimte terug aan de database (VACUUM FULL op book_uploaded_images) zonder iets te wissen
+        # of te wijzigen. Met 'rapport' alleen een rapport, zonder iets te herschrijven.
+        report_only = len(sys.argv) > 2 and sys.argv[2] == "rapport"
+        for line in sync.reclaim_space(real=not report_only):
+            print(line)
     elif command == "check-storage":
         # Opslagcontrole: mailt bij 90, 95, 98 en 100% van de limiet. Dit draait ook vanzelf als eerste stap
         # van elke volledige sync. Met 'test' komt er alleen een proefbericht, zonder iets op te slaan.
