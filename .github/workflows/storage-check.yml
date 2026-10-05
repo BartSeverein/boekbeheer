@@ -1,0 +1,47 @@
+name: Opslagcontrole (database)
+
+# Controleert hoe vol de database is en mailt bij 90, 95, 98 en 100% van de limiet van het gratis
+# Supabase-abonnement. Dit gebeurt ook vanzelf, als eerste stap van elke volledige sync; deze knop is
+# om het handmatig te doen of om te controleren dat de mail aankomt (zet dan proefmail op "ja":
+# er komt een proefbericht en er wordt niets opgeslagen).
+on:
+  workflow_dispatch:
+    inputs:
+      proefmail:
+        description: 'Zet op "ja" om alleen een proefbericht te sturen (er wordt niets opgeslagen of gewijzigd).'
+        required: false
+        type: string
+        default: "nee"
+
+jobs:
+  check-storage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Opslagcontrole
+        run: |
+          if [ "$PROEFMAIL" = "ja" ]; then
+            python main.py check-storage test
+          else
+            python main.py check-storage
+          fi
+        env:
+          PROEFMAIL: ${{ github.event.inputs.proefmail }}
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          BOEKWINKELTJES_ENV: ${{ secrets.BOEKWINKELTJES_ENV }}
+          BOEKWINKELTJES_API_KEY_SANDBOX: ${{ secrets.BOEKWINKELTJES_API_KEY_SANDBOX }}
+          BOEKWINKELTJES_API_KEY_LIVE: ${{ secrets.BOEKWINKELTJES_API_KEY_LIVE }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          SMTP_TO: ${{ secrets.SMTP_TO }}
+          PYTHONUNBUFFERED: "1"
