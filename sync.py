@@ -13,6 +13,7 @@ import io
 import json
 import os
 import re
+import time
 from zoneinfo import ZoneInfo
 
 import psycopg2
@@ -1238,6 +1239,47 @@ def _safe_rows(conn, sql, params=None):
 # Hij gebeurt alleen als de database daarna nog ruim onder de limiet blijft: anders kan de herschrijving de
 # database juist alleen-lezen maken.
 VACUUM_SAFETY_FRACTION = 0.95
+# Een herschrijving heeft de tabel heel even voor zichzelf nodig. Houdt een andere sessie de tabel vast, dan
+# wacht hij kort (zodat anderen er niet lang achter in de rij staan), wacht een tijdje en probeert het opnieuw.
+VACUUM_LOCK_ATTEMPTS = 5
+VACUUM_LOCK_TIMEOUT = "8s"
+VACUUM_LOCK_PAUSE_SECONDS = 20
+
+
+def _is_lock_timeout(error):
+    return getattr(error, "pgcode", None) == "55P03" or "lock timeout" in str(error).lower()
+
+
+def _describe_lock_holders(table):
+    """Wie houdt de tabel vast? Een korte tekst voor in de foutmelding (of 'onbekend' bij ontbrekende rechten)."""
+    conn = get_connection()
+    try:
+        rows = _safe_rows(
+            conn,
+            "SELECT DISTINCT ON (a.pid) a.pid, a.state, a.application_name, "
+            "to_char(now() - a.xact_start, 'HH24:MI:SS') AS open_for, left(a.query, 80) AS query "
+            "FROM pg_locks l JOIN pg_stat_activity a ON a.pid = l.pid "
+            f"WHERE l.relation = '{table}'::regclass AND l.granted AND l.pid <> pg_backend_pid() "
+            "ORDER BY a.pid",  # 'table' komt uit een vaste lijst
+        )
+    finally:
+        conn.close()
+    if rows is None:
+        return "onbekend (geen rechten om dat te zien)"
+    if not rows:
+        return "niemand meer (het was van voorbijgaande aard)"
+    parts = []
+    for r in rows[:3]:
+        what = f"sessie {r['pid']} ({r['state'] or 'onbekend'}"
+        if r.get("application_name"):
+            what += f", {r['application_name']}"
+        what += ")"
+        if r.get("open_for"):
+            what += f", transactie al {r['open_for']} open"
+        if r.get("query"):
+            what += f", laatste opdracht: {str(r['query']).strip()}"
+        parts.append(what)
+    return "; ".join(parts)
 
 
 def _vacuum_full_tables(tables):
@@ -1245,8 +1287,10 @@ def _vacuum_full_tables(tables):
     Herschrijft de opgegeven tabellen (VACUUM FULL), elk op een eigen verbinding, en geeft zo de lege ruimte
     terug aan de database. Er wordt niets gewist of gewijzigd. De namen komen uit een vaste lijst van de
     aanroeper. Een tabel wordt overgeslagen als de database na de herschrijving te dicht tegen de limiet
-    zou komen, of als de grootte niet te meten is. Geeft (herschreven, overgeslagen, fouten) terug, met bij
-    'overgeslagen' paren (tabel, reden) en bij 'fouten' teksten 'tabel: fout'.
+    zou komen, of als de grootte niet te meten is. Houdt een andere sessie de tabel vast, dan wordt het
+    een paar keer opnieuw geprobeerd; blijft dat mislukken, dan staat in de foutmelding wie hem vasthoudt.
+    Geeft (herschreven, overgeslagen, fouten) terug, met bij 'overgeslagen' paren (tabel, reden) en bij
+    'fouten' teksten 'tabel: fout'.
     """
     done, skipped, errors = [], [], []
     if not tables:
@@ -1267,18 +1311,27 @@ def _vacuum_full_tables(tables):
             if used + table_bytes > VACUUM_SAFETY_FRACTION * STORAGE_LIMIT_MB * 1024 * 1024:
                 skipped.append((table, f"de database zit op {_mb(used)} en de herschrijving heeft tijdelijk {_mb(table_bytes)} extra nodig"))
                 continue
-            try:
-                vacuum_conn = get_connection()
+            for attempt in range(1, VACUUM_LOCK_ATTEMPTS + 1):
                 try:
-                    vacuum_conn.autocommit = True  # VACUUM kan niet binnen een transactie
-                    with vacuum_conn.cursor() as cur:
-                        cur.execute("SET lock_timeout = '30s'")
-                        cur.execute(f"VACUUM FULL {table}")
-                    done.append(table)
-                finally:
-                    vacuum_conn.close()
-            except Exception as e:
-                errors.append(f"{table}: {e}")
+                    vacuum_conn = get_connection()
+                    try:
+                        vacuum_conn.autocommit = True  # VACUUM kan niet binnen een transactie
+                        with vacuum_conn.cursor() as cur:
+                            cur.execute(f"SET lock_timeout = '{VACUUM_LOCK_TIMEOUT}'")
+                            cur.execute(f"VACUUM FULL {table}")
+                        done.append(table)
+                    finally:
+                        vacuum_conn.close()
+                    break
+                except Exception as e:
+                    if _is_lock_timeout(e) and attempt < VACUUM_LOCK_ATTEMPTS:
+                        time.sleep(VACUUM_LOCK_PAUSE_SECONDS)  # niet in de rij blijven staan: even weg, dan opnieuw
+                        continue
+                    message = f"{table}: {str(e).strip()}"
+                    if _is_lock_timeout(e):
+                        message += f" (na {attempt} pogingen). De tabel werd vastgehouden door: {_describe_lock_holders(table)}"
+                    errors.append(message)
+                    break
     finally:
         conn.close()
     return done, skipped, errors
@@ -1622,7 +1675,7 @@ def reclaim_space(real=True):
     def say(text=""):
         lines.append(text)
 
-    say(f"== Ruimte terugwinnen: {'UITVOEREN' if real else 'ALLEEN RAPPORT'} (wist niets) ==")
+    say(f"== Ruimte terugwinnen: {'UITVOEREN' if real else 'ALLEEN RAPPORT'} (verwijdert geen gegevens) ==")
     say("Geeft lege ruimte in de database terug. Er wordt geen foto, boek of ander gegeven gewist of gewijzigd.")
 
     conn = get_connection()

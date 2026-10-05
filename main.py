@@ -13,7 +13,7 @@ Gebruik:
     python main.py pull-uploaded-images   # checken of gepushte afbeeldingen zijn verwerkt, en zo ja lokaal bevestigen
     python main.py quick-stock-sync       # lichte, snelle synchronisatie van alleen de voorraad (Boekwinkeltjes + Bol)
     python main.py test-bol-economic-operator   # veilige test: zoekt alleen de marktdeelnemer-ID op, verandert niets
-    python main.py reclaim-space [rapport]  # geeft lege ruimte terug aan de database; wist NIETS (met 'rapport' alleen een rapport)
+    python main.py reclaim-space [rapport]  # geeft lege ruimte terug aan de database; verwijdert geen gegevens (met 'rapport' alleen een rapport)
     python main.py check-storage [test]  # opslagcontrole: mailt bij 90/95/98/100% van de limiet; met 'test' een proefbericht
     python main.py photo-vacuum [real]   # fotostofzuiger: proefrun, of met 'real' echt afbeeldingsbestanden opruimen
     python main.py test-bol-offers-v11 [write-noop]   # veilige controle van Bol's aanbiedingen-API v11 (alleen lezen)
