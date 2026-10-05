@@ -1,0 +1,55 @@
+name: Fotostofzuiger (afbeeldingen opruimen)
+
+# Wist van oude foto's, die niet de voorkant zijn, het afbeeldingsbestand uit de database, zodat die
+# niet volloopt. De link naar Boekwinkeltjes blijft staan. Foto's die nog niet naar Boekwinkeltjes zijn
+# gestuurd (bijvoorbeeld van boeken in de wachtrij) worden nooit aangeraakt.
+#
+# Zonder echt_verwijderen = "ja" is het een proefrun: er wordt niets verwijderd, alleen getoond wat er
+# zou gebeuren. Timing via cron-job.org; de aanroep daar bepaalt of het een proefrun of echt is.
+on:
+  workflow_dispatch:
+    inputs:
+      trigger_source:
+        description: "Wordt door cron-job.org meegestuurd om een geplande run te herkennen"
+        required: false
+        type: string
+        default: ""
+      echt_verwijderen:
+        description: 'Zet op "ja" om echt op te ruimen. Anders is het een proefrun waarbij niets wordt verwijderd.'
+        required: false
+        type: string
+        default: "nee"
+
+jobs:
+  photo-vacuum:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Fotostofzuiger
+        run: |
+          if [ "$ECHT_VERWIJDEREN" = "ja" ]; then
+            python main.py photo-vacuum real
+          else
+            python main.py photo-vacuum
+          fi
+        env:
+          ECHT_VERWIJDEREN: ${{ github.event.inputs.echt_verwijderen }}
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          BOEKWINKELTJES_ENV: ${{ secrets.BOEKWINKELTJES_ENV }}
+          BOEKWINKELTJES_API_KEY_SANDBOX: ${{ secrets.BOEKWINKELTJES_API_KEY_SANDBOX }}
+          BOEKWINKELTJES_API_KEY_LIVE: ${{ secrets.BOEKWINKELTJES_API_KEY_LIVE }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          SMTP_TO: ${{ secrets.SMTP_TO }}
+          TRIGGER_SOURCE: ${{ github.event.inputs.trigger_source }}
+          PYTHONUNBUFFERED: "1"
