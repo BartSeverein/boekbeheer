@@ -463,6 +463,12 @@ def pull_bol_orders():
 
 
 def full_sync():
+    # Allereerst de opslagcontrole: is de database vol en dus alleen-lezen, dan falen alle stappen
+    # hierna, en dan moet er toch een mail komen. Een fout hierin mag de sync nooit tegenhouden.
+    try:
+        check_storage_alerts()
+    except Exception:
+        pass
     init_db()
     n_books = pull_books()
     n_orders = pull_orders()
@@ -1554,6 +1560,150 @@ def photo_vacuum(real=False, min_age_hours=PHOTO_VACUUM_MIN_AGE_HOURS):
     finally:
         conn.close()
     return lines
+
+
+# ---------- Opslagbewaking: een mail als de database vol raakt ----------
+
+# De limiet van het gratis Supabase-abonnement: komt de database boven deze grootte, dan wordt hij
+# alleen-lezen en kan er niets meer worden opgeslagen. (De 2 GB 'provisioned disk size' in Supabase is
+# schijfruimte en niet de limiet.) Stap je over op een betaald abonnement, pas dit dan aan, en
+# DB_LIMIT_MB in dashboard/Home.py, zodat de meldingen en de grafiek kloppen.
+STORAGE_LIMIT_MB = 500
+# Bij welk percentage van de limiet er een mail komt. 100 = vol: de database is dan alleen-lezen.
+STORAGE_ALERT_LEVELS = (90, 95, 98, 100)
+# Een niveau telt pas als verlaten als het gebruik zoveel procentpunt eronder zakt. Anders zou een
+# database die rond 90% schommelt steeds opnieuw mailen.
+STORAGE_ALERT_HYSTERESIS = 3
+STORAGE_ALERT_SETTING = "storage_alert_level"
+
+
+def _storage_alert_decision(pct, stored_level):
+    """
+    Bepaalt of er een mail moet komen. 'pct' is het gebruik in procenten van de limiet, 'stored_level'
+    het niveau dat al gemeld is. Geeft (te_melden_niveau of None, op_te_slaan_niveau) terug.
+    Is er in één keer meer dan één niveau gepasseerd, dan komt er één mail, voor het hoogste.
+    """
+    reached = max([level for level in STORAGE_ALERT_LEVELS if pct >= level], default=0)
+    if reached > stored_level:
+        return reached, reached
+    if stored_level and pct < stored_level - STORAGE_ALERT_HYSTERESIS:
+        return None, reached  # ruim eronder: niveau terugzetten (geen mail), zodat een volgende stijging weer meldt
+    return None, stored_level
+
+
+def _database_size_bytes(conn):
+    """De grootte zoals Supabase de limiet toepast: de som over alle databases."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT COALESCE(sum(pg_database_size(datname)), 0) AS bytes FROM pg_database")
+        return int(cur.fetchone()["bytes"])
+
+
+def _storage_alert_mail(level, used_bytes, pct, top_tables, test=False):
+    """Onderwerp en tekst van de opslagmelding."""
+    used_mb = used_bytes / (1024 * 1024)
+    pct_text = f"{pct:.1f}".replace(".", ",")
+    if test:
+        subject = "Proefbericht: opslagmelding van het boekbeheersysteem"
+        intro = "Dit is een proefbericht, om te laten zien dat de melding aankomt. Er is niets gewijzigd."
+    elif level >= 100:
+        subject = "🚨 Boekbeheersysteem: de database is vol (alleen-lezen)"
+        intro = (
+            f"De database zit op {pct_text}% van de limiet van het gratis Supabase-abonnement en is daarmee "
+            f"alleen-lezen geworden of staat op het punt dat te worden. Er kan dan niets meer worden "
+            f"opgeslagen: synchronisaties, nieuwe boeken en foto-uploads falen."
+        )
+    else:
+        subject = f"⚠️ Boekbeheersysteem: database op {level}% van de gratis ruimte"
+        intro = (
+            f"De database van je boekbeheersysteem zit op {pct_text}% van de limiet van het gratis "
+            f"Supabase-abonnement (melding bij {level}%)."
+        )
+    lines = [
+        intro,
+        "",
+        f"Gebruikt: {used_mb:.1f} MB van {STORAGE_LIMIT_MB} MB ({max(STORAGE_LIMIT_MB - used_mb, 0):.1f} MB vrij)".replace(".", ","),
+        f"Gemeten: {dt.datetime.now(ZoneInfo('Europe/Amsterdam')).strftime('%d-%m-%Y %H:%M')}",
+    ]
+    if top_tables:
+        lines += ["", "Grootste onderdelen:"]
+        lines += [f"  {t['schema']}.{t['name']}: {_mb(t['bytes'])}" for t in top_tables]
+    lines += [
+        "",
+        "Wat je kunt doen:",
+        "1. Betaald abonnement: Supabase, jouw organisatie, Billing, upgrade naar Pro ($25 per maand, 8 GB database). "
+        "Laat het weten als je overstapt, dan wordt de limiet in dit systeem aangepast.",
+        "2. Ruimte vrijmaken: GitHub, Actions, 'Fotostofzuiger (afbeeldingen opruimen)', Run workflow met "
+        "echt_verwijderen = ja. Dat wist de bestanden van oude foto's die niet de voorkant zijn.",
+        "",
+        f"Volgende meldingen komen bij {', '.join(str(l) + '%' for l in STORAGE_ALERT_LEVELS if l > level)}." if level < STORAGE_ALERT_LEVELS[-1] and not test else "",
+    ]
+    return subject, "\n".join(line for line in lines if line is not None).rstrip() + "\n"
+
+
+def check_storage_alerts(test_mail=False):
+    """
+    Controleert hoe vol de database is en mailt bij 90, 95, 98 en 100% van de limiet. Elk niveau wordt
+    één keer gemeld; wat al gemeld is, staat in app_settings. Het niveau wordt pas opgeslagen als de mail
+    echt is verstuurd, zodat een mislukte mail bij de volgende controle opnieuw wordt geprobeerd.
+    Met test_mail=True komt er een proefbericht en wordt er niets opgeslagen. Geeft regels tekst terug.
+    """
+    lines = []
+
+    def say(text=""):
+        lines.append(text)
+
+    conn = get_connection()
+    try:
+        used_bytes = _database_size_bytes(conn)
+        used_mb = used_bytes / (1024 * 1024)
+        pct = used_mb / STORAGE_LIMIT_MB * 100
+        try:
+            stored = int(_get_setting(conn, STORAGE_ALERT_SETTING, "0") or 0)
+        except (TypeError, ValueError):
+            stored = 0
+        say("== Opslagcontrole ==")
+        say(f"Database, zoals Supabase het telt: {_mb(used_bytes)} van {STORAGE_LIMIT_MB} MB ({f'{pct:.1f}'.replace('.', ',')}%)")
+        say(f"Meldingen bij: {', '.join(str(l) + '%' for l in STORAGE_ALERT_LEVELS)}  |  laatst gemeld niveau: {stored if stored else 'geen'}")
+
+        level, new_level = _storage_alert_decision(pct, stored)
+        if test_mail or level:
+            top_tables = _safe_rows(
+                conn,
+                "SELECT n.nspname AS schema, c.relname AS name, pg_total_relation_size(c.oid) AS bytes "
+                "FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+                "WHERE c.relkind IN ('r', 'm') ORDER BY bytes DESC LIMIT 5",
+            )
+            subject, body = _storage_alert_mail(level or 0, used_bytes, pct, top_tables, test=test_mail)
+            try:
+                notifications.send_email(subject=subject, body=body)
+            except Exception as e:
+                say(f"Mail {'(proefbericht) ' if test_mail else ''}mislukt: {e}")
+                if not test_mail:
+                    say("Het niveau is niet opgeslagen; de volgende controle probeert het opnieuw.")
+                return lines
+            if test_mail:
+                say("Proefbericht verstuurd. Er is niets opgeslagen of gewijzigd.")
+                return lines
+            say(f"Mail verstuurd voor {level}%.")
+            try:
+                _set_setting(conn, STORAGE_ALERT_SETTING, new_level)
+                _log(conn, "check", "storage", "ok", f"Opslagmelding verstuurd: {level}% ({_mb(used_bytes)} van {STORAGE_LIMIT_MB} MB)")
+                conn.commit()
+            except Exception:
+                conn.rollback()  # bijvoorbeeld als de database al alleen-lezen is; dan kan dit niet worden vastgelegd
+                say("Let op: het niveau kon niet worden opgeslagen, dus de volgende controle mailt opnieuw.")
+        elif new_level != stored:
+            try:
+                _set_setting(conn, STORAGE_ALERT_SETTING, new_level)
+            except Exception:
+                conn.rollback()
+            say(f"Gebruik is gedaald: niveau van {stored if stored else 'geen'} naar {new_level if new_level else 'geen'} (geen mail).")
+        else:
+            say("Geen melding nodig." if not stored else f"Geen nieuwe melding nodig (niveau {stored}% is al gemeld).")
+    finally:
+        conn.close()
+    return lines
+
 
 
 # ---------- Nieuwe boeken pushen naar Bol ----------
