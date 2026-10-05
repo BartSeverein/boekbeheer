@@ -1158,18 +1158,18 @@ def _derive_bol_condition(short_description):
     leessporen'), dan vervangt zij het vaste woord in plaats van erbij te komen.
     """
     text = (short_description or "").lower()
+    # De conditie staat hier in een neutrale vorm: {'category': 'NEW'} of {'category': 'SECONDHAND',
+    # 'state': ...}. bol_client._condition_payload vertaalt dat naar wat de gekozen versie van
+    # Bol's API verwacht (versie 10 wil bij 'nieuw' ook een 'name', versie 11 niet).
     if ("nieuw" in text and "nieuwstaat" not in text) or "folie" in text:
-        # Net als bij de tweedehands-condities hieronder zowel 'name' als 'category' meesturen:
-        # in Bol's eigen voorbeelden (v10) heeft elke conditie een 'name', ook NEW. Alleen
-        # {'category': 'NEW'} gaf een 400-validatiefout bij Bol.
-        return {"name": "NEW", "category": "NEW"}, None
+        return {"category": "NEW"}, None
     if "nieuwstaat" in text:
-        return {"category": "SECONDHAND", "name": "AS_NEW"}, "Geen leessporen"
+        return {"category": "SECONDHAND", "state": "AS_NEW"}, "Geen leessporen"
 
     condition = (
-        {"category": "SECONDHAND", "name": "MODERATE"}
+        {"category": "SECONDHAND", "state": "MODERATE"}
         if "leessporen" in text
-        else {"category": "SECONDHAND", "name": "GOOD"}
+        else {"category": "SECONDHAND", "state": "GOOD"}
     )
     comment = "Leessporen"
     remark = _bol_condition_remark(short_description)
@@ -1221,7 +1221,7 @@ def push_new_books_to_bol():
             try:
                 condition, comment = _derive_bol_condition(book["short_description"])
 
-                process_status_id = bol_client.create_offer(
+                new_offer_id = bol_client.create_offer(
                     ean=book["ean"],
                     condition=condition,
                     price=float(book["shipping_cost_bol"]),
@@ -1231,7 +1231,6 @@ def push_new_books_to_bol():
                     economic_operator_id=economic_operator_id,
                     comment=comment,
                 )
-                new_offer_id = bol_client.get_new_offer_id(process_status_id)
 
                 with conn.cursor() as cur:
                     cur.execute(
