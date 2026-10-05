@@ -38,10 +38,11 @@ LOGIN_URL = "https://login.bol.com/token"
 # op 1 februari 2027 door Bol uitgezet; versie 11 is de opvolger en werkt anders (direct
 # antwoord i.p.v. wachten op een processtatus, een lijst met pagina's i.p.v. een CSV-export,
 # 'state' i.p.v. 'name' bij de conditie, 'schedule' i.p.v. een leveringscode).
-# Zet dit op 11 zodra de controle (workflow 'Test Bol aanbiedingen v11') er goed uitziet.
-# Terug naar 10 kan op dezelfde manier, tot 1 februari 2027.
+# Staat op 11 sinds de controle (workflow 'Test Bol aanbiedingen v11') hetzelfde aanbod, dezelfde
+# voorraad en een werkende voorraadupdate liet zien. Terug naar 10 kan door hier 10 van te maken
+# (tot 1 februari 2027, daarna bestaat versie 10 niet meer).
 # Orders, concurrerende aanbiedingen enz. zijn aparte onderdelen van Bol's API en blijven op v10.
-OFFERS_API_VERSION = 10
+OFFERS_API_VERSION = 11
 V11_MEDIA_TYPE = "application/vnd.retailer.v11+json"
 
 _token_cache = {"token": None, "expires_at": 0}
@@ -690,6 +691,23 @@ def check_offers_v11(write_noop=False):
     say(f"Levering: {methods}  |  leverbelofte: {schedules}  |  conditie: {categories}")
     say(f"Leverbelofte-profielen op je aanbiedingen: {profiles or 'geen'}")
     say(f"Dit profiel krijgen nieuwe aanbiedingen: {get_delivery_profile_id_from_offers() if _offers_version() == 11 else '(alleen bij versie 11)'}")
+    # Aanbiedingen met je eigen leverbelofte maar zonder profiel: in Bol's filter "Mijn leverbelofte"
+    # tellen ze gewoon mee, maar het is goed om te kunnen nakijken welke het zijn.
+    without_profile = [
+        o for o in all_offers
+        if (o.get("fulfilment") or {}).get("schedule") == "MY_DELIVERY_PROMISE" and not (o.get("fulfilment") or {}).get("profileId")
+    ]
+    if profiles and without_profile:
+        say(f"Met je leverbelofte maar zonder profiel: {len(without_profile)} aanbiedingen (oudste wijziging eerst)")
+        say(f"   levering van de eerste: {(without_profile[0].get('fulfilment'))}")
+        for o in sorted(without_profile, key=lambda o: str(o.get("lastModifiedDateTime") or ""))[:60]:
+            cond = o.get("condition") or {}
+            say(
+                f"   ean {o.get('ean')}  locatie {o.get('reference') or '-'}  {cond.get('state') or cond.get('category')}"
+                f"  laatst gewijzigd {str(o.get('lastModifiedDateTime') or '?')[:10]}  offerId {str(o.get('offerId'))[:8]}"
+            )
+        if len(without_profile) > 60:
+            say(f"   ... en nog {len(without_profile) - 60} meer")
     offers_per_ean = {}
     for r in rows11:
         offers_per_ean.setdefault(r["ean"], []).append(r["offer_id"])
