@@ -1,8 +1,9 @@
-name: Ruimte terugwinnen (wist niets)
+name: Ruimte terugwinnen (verwijdert geen gegevens)
 
-# Geeft lege ruimte in de database terug aan Supabase, zonder iets te wissen of te wijzigen: geen foto, geen
-# boek, geen enkel gegeven. Het herschrijft alleen de tabel met tijdelijke uploads (book_uploaded_images) als daar
-# minstens 10 MB leegstaat, en alleen als de database daarna nog ruim onder de limiet blijft.
+# Geeft lege ruimte in de database terug aan Supabase, zonder gegevens te verwijderen of te wijzigen: geen
+# foto, geen boek, geen enkel gegeven. Het herschrijft alleen de tabel met tijdelijke uploads
+# (book_uploaded_images), als daar minstens 10 MB leegstaat en de database daarna nog ruim onder de limiet
+# blijft. Houdt een andere sessie de tabel even vast, dan probeert het een paar keer opnieuw.
 # Timing via cron-job.org. Zet uitvoeren op "nee" voor alleen een rapport.
 on:
   workflow_dispatch:
