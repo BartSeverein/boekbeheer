@@ -20,6 +20,7 @@ from common import (
     format_price,
     format_datetime_nl,
     set_main_image_url,
+    set_uploaded_main,
     star_url_for,
     format_isbn,
     save_book_edits,
@@ -39,6 +40,7 @@ from common import (
     determine_busstuk,
     get_shipping_costs,
     shipping_options_labels,
+    shipping_format_label,
 )
 from categories import CATEGORY1_OPTIONS, CATEGORY2_OPTIONS
 
@@ -237,6 +239,7 @@ else:
             st.markdown(f"**{price_label}:** €{format_price(b['price'])}")
             if show_logistics:
                 st.markdown(f"**Verzendkosten Boekwinkeltjes:** €{format_price(b['shipping_cost'])}")
+                st.markdown(f"**Verzendformaat Boekwinkeltjes:** {shipping_format_label(b.get('shipping_format'))}")
             st.markdown(f"**Voorraad:** {na(b['amount'])}")
         with info_col2:
             categories = [
@@ -282,7 +285,15 @@ else:
                             f'<img src="{thumb_url}" style="height:160px; width:auto; max-width:100%; object-fit:contain;" />',
                             unsafe_allow_html=True,
                         )
-                        is_current_main = bool(main_image_url) and main_image_url in image_identity_urls(img)
+                        if img.get("is_placeholder"):
+                            st.caption("⚠️ Lijkt een plaatshouder (geen echte omslag)")
+                        if img["source"] == "uploaded":
+                            # Een eigen upload die nog niet door Boekwinkeltjes is verwerkt: de hoofdfoto is de eerste in
+                            # de volgorde, dus die kies je door hem vooraan te zetten (zolang er nog niets van dit boek
+                            # bij Boekwinkeltjes staat).
+                            is_current_main = bool(img.get("is_main"))
+                        else:
+                            is_current_main = bool(main_image_url) and main_image_url in image_identity_urls(img)
                         b1, b2, b3 = st.columns([1, 1, 1])
                         with b1:
                             if st.button("🔍", key=f"thumb_btn_{chosen_id}_{i}"):
@@ -294,9 +305,20 @@ else:
                                 st.markdown(
                                     "<div style='text-align:center;'>⭐</div>", unsafe_allow_html=True
                                 )
+                            elif img["source"] == "uploaded" and img.get("can_be_main"):
+                                if st.button(
+                                    "⭐",
+                                    key=f"main_btn_{chosen_id}_{i}",
+                                    help="Maak dit de hoofdfoto: deze wordt als eerste naar Boekwinkeltjes gestuurd",
+                                ):
+                                    set_uploaded_main(chosen_id, img["ref_id"])
+                                    st.session_state[idx_key] = 0
+                                    get_all_images.clear()
+                                    st.rerun()
                             elif star_url is None:
-                                # Nog geen echte link: de hele afbeelding als tekst in de boekenrij zetten
-                                # kost honderden kB per boek. Kan zodra Boekwinkeltjes de foto heeft verwerkt.
+                                # Geen echte link om op te slaan. Bij een eigen upload betekent dat: er staan al foto's
+                                # van dit boek bij Boekwinkeltjes (die bepalen de hoofdfoto), of deze foto is gepusht
+                                # maar nog niet verwerkt.
                                 st.button(
                                     "⭐",
                                     key=f"main_btn_{chosen_id}_{i}",
