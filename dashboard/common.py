@@ -2361,14 +2361,59 @@ def autofill_book_fields_from_isbn(isbn):
 
 
 def get_queued_books():
-    """Boeken die in de wachtrij staan (na bulk-import), meest recent eerst."""
+    """
+    Boeken die in de wachtrij staan (na bulk-import), meest recent eerst. 'added_by' is de korte naam van wie
+    het boek heeft toegevoegd (uit het activiteitenlog); None bij oudere boeken waarvan dat niet is bijgehouden.
+    """
     conn = _dict_connect()
     try:
         with conn.cursor() as cur:
-            cur.execute("SELECT id, title, author, ean FROM books WHERE queued = TRUE ORDER BY id DESC")
+            cur.execute(
+                """
+                SELECT b.id, b.title, b.author, b.ean,
+                       (SELECT l.user_short_name FROM book_activity_log l
+                        WHERE l.book_id = b.id AND l.action = 'created'
+                        ORDER BY l.occurred_at LIMIT 1) AS added_by
+                FROM books b
+                WHERE b.queued = TRUE
+                ORDER BY b.id DESC
+                """
+            )
             return cur.fetchall()
     finally:
         conn.close()
+
+
+QUEUE_VIEW_MINE = "Boeken van mij"
+QUEUE_VIEW_ALL = "Alle boeken"
+
+
+def queued_counts(queued_books, user_short_name):
+    """(aantal boeken in de bulkwachtrij dat deze gebruiker heeft toegevoegd, aantal in totaal)."""
+    mine = sum(1 for book in queued_books if book.get("added_by") == user_short_name)
+    return mine, len(queued_books)
+
+
+def filter_queued_books(queued_books, user_short_name, view):
+    """De boeken die bij de gekozen weergave horen: alleen die van deze gebruiker, of alles."""
+    if view == QUEUE_VIEW_MINE:
+        return [book for book in queued_books if book.get("added_by") == user_short_name]
+    return list(queued_books)
+
+
+def queued_caption(mine, total):
+    """'20 boeken die ik heb toegevoegd in bulk wachten op handmatige controle, 44 in totaal.' (met 'boek ... wacht' bij 1)."""
+    woord = "boek dat" if mine == 1 else "boeken die"
+    werkwoord = "wacht" if mine == 1 else "wachten"
+    return f"{mine} {woord} ik heb toegevoegd in bulk {werkwoord} op handmatige controle, {total} in totaal."
+
+
+def queued_row_text(book):
+    """'Titel — Auteur — ISBN 978… (Bart)'; zonder '(naam)' als niet bekend is wie het boek toegevoegd heeft."""
+    text = f"**{book['title'] or '(geen titel)'}** — {book['author'] or '–'} — ISBN {book['ean'] or '–'}"
+    if book.get("added_by"):
+        text += f" ({book['added_by']})"
+    return text
 
 
 def info_box(message):

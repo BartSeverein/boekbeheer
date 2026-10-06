@@ -24,6 +24,9 @@ from common import (
     get_db_url,
     load_books,
     count_books_without_shipping_format,
+    get_queued_books,
+    queued_counts,
+    current_user_short_name,
     load_orders,
     format_price,
     format_order_status,
@@ -152,16 +155,22 @@ visible_books = books[(~queued_mask) & amount_mask] if not books.empty else book
 n_queued = int(queued_mask.sum()) if not books.empty else 0
 
 col1, col2, col3, col4, col5 = st.columns(5)
-col1.metric("Boeken in voorraad", int(visible_books["amount"].fillna(0).sum()) if not visible_books.empty else 0)
+col1.metric("In voorraad", int(visible_books["amount"].fillna(0).sum()) if not visible_books.empty else 0)
 col2.metric("Unieke titels", len(visible_books))
-col3.metric("Boeken in bulkwachtrij", n_queued)
+# Bulkwachtrij: eerst wat ik zelf heb toegevoegd, dan het totaal (bijv. 20/44).
+try:
+    _n_queued_mine, _n_queued_total = queued_counts(get_queued_books(), current_user_short_name())
+    _queue_value = f"{_n_queued_mine}/{_n_queued_total}"
+except Exception:
+    _queue_value = f"–/{n_queued}"  # wie wat heeft toegevoegd kon niet worden opgehaald; het totaal klopt wel
+col3.metric("Bulkwachtrij (ik/alles)", _queue_value)
 
 if not books.empty:
     bw_queue_mask = books["pending_create"].fillna(False).astype(bool) & books["push_enabled"].fillna(True).astype(bool)
     n_bw_queue = int(bw_queue_mask.sum())
 else:
     n_bw_queue = 0
-col4.metric("Boeken in BW-wachtrij", n_bw_queue)
+col4.metric("BW-wachtrij", n_bw_queue)
 
 if not orders.empty:
     seven_days_ago = pd.Timestamp.now() - pd.Timedelta(days=7)
