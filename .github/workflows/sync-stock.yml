@@ -17,6 +17,7 @@ concurrency:
 jobs:
   quick-stock-sync:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
