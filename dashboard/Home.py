@@ -406,13 +406,23 @@ with left2:
 
 with right2:
     st.subheader("Supabase-opslag")
-    db_size_mb = get_database_size_mb()
     DB_LIMIT_MB = 500.0
-    db_used_pct = min(db_size_mb / DB_LIMIT_MB * 100, 100)
-    fig_db = px.pie(
-        values=[db_size_mb, max(DB_LIMIT_MB - db_size_mb, 0)],
-        names=["Gebruikt", "Vrij"],
-        title=f"Databaseopslag: {db_used_pct:.1f}% van {DB_LIMIT_MB:.0f} MB",
-        hole=0.4,
-    )
-    st.plotly_chart(fig_db, width="stretch")
+    try:
+        # Zelf omzetten naar een gewoon kommagetal: Postgres levert een som als Decimal, en die laat zich niet
+        # delen door de limiet hieronder. Lukt het meten niet, dan een melding; één grafiek mag de pagina niet breken.
+        db_size_mb = float(get_database_size_mb())
+        db_error = None
+    except Exception as error:
+        db_size_mb = None
+        db_error = type(error).__name__
+    if db_size_mb is None:
+        st.info(f"De grootte van de database kon nu niet worden opgevraagd ({db_error}).")
+    else:
+        db_used_pct = min(db_size_mb / DB_LIMIT_MB * 100, 100)
+        fig_db = px.pie(
+            values=[db_size_mb, max(DB_LIMIT_MB - db_size_mb, 0)],
+            names=["Gebruikt", "Vrij"],
+            title=f"Databaseopslag: {db_used_pct:.1f}% van {DB_LIMIT_MB:.0f} MB",
+            hole=0.4,
+        )
+        st.plotly_chart(fig_db, width="stretch")
