@@ -1985,6 +1985,87 @@ WATCHDOG_STREAMS = (
 )
 
 
+# De einddatum van de GitHub-sleutel (dezelfde instelling als op Hulp en instellingen in het dashboard): mailen zoveel
+# dagen van tevoren. Verloopt de sleutel, dan stoppen alle geplande taken tegelijk. De waakhond zelf gebruikt die sleutel niet.
+WATCHDOG_TOKEN_KEY = "github_token_expires"
+WATCHDOG_TOKEN_DAYS = (30, 14, 7, 3, 1)
+
+
+WATCHDOG_TOKEN_NEVER = "never"  # in het dashboard aangevinkt: de sleutel verloopt niet, dus er is niets te bewaken
+
+
+def _parse_token_expiry(raw):
+    """De ingestelde einddatum als datum, 'never' als de sleutel niet verloopt, of None (niet ingesteld of onleesbaar)."""
+    text = str(raw).strip() if raw else ""
+    if text.lower() == WATCHDOG_TOKEN_NEVER:
+        return WATCHDOG_TOKEN_NEVER
+    try:
+        return dt.date.fromisoformat(text) if text else None
+    except ValueError:
+        return None
+
+
+def _watchdog_token_decision(days_left, token_state, expires_iso):
+    """
+    Bepaalt of er een mail komt over de einddatum van de GitHub-sleutel. 'days_left' is het aantal dagen tot de einddatum
+    (None = niet ingesteld), 'token_state' wat eerder is gemeld ({'for': einddatum, 'level': ...} of None). Geeft
+    (gebeurtenis, nieuwe_toestand) terug; de gebeurtenis is None, ('warn', dagen) of ('expired', -1). Elke grens (30, 14, 7, 3
+    en 1 dag) wordt per einddatum één keer gemeld, en de einddatum zelf telt al als verlopen. Is er een nieuwe, verre einddatum
+    ingevuld (de sleutel is vernieuwd), dan wordt de toestand opgeruimd en begint het opnieuw.
+    """
+    if days_left is None or days_left > WATCHDOG_TOKEN_DAYS[0]:
+        return None, None
+    level = -1 if days_left <= 0 else min(days for days in WATCHDOG_TOKEN_DAYS if days_left <= days)
+    stored = token_state.get("level") if token_state and token_state.get("for") == expires_iso else None
+    if stored is None or level < stored:
+        return (("expired", -1) if level == -1 else ("warn", level)), {"for": expires_iso, "level": level}
+    return None, token_state
+
+
+def _watchdog_token_line(token_expiry, today):
+    if token_expiry == WATCHDOG_TOKEN_NEVER:
+        return "- GitHub-sleutel: verloopt niet (zo ingesteld)"
+    if not token_expiry:
+        return "- GitHub-sleutel: einddatum niet ingesteld (vul hem in bij Hulp en instellingen in het dashboard)"
+    days = (token_expiry - today).days
+    when = token_expiry.strftime("%d-%m-%Y")
+    if days <= 0:
+        return f"- GitHub-sleutel: VERLOPEN of verloopt vandaag ({when})"
+    return f"- GitHub-sleutel: verloopt op {when} (nog {days} {'dag' if days == 1 else 'dagen'})"
+
+
+def _watchdog_token_mail(event, days_left, expiry):
+    when = expiry.strftime("%d-%m-%Y")
+    if event == "expired":
+        subject = "🚨 Boekbeheer: de GitHub-sleutel is verlopen"
+        intro = (
+            f"De GitHub-sleutel is verlopen of verloopt vandaag ({when}). De geplande taken en de knoppen in het "
+            f"dashboard werken daardoor niet meer: elke aanroep geeft 'Unauthorized' en de synchronisaties stoppen."
+        )
+    else:
+        unit = "dag" if days_left == 1 else "dagen"
+        subject = f"⚠️ Boekbeheer: de GitHub-sleutel verloopt over {days_left} {unit}"
+        intro = (
+            f"De GitHub-sleutel verloopt op {when}, over {days_left} {unit}. Daarna geeft elke geplande taak bij cron-job.org "
+            f"'Unauthorized', werken de knoppen in het dashboard niet meer en stoppen de synchronisaties."
+        )
+    lines = [
+        intro,
+        "",
+        "Zo vernieuw je hem:",
+        "1. GitHub (profielfoto rechtsboven): Settings, Developer settings, Personal access tokens, Fine-grained tokens.",
+        "2. Maak een nieuwe sleutel voor alleen de repository boekbeheer, met het recht 'Actions: Read and write', en kies de "
+        "langst mogelijke looptijd. Of kies 'Regenerate token' bij de bestaande sleutel, als GitHub dat aanbiedt.",
+        "3. Kopieer de nieuwe waarde meteen (GitHub toont hem maar één keer) en deel hem nergens, ook niet in een chat.",
+        "4. Vervang hem op twee plekken: in de Streamlit-instellingen (GITHUB_TOKEN) en in de kopregel Authorization "
+        "('Bearer ...') van elke job bij cron-job.org.",
+        "5. Vul de nieuwe einddatum in bij Hulp en instellingen in het dashboard. Dan stopt deze waarschuwing.",
+        "",
+        f"Deze waarschuwing komt bij {', '.join(str(d) for d in WATCHDOG_TOKEN_DAYS)} dagen voor de einddatum, en als hij verlopen is.",
+    ]
+    return subject, "\n".join(lines) + "\n"
+
+
 def _watchdog_decision(age_hours, stream_state, current_for):
     """
     Bepaalt wat er voor één onderdeel moet gebeuren. 'age_hours' is het aantal uur sinds de laatste geslaagde keer
@@ -2086,13 +2167,19 @@ def _watchdog_recovery_mail(events, last_ok, state, tz):
     return f"✅ Boekbeheer: synchronisatie draait weer ({names})", "\n".join(lines) + "\n"
 
 
-def _watchdog_overview_mail(last_ok, overview, db_bytes, week, now, tz, test=False):
+def _watchdog_overview_mail(last_ok, overview, db_bytes, week, now, tz, test=False, token_expiry=None):
     stale = [
         name for key, name, _w in WATCHDOG_STREAMS
         if not last_ok.get(key) or (now - last_ok[key]).total_seconds() / 3600 >= WATCHDOG_ALERT_HOURS[0]
     ]
-    lines = ["LET OP: " + " en ".join(stale) + " staat stil." if stale else "Alles werkt.", ""]
+    today = now.astimezone(tz).date()
+    token_days = (token_expiry - today).days if isinstance(token_expiry, dt.date) else None
+    lines = ["LET OP: " + " en ".join(stale) + " staat stil." if stale else "Alles werkt."]
+    if token_days is not None and token_days <= WATCHDOG_TOKEN_DAYS[0]:
+        lines.append("LET OP: de GitHub-sleutel " + ("is verlopen." if token_days <= 0 else f"verloopt over {token_days} dagen."))
+    lines.append("")
     lines += _watchdog_status_lines(last_ok, now, tz)
+    lines.append(_watchdog_token_line(token_expiry, today))
     if overview is not None:
         lines.append(
             f"- Afgelopen 24 uur, Boekwinkeltjes: {overview.get('ok', 0)} geslaagde en {overview.get('error', 0)} mislukte synchronisaties van boeken"
@@ -2114,7 +2201,7 @@ def _watchdog_overview_mail(last_ok, overview, db_bytes, week, now, tz, test=Fal
 
 def _watchdog_read(conn, need_overview):
     """Leest alles wat de waakhond nodig heeft in één keer, zodat een storing in de database op één plek wordt gevangen."""
-    data = {"last_ok": {}, "state": {}, "weekly": None, "recent": [], "overview": None, "db_bytes": None}
+    data = {"last_ok": {}, "state": {}, "weekly": None, "recent": [], "overview": None, "db_bytes": None, "token_expires": None}
     for key, _name, where in WATCHDOG_STREAMS:
         with conn.cursor() as cur:
             cur.execute(
@@ -2131,6 +2218,7 @@ def _watchdog_read(conn, need_overview):
     except ValueError:
         data["state"] = {}
     data["weekly"] = _get_setting(conn, WATCHDOG_WEEKLY_KEY, None)
+    data["token_expires"] = _get_setting(conn, WATCHDOG_TOKEN_KEY, None)
     with conn.cursor() as cur:
         cur.execute(
             "SELECT run_at, direction, resource, platform, status, left(detail, 120) AS detail "
@@ -2211,12 +2299,16 @@ def watchdog_check(now=None, test_mail=False):
 
     try:
         last_ok, state = data["last_ok"], data["state"]
+        token_expiry = _parse_token_expiry(data["token_expires"])
         for line in _watchdog_status_lines(last_ok, now, tz):
             say(line)
+        say(_watchdog_token_line(token_expiry, local.date()))
 
         if test_mail:
             week = f"{local.isocalendar()[0]}-W{local.isocalendar()[1]:02d}"
-            subject, body = _watchdog_overview_mail(last_ok, data["overview"], data["db_bytes"], week, now, tz, test=True)
+            subject, body = _watchdog_overview_mail(
+                last_ok, data["overview"], data["db_bytes"], week, now, tz, test=True, token_expiry=token_expiry
+            )
             if send(subject, body):
                 say("Proefbericht verstuurd. Er is niets opgeslagen of gewijzigd.")
             return lines, failed
@@ -2251,19 +2343,39 @@ def watchdog_check(now=None, test_mail=False):
                     saved_state.pop(key, None)
             else:
                 say("Het herstel is niet vastgelegd; de volgende controle probeert de mail opnieuw.")
+        # --- einddatum van de GitHub-sleutel ---
+        has_date = isinstance(token_expiry, dt.date)   # 'never' en 'niet ingesteld' hebben geen datum om af te tellen
+        days_left = (token_expiry - local.date()).days if has_date else None
+        token_event, token_state = _watchdog_token_decision(
+            days_left, state.get("token"), token_expiry.isoformat() if has_date else None
+        )
+        token_mailed = False
+        if token_event:
+            subject, body = _watchdog_token_mail(token_event[0], days_left, token_expiry)
+            if send(subject, body):
+                token_mailed = True
+                say(f"Mail verstuurd: de GitHub-sleutel verloopt {'(is verlopen)' if token_event[0] == 'expired' else f'over {days_left} dag(en)'}")
+                saved_state["token"] = token_state
+            else:
+                say("De waarschuwing over de GitHub-sleutel is niet vastgelegd; de volgende controle probeert het opnieuw.")
+        elif token_state is None and "token" in saved_state:
+            saved_state.pop("token")  # een nieuwe, verre einddatum (de sleutel is vernieuwd): opruimen
+
         if saved_state != state:
             try:
                 _set_setting(conn, WATCHDOG_STATE_KEY, json.dumps(saved_state))
             except Exception:
                 conn.rollback()
                 say("Let op: de toestand kon niet worden opgeslagen, dus de volgende controle kan dezelfde mail opnieuw sturen.")
-        if not alerts and not recoveries:
+        if not alerts and not recoveries and not token_mailed:
             say("Alles draait; geen melding nodig.")
 
         # --- weekoverzicht ---
         due, week = _watchdog_weekly_due(local, data["weekly"])
         if due:
-            subject, body = _watchdog_overview_mail(last_ok, data["overview"], data["db_bytes"], week, now, tz)
+            subject, body = _watchdog_overview_mail(
+                last_ok, data["overview"], data["db_bytes"], week, now, tz, token_expiry=token_expiry
+            )
             if send(subject, body):
                 say(f"Weekoverzicht verstuurd ({week}).")
                 try:
