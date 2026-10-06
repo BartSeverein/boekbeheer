@@ -1,0 +1,53 @@
+name: Waakhond (controleert of de synchronisatie draait)
+
+# Controleert elk uur of de synchronisatie van Boekwinkeltjes en Bol nog draait, en mailt als dat te lang niet zo is. Deze
+# controle draait via GitHub's EIGEN tijdschema en niet via cron-job.org, zodat hij blijft werken als cron-job.org stopt,
+# een job verloopt, of je GitHub-sleutel afloopt. Elke maandagochtend komt een kort overzicht.
+#
+# Let op: GitHub kan een tijdschema vertragen of een ronde overslaan bij drukte, en zet tijdschema's in een openbare
+# repository uit na 60 dagen zonder activiteit. Daarom: een afwijkende minuut (niet het hele uur), een uurlijkse controle
+# waarvan er één missen niets uitmaakt, en het weekoverzicht: komt dat een maandag niet, dan staat de waakhond zelf stil.
+on:
+  schedule:
+    - cron: "47 * * * *"
+  workflow_dispatch:
+    inputs:
+      proefmail:
+        description: 'Zet op "ja" om alleen een proefbericht met het overzicht te sturen (er wordt niets opgeslagen).'
+        required: false
+        type: string
+        default: "nee"
+
+jobs:
+  watchdog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Waakhond
+        run: |
+          if [ "$PROEFMAIL" = "ja" ]; then
+            python main.py watchdog test
+          else
+            python main.py watchdog
+          fi
+        env:
+          PROEFMAIL: ${{ github.event.inputs.proefmail }}
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          BOEKWINKELTJES_ENV: ${{ secrets.BOEKWINKELTJES_ENV }}
+          BOEKWINKELTJES_API_KEY_SANDBOX: ${{ secrets.BOEKWINKELTJES_API_KEY_SANDBOX }}
+          BOEKWINKELTJES_API_KEY_LIVE: ${{ secrets.BOEKWINKELTJES_API_KEY_LIVE }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          SMTP_TO: ${{ secrets.SMTP_TO }}
+          PYTHONUNBUFFERED: "1"
