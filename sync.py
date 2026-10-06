@@ -486,7 +486,8 @@ def backfill_shipping_format(real=False, briefpost=None, pakketpost=None, now_fu
     Normaal pakket (3). Boeken met een ander bedrag worden niet aangeraakt, maar wel getoond.
 
     Zonder real=True is het een proefrun: er wordt niets verstuurd of opgeslagen, alleen getoond wat er zou gebeuren.
-    Met real=True gaat per boek één kleine aanvraag (alleen shippingFormat) naar Boekwinkeltjes; pas als dat
+    Met real=True gaat per boek eerst een uitleesaanvraag en dan één kleine wijziging (shippingFormat plus de
+    prijs zoals Boekwinkeltjes die zelf geeft, want die eist de API bij elke wijziging) naar Boekwinkeltjes; pas als dat
     gelukt is, wordt het formaat ook lokaal bewaard. Daardoor is de job veilig opnieuw te draaien: wat klaar is
     wordt overgeslagen, en wat mislukte of door de tijdslimiet bleef liggen komt bij de volgende run aan bod.
 
@@ -560,7 +561,17 @@ def backfill_shipping_format(real=False, briefpost=None, pakketpost=None, now_fu
                 stopped_for_time = True
                 break
             try:
-                api_client.update_book(book_id, {"shippingFormat": fmt})
+                # Boekwinkeltjes eist bij elke wijziging ook de prijs ("price: validation.required"). Daarom eerst het
+                # boek zoals het NU bij hen staat ophalen en precies die prijs teruggeven: zo verandert er niets
+                # aan de prijs, ook niet als die net op de site is aangepast en onze kopie nog achterloopt.
+                current = api_client.get_book(book_id)
+                current_data = current.get("data", current) if isinstance(current, dict) else {}
+                current_price = current_data.get("price") if isinstance(current_data, dict) else None
+                if current_price is None:
+                    raise api_client.BoekwinkeltjesAPIError(
+                        f"GET boek {book_id}: Boekwinkeltjes gaf geen prijs terug; niets verstuurd"
+                    )
+                api_client.update_book(book_id, {"price": current_price, "shippingFormat": fmt})
             except api_client.BoekwinkeltjesAPIError as e:
                 if "-> 404:" in str(e):
                     gone += 1  # bestaat niet meer bij Boekwinkeltjes; de gewone sync ruimt dat op
