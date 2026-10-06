@@ -20,6 +20,12 @@ from common import (
     autofill_book_fields_from_isbn,
     create_new_book_draft,
     get_queued_books,
+    queued_counts,
+    filter_queued_books,
+    queued_caption,
+    queued_row_text,
+    QUEUE_VIEW_MINE,
+    QUEUE_VIEW_ALL,
     info_box,
     delete_book,
     save_uploaded_images,
@@ -173,13 +179,19 @@ queued_books = get_queued_books()
 if not queued_books:
     info_box("Geen boeken in de wachtrij.")
 else:
-    woord = "boek" if len(queued_books) == 1 else "boeken"
-    werkwoord = "wacht" if len(queued_books) == 1 else "wachten"
-    st.caption(f"{len(queued_books)} {woord} {werkwoord} op handmatige controle.")
-    for book in queued_books:
+    my_name = current_user_short_name()
+    n_mine, n_total = queued_counts(queued_books, my_name)
+    queue_view = st.radio(
+        "Toon", [QUEUE_VIEW_MINE, QUEUE_VIEW_ALL], horizontal=True, key="bulk_queue_view", label_visibility="collapsed"
+    )
+    st.caption(queued_caption(n_mine, n_total))
+    shown_books = filter_queued_books(queued_books, my_name, queue_view)
+    if not shown_books:
+        info_box(f"Je hebt geen boeken in de wachtrij staan. Kies '{QUEUE_VIEW_ALL}' om de rest te zien.")
+    for book in shown_books:
         col_info, col_edit, col_delete = st.columns([5, 1, 1])
         with col_info:
-            st.write(f"**{book['title'] or '(geen titel)'}** — {book['author'] or '–'} — ISBN {book['ean'] or '–'}")
+            st.write(queued_row_text(book))
         with col_edit:
             if st.button("Bewerken", key=f"edit_queued_{book['id']}"):
                 st.session_state["preselect_book_id"] = book["id"]
