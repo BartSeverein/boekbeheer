@@ -3248,11 +3248,39 @@ def _rows_to_csv_bytes(rows):
     return output.getvalue().encode("utf-8-sig")
 
 
+# E-mailbijlagen worden door het versturen groter (base64, ongeveer +37%). Gmail weigert berichten boven 25 MB,
+# dus houden we de bijlage zelf onder de 17 MB.
+EMAIL_MAX_ATTACHMENT_BYTES = 17 * 1024 * 1024
+
+
+class BackupProblem(Exception):
+    """De back-up is niet (veilig) op de bedoelde plek gekomen; het draaien van de job wordt 'rood'."""
+
+
+def _build_backup_zip(today_str, books_rows, orders_rows):
+    """Eén gecomprimeerd zip-bestand met boeken_JJJJ-MM-DD.csv en orders_JJJJ-MM-DD.csv (CSV comprimeert zeer goed)."""
+    import zipfile
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
+        archive.writestr(f"boeken_{today_str}.csv", _rows_to_csv_bytes(books_rows))
+        archive.writestr(f"orders_{today_str}.csv", _rows_to_csv_bytes(orders_rows))
+    return buffer.getvalue()
+
+
 def send_daily_csv_export():
     """
-    Stuurt een dagelijkse e-mail met de volledige boeken- en orderlijst als
-    CSV-bijlagen — een eenvoudige, periodieke back-up tegen dataverlies.
+    Dagelijkse back-up van de volledige boeken- en orderlijst (CSV, gezipt).
+
+    Is Dropbox ingesteld (zie dropbox_backup.py), dan komt de back-up in Dropbox te staan (map 'back-ups', de laatste
+    30 dagen blijven bewaard) en bevat de e-mail alleen een melding met een link naar Dropbox, zonder bijlage. Zo staat de
+    back-up buiten je mailbox en blijft hij niet afhankelijk van de maximale grootte van een e-mail.
+
+    Lukt Dropbox niet, of is het niet ingesteld, dan gaat de back-up als bijlage mee als die klein genoeg is. Is hij te
+    groot voor een e-mail, dan komt er geen bijlage maar een foutmelding, en wordt de job 'rood' in GitHub Actions: een
+    back-up die ongemerkt niet aankomt is erger dan een melding.
     """
+    import dropbox_backup
+
     conn = get_connection()
     try:
         with conn.cursor() as cur:
@@ -3262,23 +3290,84 @@ def send_daily_csv_export():
             orders_rows = cur.fetchall()
 
         today_str = dt.datetime.now(dt.timezone.utc).date().isoformat()
-        attachments = [
-            (f"boeken_{today_str}.csv", _rows_to_csv_bytes(books_rows), "text/csv"),
-            (f"orders_{today_str}.csv", _rows_to_csv_bytes(orders_rows), "text/csv"),
-        ]
-        notifications.send_email(
-            subject=f"📚 Boekbeheersysteem: dagelijkse back-up ({today_str})",
-            body=(
-                f"Bijgevoegd: een volledige export van je boeken ({len(books_rows)}) en "
-                f"orders ({len(orders_rows)}) van vandaag, als eenvoudige back-up tegen dataverlies."
-            ),
-            attachments=attachments,
+        zip_bytes = _build_backup_zip(today_str, books_rows, orders_rows)
+        filename = f"boekbeheer_back-up_{today_str}.zip"
+        size_mb = len(zip_bytes) / 1024 / 1024
+        summary = f"{len(books_rows)} boeken, {len(orders_rows)} orders, {size_mb:.1f} MB"
+        can_attach = len(zip_bytes) <= EMAIL_MAX_ATTACHMENT_BYTES
+        subject = f"📚 Boekbeheersysteem: dagelijkse back-up ({today_str})"
+
+        dropbox_error = None
+        stored_in_dropbox = False
+        pruned = 0
+        prune_error = None
+        if dropbox_backup.is_configured():
+            try:
+                token = dropbox_backup.get_access_token()
+                dropbox_backup.upload_backup(token, filename, zip_bytes)
+                stored_in_dropbox = True
+                try:
+                    pruned = dropbox_backup.prune_old_backups(token)
+                except Exception as e:  # opruimen is bijzaak: de back-up zelf is gelukt
+                    prune_error = str(e)
+            except Exception as e:
+                dropbox_error = str(e)
+
+        if stored_in_dropbox:
+            body = (
+                f"De back-up van vandaag ({summary}) is opgeslagen in je Dropbox, in de map 'back-ups' van de app-map.\n"
+                f"Bestand: {filename}\n\n"
+                f"Open Dropbox (inloggen vereist): {dropbox_backup.DROPBOX_FOLDER_URL}\n\n"
+                f"Er is bewust geen openbare link gemaakt, omdat de back-up persoonsgegevens van kopers bevat. "
+                f"De laatste {dropbox_backup.KEEP_DAYS} dagen blijven bewaard"
+                + (f"; {pruned} oudere {_n(pruned, 'back-up is', 'back-ups zijn')} vandaag opgeruimd." if pruned else ".")
+            )
+            if prune_error:
+                body += f"\n\nLet op: oude back-ups opruimen lukte niet ({prune_error}). Dit is geen probleem voor de back-up van vandaag."
+            notifications.send_email(subject=subject, body=body)
+            detail = f"back-up in Dropbox gezet ({summary})"
+            if pruned:
+                detail += f", {pruned} oude opgeruimd"
+            if prune_error:
+                detail += f"; opruimen mislukt: {prune_error}"
+            _log(conn, "export", "daily_csv", "ok", detail)
+            conn.commit()
+            return
+
+        if dropbox_error is None:
+            # Dropbox is niet ingesteld: de back-up gaat als bijlage mee, als dat past.
+            if can_attach:
+                notifications.send_email(
+                    subject=subject,
+                    body=(
+                        f"Bijgevoegd: een volledige export van je boeken ({len(books_rows)}) en orders ({len(orders_rows)}) "
+                        f"van vandaag, als eenvoudige back-up tegen dataverlies ({size_mb:.1f} MB, gezipt)."
+                    ),
+                    attachments=[(filename, zip_bytes, "application/zip")],
+                )
+                _log(conn, "export", "daily_csv", "ok", f"back-up gemaild ({summary})")
+                conn.commit()
+                return
+            raise BackupProblem(
+                f"De back-up ({summary}) is te groot voor een e-mail en Dropbox is niet ingesteld, dus er is vandaag GEEN "
+                f"back-up gemaakt. Stel Dropbox in (zie dropbox_backup.py) om dit op te lossen."
+            )
+
+        # Dropbox is wel ingesteld maar mislukte.
+        if can_attach:
+            notifications.send_email(
+                subject=f"⚠️ {subject} — Dropbox mislukt, back-up als bijlage",
+                body=(
+                    f"Het opslaan in Dropbox is mislukt: {dropbox_error}\n\n"
+                    f"Om geen back-up te missen is die van vandaag ({summary}) alsnog als bijlage bijgevoegd."
+                ),
+                attachments=[(filename, zip_bytes, "application/zip")],
+            )
+            raise BackupProblem(f"Opslaan in Dropbox mislukt ({dropbox_error}); de back-up is als bijlage gemaild ({summary}).")
+        raise BackupProblem(
+            f"Opslaan in Dropbox mislukt ({dropbox_error}) en de back-up ({summary}) is te groot voor een e-mail, "
+            f"dus er is vandaag GEEN back-up gemaakt."
         )
-        _log(
-            conn, "export", "daily_csv", "ok",
-            f"CSV-back-up gemaild ({len(books_rows)} boeken, {len(orders_rows)} orders)",
-        )
-        conn.commit()
     except Exception as e:
         conn.rollback()
         _log(conn, "export", "daily_csv", "error", str(e))

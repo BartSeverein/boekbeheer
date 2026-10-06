@@ -155,7 +155,7 @@ def main():
             print(line)
     elif command == "send-daily-csv-export":
         sync.send_daily_csv_export()
-        print("Dagelijkse CSV-back-up verstuurd per e-mail.")
+        print("Dagelijkse CSV-back-up klaar (Dropbox, of anders per e-mail; zie 'Laatste sync-runs' op Home).")
     else:
         print(f"Onbekend commando: {command}")
         print(__doc__)
