@@ -1,0 +1,65 @@
+name: Verzendformaat vullen (eenmalig)
+
+# Eenmalige job: Boekwinkeltjes heeft een nieuw, verplicht veld 'verzendformaat' bij elk boek. Deze job vult dat
+# voor bestaande boeken op basis van de verzendkosten: briefpost -> Brievenbuspakje, pakketpost -> Normaal pakket.
+#
+# Standaard is het een PROEFRUN: er wordt alleen geteld en getoond wat er zou gebeuren. Zet 'echt_uitvoeren' op "ja"
+# om het echt door te voeren. De job is veilig opnieuw te draaien: wat klaar is wordt overgeslagen.
+# Hij draait niet vanzelf; start hem met 'Run workflow' in de Actions-tab.
+on:
+  workflow_dispatch:
+    inputs:
+      echt_uitvoeren:
+        description: 'Zet op "ja" om echt naar Boekwinkeltjes te sturen. Anders is het een proefrun waarbij niets wordt verstuurd.'
+        required: false
+        type: string
+        default: "nee"
+      briefpost:
+        description: "Verzendkosten van briefpost in euro's (leeg = de waarde uit Hulp en instellingen)"
+        required: false
+        type: string
+        default: ""
+      pakketpost:
+        description: "Verzendkosten van pakketpost in euro's (leeg = de waarde uit Hulp en instellingen)"
+        required: false
+        type: string
+        default: ""
+
+# Bewust GEEN 'concurrency'-groep: de job kan een half uur duren en mag de gewone synchronisatie (bestellingen
+# en voorraad) niet ophouden. Ze botsen niet: deze job raakt alleen het verzendformaat aan.
+
+jobs:
+  backfill-shipping-format:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Verzendformaat vullen
+        run: |
+          if [ "$ECHT_UITVOEREN" = "ja" ]; then
+            python main.py backfill-shipping-format real "$BRIEFPOST" "$PAKKETPOST"
+          else
+            python main.py backfill-shipping-format "$BRIEFPOST" "$PAKKETPOST"
+          fi
+        env:
+          ECHT_UITVOEREN: ${{ github.event.inputs.echt_uitvoeren }}
+          BRIEFPOST: ${{ github.event.inputs.briefpost }}
+          PAKKETPOST: ${{ github.event.inputs.pakketpost }}
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          BOEKWINKELTJES_ENV: ${{ secrets.BOEKWINKELTJES_ENV }}
+          BOEKWINKELTJES_API_KEY_SANDBOX: ${{ secrets.BOEKWINKELTJES_API_KEY_SANDBOX }}
+          BOEKWINKELTJES_API_KEY_LIVE: ${{ secrets.BOEKWINKELTJES_API_KEY_LIVE }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          SMTP_TO: ${{ secrets.SMTP_TO }}
+          PYTHONUNBUFFERED: "1"
