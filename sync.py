@@ -49,14 +49,18 @@ SHIPPING_FORMAT_LABELS = {
     3: "Normaal pakket",
     4: "Groot of zwaar pakket",
 }
-SHIPPING_DEFAULT_BRIEFPOST = 3.75
+SHIPPING_DEFAULT_BRIEFPOST = 3.95
+# Oude briefpost-bedragen: 3,75 was het vorige tarief en 1,40 de oude standaardwaarde (die bleef staan als je niets
+# aanpaste, bijvoorbeeld bij het wijzigen van een afbeelding). Boeken met zo'n bedrag zijn briefpost.
+SHIPPING_LEGACY_BRIEFPOST_AMOUNTS = (3.75, 1.40)
 SHIPPING_DEFAULT_PAKKETPOST = 7.25
 
 
 def shipping_format_for_cost(cost, briefpost, pakketpost):
     """
-    Het verzendformaat dat bij de verzendkosten van een boek hoort: precies de briefpost-kosten ->
-    brievenbuspakje (1), precies de pakketpost-kosten -> normaal pakket (3). Elk ander bedrag (of geen
+    Het verzendformaat dat bij de verzendkosten van een boek hoort: precies de briefpost-kosten (of een oud
+    briefpost-bedrag, zie SHIPPING_LEGACY_BRIEFPOST_AMOUNTS) -> brievenbuspakje (1), precies de pakketpost-kosten ->
+    normaal pakket (3). Elk ander bedrag (of geen
     bedrag) -> None: daar gokken we niet op.
     """
     if cost is None:
@@ -69,6 +73,8 @@ def shipping_format_for_cost(cost, briefpost, pakketpost):
         return SHIPPING_FORMAT_MAILBOX
     if cost == round(float(pakketpost), 2):
         return SHIPPING_FORMAT_PARCEL
+    if cost in SHIPPING_LEGACY_BRIEFPOST_AMOUNTS:
+        return SHIPPING_FORMAT_MAILBOX
     return None
 
 
@@ -468,8 +474,8 @@ SHIPPING_FORMAT_BACKFILL_MAX_CONSECUTIVE_ERRORS = 3
 def backfill_shipping_format(real=False, briefpost=None, pakketpost=None, now_func=time.monotonic, sleep_func=time.sleep):
     """
     Vult het verzendformaat bij Boekwinkeltjes voor bestaande boeken zonder verzendformaat, op basis van de
-    verzendkosten: precies de briefpost-kosten -> Brievenbuspakje (1), precies de pakketpost-kosten -> Normaal
-    pakket (3). Boeken met een ander bedrag worden niet aangeraakt, maar wel getoond.
+    verzendkosten: precies de briefpost-kosten (en de oude bedragen 3,75 en 1,40) -> Brievenbuspakje (1), precies de pakketpost-kosten ->
+    Normaal pakket (3). Boeken met een ander bedrag worden niet aangeraakt, maar wel getoond.
 
     Zonder real=True is het een proefrun: er wordt niets verstuurd of opgeslagen, alleen getoond wat er zou gebeuren.
     Met real=True gaat per boek één kleine aanvraag (alleen shippingFormat) naar Boekwinkeltjes; pas als dat
@@ -490,7 +496,8 @@ def backfill_shipping_format(real=False, briefpost=None, pakketpost=None, now_fu
         pakketpost = settings_pakket if pakketpost is None else round(float(pakketpost), 2)
         lines.append(
             f"Briefpost = €{briefpost:.2f} -> {SHIPPING_FORMAT_LABELS[1]} (1); "
-            f"pakketpost = €{pakketpost:.2f} -> {SHIPPING_FORMAT_LABELS[3]} (3)."
+            f"pakketpost = €{pakketpost:.2f} -> {SHIPPING_FORMAT_LABELS[3]} (3). "
+            f"Oude briefpost-bedragen ({', '.join(f'€{a:.2f}' for a in SHIPPING_LEGACY_BRIEFPOST_AMOUNTS)}) tellen ook als {SHIPPING_FORMAT_LABELS[1]}."
         )
 
         with conn.cursor() as cur:
