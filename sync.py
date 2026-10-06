@@ -355,6 +355,11 @@ def push_pending_books():
     return count
 
 
+# Hoeveel bestellingen per sync-run we bij Bol mogen opvragen om een ontbrekende titel/prijs aan te vullen. Bol laat
+# dat eindpunt niet vaak bevragen (8 per minuut volgens Bol's eigen documentatie); de rest komt bij de volgende run.
+BOL_ORDER_DETAIL_MAX_PER_RUN = 5
+
+
 def pull_bol_orders():
     """
     Haalt orders op bij Bol en slaat ze lokaal op in dezelfde 'orders'-tabel als
@@ -366,10 +371,18 @@ def pull_bol_orders():
     Bol's lijst-eindpunt geeft alleen orderId/orderPlacedDateTime/ean/
     fulfilmentStatus terug — geen titel of prijs (dat zit alleen in het
     losse 'één order ophalen'-eindpunt, dat niet vaak bevraagd mag worden).
-    Titel en prijs komen daarom uit ons eigen boek met dezelfde EAN.
+    Titel en prijs komen daarom uit ons eigen boek met dezelfde EAN. Staat dat boek niet (meer) in onze
+    eigen tabel, of mist het een titel of prijs, dan vragen we die voor die bestelling eenmalig bij Bol op
+    (zie get_order_item_details), en bewaren ze: een eenmaal bewaarde titel of prijs wordt nooit meer met
+    niets overschreven, ook niet als het boek later uit onze tabel verdwijnt.
     """
     conn = get_connection()
     count = 0
+    filled_from_bol = 0
+    still_missing = 0
+    detail_fetches = 0
+    detail_cache = {}
+    detail_blocked = False
     try:
         with conn.cursor() as cur:
             bol_orders = bol_client.get_orders(status="ALL")
@@ -431,6 +444,37 @@ def pull_bol_orders():
                             title = match["title"]
                             price = match["price"]
 
+                    # Heeft deze bestelling al een titel en prijs, uit het eigen boek of uit een eerdere sync? Zo niet,
+                    # dan eenmalig bij Bol opvragen (beperkt per run).
+                    cur.execute("SELECT book_title, book_price FROM orders WHERE id = %(id)s", {"id": local_id})
+                    existing = cur.fetchone()
+                    have_title = bool(title) or bool(existing and existing["book_title"])
+                    have_price = price is not None or bool(existing and existing["book_price"] is not None)
+                    if not (have_title and have_price) and order_id:
+                        if order_id in detail_cache:
+                            details = detail_cache[order_id]
+                        elif detail_blocked or detail_fetches >= BOL_ORDER_DETAIL_MAX_PER_RUN:
+                            details = None
+                            still_missing += 1
+                        else:
+                            detail_fetches += 1
+                            try:
+                                details = bol_client.get_order_item_details(order_id)
+                            except Exception:
+                                details = None
+                                detail_blocked = True  # bijv. een 429 van Bol: deze run niet verder proberen
+                            detail_cache[order_id] = details
+                        found = (details or {}).get(order_item_id)
+                        if found:
+                            filled = False
+                            if not title and not (existing and existing["book_title"]) and found.get("title"):
+                                title = found["title"]
+                                filled = True
+                            if price is None and not (existing and existing["book_price"] is not None) and found.get("unit_price") is not None:
+                                price = found["unit_price"]
+                                filled = True
+                            filled_from_bol += 1 if filled else 0
+
                     cur.execute(
                         """
                         INSERT INTO orders (
@@ -438,7 +482,8 @@ def pull_bol_orders():
                         ) VALUES (%(id)s, %(order_date)s, %(status)s, 'Bol', %(book_id)s, %(title)s, %(price)s, %(ean)s)
                         ON CONFLICT (id) DO UPDATE SET
                             status = excluded.status, book_id = excluded.book_id,
-                            book_title = excluded.book_title, book_price = excluded.book_price,
+                            book_title = COALESCE(excluded.book_title, orders.book_title),
+                            book_price = COALESCE(excluded.book_price, orders.book_price),
                             order_date = excluded.order_date
                         """,
                         {
@@ -453,7 +498,14 @@ def pull_bol_orders():
                     )
                     count += 1
         conn.commit()
-        _log(conn, "pull", "orders", "ok", f"{count} {_n(count, 'order', 'orders')} verwerkt", platform="Bol")
+        detail = f"{count} {_n(count, 'order', 'orders')} verwerkt"
+        if filled_from_bol:
+            detail += f", {filled_from_bol} aangevuld met titel/prijs van Bol"
+        if still_missing:
+            detail += f", {still_missing} nog zonder titel/prijs (volgende sync)"
+        if detail_blocked:
+            detail += ", Bol-details tijdelijk niet beschikbaar"
+        _log(conn, "pull", "orders", "ok", detail, platform="Bol")
         conn.commit()
     except Exception as e:
         conn.rollback()

@@ -799,6 +799,43 @@ def check_offers_v11(write_noop=False):
     return lines
 
 
+def get_order_item_details(order_id):
+    """
+    Haalt van één Bol-bestelling de titel en de prijs per stuk van elke orderregel op. De lijst met
+    bestellingen (get_orders) bevat die niet. Geeft {orderItemId: {'ean', 'title', 'unit_price'}} terug, of
+    {} als Bol de bestelling niet kent.
+
+    Een bestelling bevat ook persoonsgegevens van de klant (naam, adres). Die worden hier bewust NIET
+    teruggegeven, opgeslagen of gelogd: alleen de drie velden hierboven. Bol laat dit eindpunt niet vaak
+    bevragen (volgens Bol's eigen documentatie 8 keer per minuut), dus roep het alleen aan als het nodig is.
+    """
+    resp = _send("GET", f"{BASE_URL}/orders/{order_id}", headers=_headers(), timeout=20)
+    if resp.status_code == 404:
+        return {}
+    if not resp.ok:
+        raise BolAPIError(
+            f"Kon bestelling niet ophalen ({resp.status_code}): {_error_detail(resp)}", status_code=resp.status_code
+        )
+    try:
+        data = resp.json()
+    except ValueError:
+        return {}
+    details = {}
+    for item in (data.get("orderItems") if isinstance(data, dict) else None) or []:
+        product = item.get("product") or {}
+        unit_price = item.get("unitPrice")
+        try:
+            unit_price = float(unit_price) if unit_price is not None else None
+        except (TypeError, ValueError):
+            unit_price = None
+        details[item.get("orderItemId")] = {
+            "ean": product.get("ean"),
+            "title": product.get("title") or None,
+            "unit_price": unit_price,
+        }
+    return details
+
+
 def get_orders(status="ALL", fulfilment_method="ALL", max_pages=20):
     """
     Haalt (met paginering) een lijst van eigen Bol-orders op via de Retailer API.
