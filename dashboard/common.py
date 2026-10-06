@@ -770,7 +770,14 @@ def _ensure_shipping_format_column(cur):
     """Zorgt dat books.shipping_format bestaat (één keer per programma-run), ook als de sync dat nog niet deed."""
     global _SHIPPING_FORMAT_COLUMN_CHECKED
     if not _SHIPPING_FORMAT_COLUMN_CHECKED:
-        cur.execute("ALTER TABLE books ADD COLUMN IF NOT EXISTS shipping_format INTEGER")
+        # Eerst kijken of de kolom er al is: een ALTER TABLE vraagt altijd een exclusief slot op de tabel en
+        # kan dan blijven wachten achter een lopende sync.
+        cur.execute(
+            "SELECT 1 FROM information_schema.columns "
+            "WHERE table_schema = current_schema() AND table_name = 'books' AND column_name = 'shipping_format'"
+        )
+        if cur.fetchone() is None:
+            cur.execute("ALTER TABLE books ADD COLUMN IF NOT EXISTS shipping_format INTEGER")
         _SHIPPING_FORMAT_COLUMN_CHECKED = True
 
 
