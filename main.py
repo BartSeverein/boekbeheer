@@ -20,6 +20,7 @@ Gebruik:
     python main.py test-bol-offers-v11 [write-noop]   # veilige controle van Bol's aanbiedingen-API v11 (alleen lezen)
     python main.py push-new-books-to-bol  # ALLEEN nieuwe boeken (via de app aangemaakt) naar Bol pushen, verder niets
     python main.py drip-push-new-books    # druppelsgewijs (max 1 per interval, alleen in drukke perioden) nieuwe boeken naar Boekwinkeltjes
+    python main.py backfill-shipping-format [real] [briefpost pakketpost]   # eenmalig: verzendformaat bij Boekwinkeltjes vullen (zonder 'real' een proefrun)
     python main.py send-daily-csv-export  # stuurt een e-mail met boeken.csv en orders.csv als back-up
 """
 
@@ -129,6 +130,18 @@ def main():
     elif command == "drip-push-new-books":
         sync.drip_push_new_books()
         print("Klaar (druppelt hooguit één boek per keer, en alleen tijdens de ingestelde drukke perioden).")
+    elif command == "backfill-shipping-format":
+        # Eenmalig: vult het nieuwe verplichte veld 'verzendformaat' bij Boekwinkeltjes voor bestaande boeken
+        # (briefpost -> Brievenbuspakje, pakketpost -> Normaal pakket). Zonder 'real' is het een proefrun.
+        # Optioneel daarachter de twee bedragen, bijvoorbeeld: backfill-shipping-format real 3.95 7.25
+        args = sys.argv[2:]
+        real = bool(args) and args[0] == "real"
+        if real:
+            args = args[1:]
+        brief = float(args[0].replace(",", ".")) if len(args) >= 1 and args[0] else None
+        pakket = float(args[1].replace(",", ".")) if len(args) >= 2 and args[1] else None
+        for line in sync.backfill_shipping_format(real=real, briefpost=brief, pakketpost=pakket):
+            print(line)
     elif command == "send-daily-csv-export":
         sync.send_daily_csv_export()
         print("Dagelijkse CSV-back-up verstuurd per e-mail.")

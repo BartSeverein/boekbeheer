@@ -34,6 +34,90 @@ def _n(count, singular, plural):
     return singular if count == 1 else plural
 
 
+# ---------- Verzendformaat (Boekwinkeltjes-veld 'shippingFormat') ----------
+
+# Waarden zoals in Boekwinkeltjes' eigen keuzelijst (de API-documentatie noemt alleen 0-4, zonder uitleg).
+SHIPPING_FORMAT_PICKUP = 0
+SHIPPING_FORMAT_MAILBOX = 1       # brievenbuspakje
+SHIPPING_FORMAT_SMALL_PARCEL = 2
+SHIPPING_FORMAT_PARCEL = 3        # normaal pakket
+SHIPPING_FORMAT_LARGE_PARCEL = 4
+SHIPPING_FORMAT_LABELS = {
+    0: "Alleen afhalen mogelijk",
+    1: "Brievenbuspakje",
+    2: "Klein pakket",
+    3: "Normaal pakket",
+    4: "Groot of zwaar pakket",
+}
+SHIPPING_DEFAULT_BRIEFPOST = 3.75
+SHIPPING_DEFAULT_PAKKETPOST = 7.25
+
+
+def shipping_format_for_cost(cost, briefpost, pakketpost):
+    """
+    Het verzendformaat dat bij de verzendkosten van een boek hoort: precies de briefpost-kosten ->
+    brievenbuspakje (1), precies de pakketpost-kosten -> normaal pakket (3). Elk ander bedrag (of geen
+    bedrag) -> None: daar gokken we niet op.
+    """
+    if cost is None:
+        return None
+    try:
+        cost = round(float(cost), 2)
+    except (TypeError, ValueError):
+        return None
+    if cost == round(float(briefpost), 2):
+        return SHIPPING_FORMAT_MAILBOX
+    if cost == round(float(pakketpost), 2):
+        return SHIPPING_FORMAT_PARCEL
+    return None
+
+
+def _format_for_row(row, costs):
+    """Het verzendformaat van een boekrij: de opgeslagen waarde, anders afgeleid uit de verzendkosten (zie shipping_format_for_cost)."""
+    fmt = row.get("shipping_format")
+    if fmt is None:
+        fmt = shipping_format_for_cost(row.get("shipping_cost"), costs[0], costs[1])
+    return fmt
+
+
+_SHIPPING_FORMAT_COLUMN_CHECKED = False
+
+
+def ensure_shipping_format_column(conn):
+    """
+    Zorgt dat books.shipping_format bestaat (veilig om vaak te draaien; per programma-run wordt het
+    maar één keer echt gecontroleerd, want ALTER TABLE vraagt even een slot op de tabel). De aanroeper commit.
+    """
+    global _SHIPPING_FORMAT_COLUMN_CHECKED
+    if _SHIPPING_FORMAT_COLUMN_CHECKED:
+        return
+    with conn.cursor() as cur:
+        cur.execute("ALTER TABLE books ADD COLUMN IF NOT EXISTS shipping_format INTEGER")
+    _SHIPPING_FORMAT_COLUMN_CHECKED = True
+
+
+def get_shipping_costs_setting(conn):
+    """(briefpost, pakketpost) zoals ingesteld op 'Hulp en instellingen'; onleesbaar of niet ingesteld = standaardbedrag."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT key, value FROM app_settings WHERE key IN ('bw_shipping_briefpost', 'bw_shipping_pakketpost')"
+        )
+        stored = {row["key"] if isinstance(row, dict) else row[0]: row["value"] if isinstance(row, dict) else row[1]
+                  for row in cur.fetchall()}
+
+    def _amount(key, default):
+        try:
+            value = float(str(stored.get(key)).replace(",", "."))
+        except ValueError:
+            return default
+        return round(value, 2) if 0 < value < 1000 else default
+
+    return (
+        _amount("bw_shipping_briefpost", SHIPPING_DEFAULT_BRIEFPOST),
+        _amount("bw_shipping_pakketpost", SHIPPING_DEFAULT_PAKKETPOST),
+    )
+
+
 def _log(conn, direction, resource, status, detail="", platform="BW"):
     # Timing loopt niet meer via GitHub's eigen 'schedule'-trigger (onbetrouwbaar
     # gebleken) maar via cron-job.org, dat de workflow aanroept als 'workflow_dispatch'
@@ -112,6 +196,8 @@ def pull_books():
     count = 0
     seen_ids = []
     try:
+        ensure_shipping_format_column(conn)
+        conn.commit()
         with conn.cursor() as cur:
             for book in api_client.iter_all_books():
                 publisher_name, publisher_address, publisher_contact = _split_publisher(
@@ -138,6 +224,9 @@ def pull_books():
                     "price": book.get("price"),
                     "shippingCost": book.get("shippingCost"),
                     "shippingCategory": book.get("shippingCategory"),
+                    # Geeft de API het veld niet mee (sleutel ontbreekt), dan laten we de lokale waarde ongemoeid.
+                    "shippingFormat": book.get("shippingFormat"),
+                    "sf_known": "shippingFormat" in book,
                     "date": book.get("date"),
                     "weblink": book.get("weblink"),
                     "last_synced_at": _now(),
@@ -148,11 +237,11 @@ def pull_books():
                         id, book_number, location, amount, category1, category2, category3,
                         language, author, title, publisher, publisher_name, publisher_address, publisher_contact,
                         ean, short_description, long_description,
-                        price, shipping_cost, shipping_category, listing_date, weblink, last_synced_at
+                        price, shipping_cost, shipping_category, shipping_format, listing_date, weblink, last_synced_at
                     ) VALUES (%(id)s, %(bookNumber)s, %(location)s, %(amount)s, %(category1)s, %(category2)s, %(category3)s,
                         %(language)s, %(author)s, %(title)s, %(publisher)s, %(publisher_name)s, %(publisher_address)s, %(publisher_contact)s,
                         %(ean)s, %(shortDescription)s, %(longDescription)s,
-                        %(price)s, %(shippingCost)s, %(shippingCategory)s, %(date)s, %(weblink)s, %(last_synced_at)s)
+                        %(price)s, %(shippingCost)s, %(shippingCategory)s, %(shippingFormat)s, %(date)s, %(weblink)s, %(last_synced_at)s)
                     ON CONFLICT (id) DO UPDATE SET
                         book_number=excluded.book_number, location=excluded.location, amount=excluded.amount,
                         category1=excluded.category1, category2=excluded.category2, category3=excluded.category3,
@@ -162,7 +251,9 @@ def pull_books():
                         ean=excluded.ean,
                         short_description=excluded.short_description, long_description=excluded.long_description,
                         price=excluded.price, shipping_cost=excluded.shipping_cost,
-                        shipping_category=excluded.shipping_category, listing_date=excluded.listing_date,
+                        shipping_category=excluded.shipping_category,
+                        shipping_format=CASE WHEN %(sf_known)s THEN excluded.shipping_format ELSE books.shipping_format END,
+                        listing_date=excluded.listing_date,
                         weblink=excluded.weblink, last_synced_at=excluded.last_synced_at
                     WHERE books.pending_push = FALSE
                     """,
@@ -189,8 +280,15 @@ def pull_books():
                     {"seen_ids": seen_ids},
                 )
                 marked_not_in_stock = len(cur.fetchall())
+            cur.execute(
+                "SELECT COUNT(*) AS n FROM books WHERE id > 0 AND push_enabled = TRUE AND shipping_format IS NULL"
+            )
+            no_format = cur.fetchone()["n"]
         conn.commit()
-        _log(conn, "pull", "books", "ok", f"{count} {_n(count, 'boek', 'boeken')} verwerkt, {marked_not_in_stock} op voorraad 0 gezet (niet meer bij Boekwinkeltjes)")
+        detail = f"{count} {_n(count, 'boek', 'boeken')} verwerkt, {marked_not_in_stock} op voorraad 0 gezet (niet meer bij Boekwinkeltjes)"
+        if no_format:
+            detail += f"; {no_format} {_n(no_format, 'boek heeft', 'boeken hebben')} nog geen verzendformaat"
+        _log(conn, "pull", "books", "ok", detail)
         conn.commit()
     except Exception as e:
         conn.rollback()
@@ -291,12 +389,16 @@ def push_pending_books():
     skipped_gone = 0
     errors = []
     try:
+        ensure_shipping_format_column(conn)
+        conn.commit()
+        costs = get_shipping_costs_setting(conn)
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT * FROM books WHERE pending_push = TRUE AND pending_create = FALSE AND push_enabled = TRUE"
             )
             rows = cur.fetchall()
             for row in rows:
+                shipping_format = _format_for_row(row, costs)
                 payload = {
                     "bookNumber": row["book_number"],
                     "location": row["location"],
@@ -314,6 +416,7 @@ def push_pending_books():
                     "price": float(row["price"]) if row["price"] is not None else None,
                     "shippingCost": float(row["shipping_cost"]) if row["shipping_cost"] is not None else None,
                     "shippingCategory": row["shipping_category"],
+                    "shippingFormat": shipping_format,
                     "weblink": row["weblink"],
                 }
                 # Geen lege/None velden meesturen die de API mogelijk niet accepteert
@@ -321,8 +424,9 @@ def push_pending_books():
                 try:
                     api_client.update_book(row["id"], payload)
                     cur.execute(
-                        "UPDATE books SET pending_push = FALSE, last_synced_at = %(now)s WHERE id = %(id)s",
-                        {"now": _now(), "id": row["id"]},
+                        "UPDATE books SET pending_push = FALSE, last_synced_at = %(now)s, "
+                        "shipping_format = COALESCE(shipping_format, %(sf)s) WHERE id = %(id)s",
+                        {"now": _now(), "id": row["id"], "sf": shipping_format},
                     )
                     count += 1
                 except api_client.BoekwinkeltjesAPIError as e:
@@ -353,6 +457,157 @@ def push_pending_books():
     finally:
         conn.close()
     return count
+
+
+# Eenmalige job: het nieuwe verplichte veld 'verzendformaat' bij Boekwinkeltjes vullen voor bestaande boeken.
+SHIPPING_FORMAT_BACKFILL_MAX_SECONDS = 25 * 60   # daarna netjes stoppen; een volgende run gaat verder waar deze ophield
+SHIPPING_FORMAT_BACKFILL_PAUSE = 0.2             # seconden tussen twee aanroepen, om Boekwinkeltjes niet te overspoelen
+SHIPPING_FORMAT_BACKFILL_MAX_CONSECUTIVE_ERRORS = 3
+
+
+def backfill_shipping_format(real=False, briefpost=None, pakketpost=None, now_func=time.monotonic, sleep_func=time.sleep):
+    """
+    Vult het verzendformaat bij Boekwinkeltjes voor bestaande boeken zonder verzendformaat, op basis van de
+    verzendkosten: precies de briefpost-kosten -> Brievenbuspakje (1), precies de pakketpost-kosten -> Normaal
+    pakket (3). Boeken met een ander bedrag worden niet aangeraakt, maar wel getoond.
+
+    Zonder real=True is het een proefrun: er wordt niets verstuurd of opgeslagen, alleen getoond wat er zou gebeuren.
+    Met real=True gaat per boek één kleine aanvraag (alleen shippingFormat) naar Boekwinkeltjes; pas als dat
+    gelukt is, wordt het formaat ook lokaal bewaard. Daardoor is de job veilig opnieuw te draaien: wat klaar is
+    wordt overgeslagen, en wat mislukte of door de tijdslimiet bleef liggen komt bij de volgende run aan bod.
+
+    Bij het eerste boek wordt gecontroleerd of Boekwinkeltjes de waarde ook echt heeft overgenomen; als dat niet
+    zo is, stopt de job meteen (zodat een verkeerd begrepen API niet 3000 keer dezelfde fout maakt).
+    Geeft een lijst met regels tekst terug.
+    """
+    lines = []
+    conn = get_connection()
+    try:
+        ensure_shipping_format_column(conn)
+        conn.commit()
+        settings_brief, settings_pakket = get_shipping_costs_setting(conn)
+        briefpost = settings_brief if briefpost is None else round(float(briefpost), 2)
+        pakketpost = settings_pakket if pakketpost is None else round(float(pakketpost), 2)
+        lines.append(
+            f"Briefpost = €{briefpost:.2f} -> {SHIPPING_FORMAT_LABELS[1]} (1); "
+            f"pakketpost = €{pakketpost:.2f} -> {SHIPPING_FORMAT_LABELS[3]} (3)."
+        )
+
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, shipping_cost FROM books
+                WHERE id > 0 AND pending_create = FALSE AND push_enabled = TRUE AND shipping_format IS NULL
+                ORDER BY id
+                """
+            )
+            rows = cur.fetchall()
+
+        todo = []        # (id, formaat)
+        skipped = {}     # verzendkosten -> aantal
+        for row in rows:
+            fmt = shipping_format_for_cost(row["shipping_cost"], briefpost, pakketpost)
+            if fmt is None:
+                key = "geen bedrag" if row["shipping_cost"] is None else f"€{float(row['shipping_cost']):.2f}"
+                skipped[key] = skipped.get(key, 0) + 1
+            else:
+                todo.append((row["id"], fmt))
+
+        n_mailbox = sum(1 for _, f in todo if f == SHIPPING_FORMAT_MAILBOX)
+        n_parcel = sum(1 for _, f in todo if f == SHIPPING_FORMAT_PARCEL)
+        lines.append(f"{len(rows)} {_n(len(rows), 'boek', 'boeken')} zonder verzendformaat gevonden.")
+        lines.append(f"  - {n_mailbox} -> {SHIPPING_FORMAT_LABELS[1]}")
+        lines.append(f"  - {n_parcel} -> {SHIPPING_FORMAT_LABELS[3]}")
+        if skipped:
+            lines.append("  - NIET aangeraakt (verzendkosten komen niet overeen met briefpost of pakketpost):")
+            for key, n in sorted(skipped.items(), key=lambda kv: -kv[1]):
+                lines.append(f"      {n} x {key}")
+
+        if not real:
+            lines.append("Proefrun: er is niets verstuurd of opgeslagen. Draai opnieuw met echt_uitvoeren = ja om het door te voeren.")
+            return lines
+        if not todo:
+            lines.append("Niets te doen.")
+            _log(conn, "push", "shipping_format", "ok", "niets te doen")
+            conn.commit()
+            return lines
+
+        started = now_func()
+        done = 0
+        gone = 0
+        errors = []
+        consecutive_errors = 0
+        verified = False
+        stopped_for_time = False
+        aborted = False
+        for book_id, fmt in todo:
+            if now_func() - started > SHIPPING_FORMAT_BACKFILL_MAX_SECONDS:
+                stopped_for_time = True
+                break
+            try:
+                api_client.update_book(book_id, {"shippingFormat": fmt})
+            except api_client.BoekwinkeltjesAPIError as e:
+                if "-> 404:" in str(e):
+                    gone += 1  # bestaat niet meer bij Boekwinkeltjes; de gewone sync ruimt dat op
+                    continue
+                errors.append(f"boek {book_id}: {e}")
+                consecutive_errors += 1
+                if consecutive_errors >= SHIPPING_FORMAT_BACKFILL_MAX_CONSECUTIVE_ERRORS:
+                    aborted = True
+                    break
+                continue
+            consecutive_errors = 0
+
+            if not verified:
+                # Controle bij het eerste gelukte boek: heeft Boekwinkeltjes de waarde echt overgenomen?
+                check = api_client.get_book(book_id)
+                data = check.get("data", check) if isinstance(check, dict) else {}
+                if isinstance(data, dict) and "shippingFormat" in data:
+                    if data["shippingFormat"] != fmt:
+                        lines.append(
+                            f"GESTOPT: boek {book_id} kreeg verzendformaat {fmt} gestuurd, maar Boekwinkeltjes geeft "
+                            f"{data['shippingFormat']!r} terug. Er is niets lokaal opgeslagen. Neem contact op met Boekwinkeltjes."
+                        )
+                        _log(conn, "push", "shipping_format", "error", f"controle mislukt bij boek {book_id}: verstuurd {fmt}, terug {data['shippingFormat']!r}")
+                        conn.commit()
+                        return lines
+                    lines.append(f"Controle gelukt: boek {book_id} heeft bij Boekwinkeltjes nu verzendformaat {fmt} ({SHIPPING_FORMAT_LABELS[fmt]}).")
+                else:
+                    lines.append(
+                        f"Let op: Boekwinkeltjes geeft het veld verzendformaat niet terug bij het uitlezen van boek {book_id}, "
+                        f"dus de waarde kon niet worden gecontroleerd. Controleer dit boek zelf op de site."
+                    )
+                verified = True
+
+            with conn.cursor() as cur:
+                cur.execute("UPDATE books SET shipping_format = %(f)s WHERE id = %(id)s", {"f": fmt, "id": book_id})
+            done += 1
+            if done % 25 == 0:
+                conn.commit()
+            sleep_func(SHIPPING_FORMAT_BACKFILL_PAUSE)
+        conn.commit()
+
+        remaining = len(todo) - done - gone - len(errors)
+        lines.append(f"Klaar: {done} {_n(done, 'boek', 'boeken')} bijgewerkt bij Boekwinkeltjes.")
+        if gone:
+            lines.append(f"{gone} {_n(gone, 'boek bestaat', 'boeken bestaan')} niet meer bij Boekwinkeltjes (overgeslagen).")
+        if errors:
+            lines.append(f"{len(errors)} {_n(len(errors), 'fout', 'fouten')}; eerste: {errors[0]}")
+        if aborted:
+            lines.append(f"GESTOPT na {SHIPPING_FORMAT_BACKFILL_MAX_CONSECUTIVE_ERRORS} fouten achter elkaar. Er is niets verkeerd opgeslagen; los de fout op en draai opnieuw.")
+        if stopped_for_time:
+            lines.append(f"Tijdslimiet bereikt. Er zijn er nog {remaining} te gaan: start de job nog een keer, hij gaat verder waar hij ophield.")
+        status = "error" if (errors or aborted) else "ok"
+        _log(conn, "push", "shipping_format", status, " | ".join(lines[-4:]))
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        _log(conn, "push", "shipping_format", "error", str(e))
+        conn.commit()
+        raise
+    finally:
+        conn.close()
+    return lines
 
 
 # Hoeveel bestellingen per sync-run we bij Bol mogen opvragen om een ontbrekende titel/prijs aan te vullen. Bol laat
@@ -557,6 +812,7 @@ def _create_one_book_at_boekwinkeltjes(cur, row):
     vervangt het tijdelijke id door het echte, toegekende id. Geeft het nieuwe
     id terug. De aanroeper is verantwoordelijk voor het committen.
     """
+    shipping_format = _format_for_row(row, get_shipping_costs_setting(cur.connection))
     payload = {
         "bookNumber": row["book_number"],
         "location": row["location"],
@@ -573,6 +829,8 @@ def _create_one_book_at_boekwinkeltjes(cur, row):
         "longDescription": row["long_description"],
         "price": float(row["price"]) if row["price"] is not None else None,
         "shippingCost": float(row["shipping_cost"]) if row["shipping_cost"] is not None else None,
+        # Zonder verzendformaat kan een boek bij Boekwinkeltjes niet worden verkocht.
+        "shippingFormat": shipping_format,
     }
     # Geen lege/None velden meesturen die de API mogelijk niet accepteert
     payload = {k: v for k, v in payload.items() if v is not None}
@@ -591,10 +849,12 @@ def _create_one_book_at_boekwinkeltjes(cur, row):
         """
         UPDATE books
         SET id = %(new_id)s, pending_create = FALSE, pending_push = FALSE,
-            weblink = %(weblink)s, last_synced_at = %(now)s
+            weblink = %(weblink)s, last_synced_at = %(now)s,
+            shipping_format = COALESCE(shipping_format, %(sf)s)
         WHERE id = %(old_id)s
         """,
         {
+            "sf": shipping_format,
             "new_id": new_id,
             "weblink": new_book.get("weblink"),
             "now": _now(),
