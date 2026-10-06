@@ -1971,6 +1971,311 @@ def check_storage_alerts(test_mail=False):
 
 
 
+# ---------- Waakhond: een mail als de synchronisatie stilstaat ----------
+
+# Na hoeveel uur zonder geslaagde synchronisatie er een mail komt (de eerste), en daarna herinneringen bij de volgende.
+WATCHDOG_ALERT_HOURS = (3, 12, 24, 48, 96)
+WATCHDOG_STATE_KEY = "watchdog_state"
+WATCHDOG_WEEKLY_KEY = "watchdog_weekly"
+# De onderdelen die moeten blijven draaien: (sleutel, naam, welke regel in sync_log een geslaagde keer is).
+# Bol staat apart, want die kant kan stuklopen (bijvoorbeeld door een gewijzigde sleutel) terwijl Boekwinkeltjes doorloopt.
+WATCHDOG_STREAMS = (
+    ("bw", "Boekwinkeltjes (boeken ophalen)", {"direction": "pull", "resource": "books", "platform": "BW"}),
+    ("bol", "Bol (bestellingen ophalen)", {"direction": "pull", "resource": "orders", "platform": "Bol"}),
+)
+
+
+def _watchdog_decision(age_hours, stream_state, current_for):
+    """
+    Bepaalt wat er voor één onderdeel moet gebeuren. 'age_hours' is het aantal uur sinds de laatste geslaagde keer
+    (None = nog nooit), 'stream_state' wat eerder is gemeld ({'for': ..., 'level': ...} of None) en 'current_for'
+    herkent de huidige stilstand (het tijdstip van de laatste geslaagde keer). Geeft (gebeurtenis, nieuwe_toestand)
+    terug; de gebeurtenis is None, ('alert', uren) of ('recovered', None). Elk niveau wordt per stilstand één keer
+    gemeld, en een herstel ook.
+    """
+    age = float("inf") if age_hours is None else age_hours
+    reached = max([hours for hours in WATCHDOG_ALERT_HOURS if age >= hours], default=0)
+    stored = 0
+    if stream_state and stream_state.get("for") == current_for:
+        stored = int(stream_state.get("level") or 0)
+    if reached > stored:
+        return ("alert", reached), {"for": current_for, "level": reached}
+    if reached == 0 and stream_state:
+        return ("recovered", None), None
+    return None, stream_state
+
+
+def _watchdog_weekly_due(local, last_week_key):
+    """Is het tijd voor het weekoverzicht? Maandag tussen 7 en 12 uur (Nederlandse tijd), één keer per week."""
+    iso = local.isocalendar()
+    week = f"{iso[0]}-W{iso[1]:02d}"
+    return local.weekday() == 0 and 7 <= local.hour < 12 and last_week_key != week, week
+
+
+def _hours_text(hours):
+    if hours is None or hours == float("inf"):
+        return "onbekend"
+    return f"{hours:.1f}".replace(".", ",") + " uur"
+
+
+def _local_text(moment, tz):
+    return moment.astimezone(tz).strftime("%d-%m-%Y %H:%M") if moment else "nog nooit"
+
+
+def _watchdog_status_lines(last_ok, now, tz):
+    lines = []
+    for key, name, _where in WATCHDOG_STREAMS:
+        moment = last_ok.get(key)
+        age = (now - moment).total_seconds() / 3600 if moment else None
+        lines.append(
+            f"- {name}: laatste geslaagde keer {_local_text(moment, tz)}"
+            + (f" ({_hours_text(age)} geleden)" if moment else "")
+        )
+    return lines
+
+
+def _watchdog_recent_lines(recent, tz):
+    lines = []
+    for row in recent or []:
+        detail = f" — {row['detail']}" if row.get("detail") else ""
+        lines.append(
+            f"  {_local_text(row['run_at'], tz)}  {row['direction']} {row['resource']} ({row['platform']}): {row['status']}{detail}"
+        )
+    return lines
+
+
+WATCHDOG_CHECKLIST = [
+    "Dit kun je nakijken:",
+    "1. cron-job.org: staan de jobs nog aan? Is er geen einddatum verstreken en is er geen job uitgeschakeld?",
+    "2. De GitHub-sleutel in de aanroepen van cron-job.org: is die niet verlopen? Dan geeft elke aanroep 'Unauthorized'.",
+    "3. GitHub zelf: staat er een storing op githubstatus.com, of staat er een vastgelopen run bij Actions? Bij "
+    "'Pending' eerst de lopende run annuleren.",
+    "4. Supabase: is de database bereikbaar en niet vol?",
+    "",
+    "Deze waakhond draait los van cron-job.org en van je GitHub-sleutel, via GitHub's eigen tijdschema.",
+]
+
+
+def _watchdog_alert_mail(events, last_ok, recent, now, tz):
+    names = " en ".join(name for _key, name, _level in events)
+    lines = ["De waakhond ziet dat er te lang geen geslaagde synchronisatie is geweest.", ""]
+    for key, name, level in events:
+        moment = last_ok.get(key)
+        age = (now - moment).total_seconds() / 3600 if moment else None
+        lines.append(f"- {name}: laatste geslaagde keer {_local_text(moment, tz)} ({_hours_text(age)} geleden; melding bij {level} uur)")
+    lines += ["", "Laatste regels uit het synchronisatielogboek:"] + (_watchdog_recent_lines(recent, tz) or ["  (geen)"]) + [""]
+    lines += WATCHDOG_CHECKLIST
+    return f"⚠️ Boekbeheer: synchronisatie staat stil ({names})", "\n".join(lines) + "\n"
+
+
+def _watchdog_recovery_mail(events, last_ok, state, tz):
+    names = " en ".join(name for _key, name in events)
+    lines = ["De synchronisatie draait weer.", ""]
+    for key, name in events:
+        before = state.get(key, {}).get("for")
+        try:
+            gap_start = dt.datetime.fromisoformat(before) if before and before != "never" else None
+        except ValueError:
+            gap_start = None
+        now_ok = last_ok.get(key)
+        gap = (now_ok - gap_start).total_seconds() / 3600 if gap_start and now_ok else None
+        lines.append(
+            f"- {name}: weer geslaagd op {_local_text(now_ok, tz)}"
+            + (f"; de stilstand duurde {_hours_text(gap)} (sinds {_local_text(gap_start, tz)})" if gap is not None else "")
+        )
+    return f"✅ Boekbeheer: synchronisatie draait weer ({names})", "\n".join(lines) + "\n"
+
+
+def _watchdog_overview_mail(last_ok, overview, db_bytes, week, now, tz, test=False):
+    stale = [
+        name for key, name, _w in WATCHDOG_STREAMS
+        if not last_ok.get(key) or (now - last_ok[key]).total_seconds() / 3600 >= WATCHDOG_ALERT_HOURS[0]
+    ]
+    lines = ["LET OP: " + " en ".join(stale) + " staat stil." if stale else "Alles werkt.", ""]
+    lines += _watchdog_status_lines(last_ok, now, tz)
+    if overview is not None:
+        lines.append(
+            f"- Afgelopen 24 uur, Boekwinkeltjes: {overview.get('ok', 0)} geslaagde en {overview.get('error', 0)} mislukte synchronisaties van boeken"
+        )
+    if db_bytes is not None:
+        pct = db_bytes / (1024 * 1024) / STORAGE_LIMIT_MB * 100
+        lines.append(f"- Database: {_mb(db_bytes)} van {STORAGE_LIMIT_MB} MB ({f'{pct:.1f}'.replace('.', ',')}%)")
+    lines += [
+        "",
+        "Krijg je dit overzicht een maandag niet, dan staat ook de waakhond zelf stil: GitHub zet tijdschema's in een "
+        "openbare repository na 60 dagen zonder activiteit uit. Zet hem dan opnieuw aan bij Actions.",
+    ]
+    subject = ("Proefbericht: " if test else "") + f"Boekbeheer-waakhond: weekoverzicht ({week})"
+    if test:
+        lines.insert(0, "Dit is een proefbericht; er is niets opgeslagen of gewijzigd.")
+        lines.insert(1, "")
+    return subject, "\n".join(lines) + "\n"
+
+
+def _watchdog_read(conn, need_overview):
+    """Leest alles wat de waakhond nodig heeft in één keer, zodat een storing in de database op één plek wordt gevangen."""
+    data = {"last_ok": {}, "state": {}, "weekly": None, "recent": [], "overview": None, "db_bytes": None}
+    for key, _name, where in WATCHDOG_STREAMS:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT max(run_at) AS last_ok FROM sync_log "
+                "WHERE direction = %(direction)s AND resource = %(resource)s AND platform = %(platform)s AND status = 'ok'",
+                where,
+            )
+            row = cur.fetchone()
+        data["last_ok"][key] = row["last_ok"] if row else None
+    raw = _get_setting(conn, WATCHDOG_STATE_KEY, "") or ""
+    try:
+        parsed = json.loads(raw) if raw else {}
+        data["state"] = parsed if isinstance(parsed, dict) else {}
+    except ValueError:
+        data["state"] = {}
+    data["weekly"] = _get_setting(conn, WATCHDOG_WEEKLY_KEY, None)
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT run_at, direction, resource, platform, status, left(detail, 120) AS detail "
+            "FROM sync_log ORDER BY run_at DESC LIMIT 8"
+        )
+        data["recent"] = cur.fetchall()
+    if need_overview:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT status, count(*) AS n FROM sync_log WHERE direction = 'pull' AND resource = 'books' "
+                "AND platform = 'BW' AND run_at > now() - interval '24 hours' GROUP BY status"
+            )
+            data["overview"] = {row["status"]: row["n"] for row in cur.fetchall()}
+        try:
+            data["db_bytes"] = _database_size_bytes(conn)
+        except Exception:
+            data["db_bytes"] = None
+    return data
+
+
+def watchdog_check(now=None, test_mail=False):
+    """
+    De waakhond: controleert of de synchronisatie nog draait en mailt als dat te lang niet zo is. Draait elk uur, via
+    GitHub's eigen tijdschema en dus los van cron-job.org en je GitHub-sleutel (zie .github/workflows/watchdog.yml).
+    Per onderdeel (Boekwinkeltjes, Bol) komt er een mail zodra de laatste geslaagde synchronisatie langer dan 3 uur
+    geleden is, daarna herinneringen bij 12, 24, 48 en 96 uur, en een mail zodra het weer werkt. Elke maandagochtend komt
+    een kort weekoverzicht: zo betekent stilte iets, want ook een tijdschema op GitHub kan stoppen.
+    Met test_mail=True komt alleen het overzicht als proefbericht en wordt er niets opgeslagen.
+    Geeft (regels tekst, mislukt) terug; 'mislukt' is True als een mail niet verstuurd kon worden of de database niet
+    bereikbaar was (dan wordt de workflow rood).
+    """
+    lines = []
+    failed = False
+    tz = ZoneInfo("Europe/Amsterdam")
+    now = now or dt.datetime.now(dt.timezone.utc)
+    local = now.astimezone(tz)
+
+    def say(text=""):
+        lines.append(text)
+
+    def send(subject, body):
+        nonlocal failed
+        try:
+            notifications.send_email(subject=subject, body=body)
+            return True
+        except Exception as e:
+            failed = True
+            say(f"Mail mislukt: {e}")
+            return False
+
+    say("== Waakhond ==")
+    say(f"Controle op {local:%d-%m-%Y %H:%M} (Nederlandse tijd)")
+
+    conn = None
+    try:
+        conn = get_connection()
+        data = _watchdog_read(conn, need_overview=True)
+    except Exception as e:
+        failed = True
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+        say(f"De database is niet bereikbaar ({type(e).__name__}).")
+        if local.hour % 6 == 0:
+            send(
+                "⚠️ Boekbeheer-waakhond: de database is niet bereikbaar",
+                "De waakhond kan de database niet bereiken, dus ook niet controleren of de synchronisatie draait.\n\n"
+                f"Soort fout: {type(e).__name__}\n\n"
+                "Dit kun je nakijken: staat er een storing op status.supabase.com, is het project niet gepauzeerd of vol, "
+                "en klopt SUPABASE_DB_URL nog bij de GitHub-secrets?\n\n"
+                "Deze melding komt hooguit om de 6 uur terug zolang het probleem blijft.\n",
+            )
+        else:
+            say("Geen mail nu: dit wordt hooguit om de 6 uur gemeld.")
+        return lines, failed
+
+    try:
+        last_ok, state = data["last_ok"], data["state"]
+        for line in _watchdog_status_lines(last_ok, now, tz):
+            say(line)
+
+        if test_mail:
+            week = f"{local.isocalendar()[0]}-W{local.isocalendar()[1]:02d}"
+            subject, body = _watchdog_overview_mail(last_ok, data["overview"], data["db_bytes"], week, now, tz, test=True)
+            if send(subject, body):
+                say("Proefbericht verstuurd. Er is niets opgeslagen of gewijzigd.")
+            return lines, failed
+
+        # --- stilstand en herstel, per onderdeel ---
+        new_state = dict(state)
+        alerts, recoveries = [], []
+        for key, name, _where in WATCHDOG_STREAMS:
+            moment = last_ok.get(key)
+            age = (now - moment).total_seconds() / 3600 if moment else None
+            current_for = moment.isoformat() if moment else "never"
+            event, stream_state = _watchdog_decision(age, state.get(key), current_for)
+            if event and event[0] == "alert":
+                alerts.append((key, name, event[1]))
+                new_state[key] = stream_state
+            elif event and event[0] == "recovered":
+                recoveries.append((key, name))
+        saved_state = dict(state)
+        if alerts:
+            subject, body = _watchdog_alert_mail(alerts, last_ok, data["recent"], now, tz)
+            if send(subject, body):
+                say("Mail verstuurd: " + ", ".join(f"{name} ({level} uur)" for _k, name, level in alerts))
+                for key, _name, _level in alerts:
+                    saved_state[key] = new_state[key]
+            else:
+                say("De stilstand is niet vastgelegd; de volgende controle probeert de mail opnieuw.")
+        if recoveries:
+            subject, body = _watchdog_recovery_mail(recoveries, last_ok, state, tz)
+            if send(subject, body):
+                say("Mail verstuurd: weer in orde (" + ", ".join(name for _k, name in recoveries) + ")")
+                for key, _name in recoveries:
+                    saved_state.pop(key, None)
+            else:
+                say("Het herstel is niet vastgelegd; de volgende controle probeert de mail opnieuw.")
+        if saved_state != state:
+            try:
+                _set_setting(conn, WATCHDOG_STATE_KEY, json.dumps(saved_state))
+            except Exception:
+                conn.rollback()
+                say("Let op: de toestand kon niet worden opgeslagen, dus de volgende controle kan dezelfde mail opnieuw sturen.")
+        if not alerts and not recoveries:
+            say("Alles draait; geen melding nodig.")
+
+        # --- weekoverzicht ---
+        due, week = _watchdog_weekly_due(local, data["weekly"])
+        if due:
+            subject, body = _watchdog_overview_mail(last_ok, data["overview"], data["db_bytes"], week, now, tz)
+            if send(subject, body):
+                say(f"Weekoverzicht verstuurd ({week}).")
+                try:
+                    _set_setting(conn, WATCHDOG_WEEKLY_KEY, week)
+                except Exception:
+                    conn.rollback()
+    finally:
+        conn.close()
+    return lines, failed
+
+
+
 # ---------- Nieuwe boeken pushen naar Bol ----------
 
 # 'MijnLeverbelofte' is niet zomaar een beschrijving maar de letterlijke, echte

@@ -13,6 +13,7 @@ Gebruik:
     python main.py pull-uploaded-images   # checken of gepushte afbeeldingen zijn verwerkt, en zo ja lokaal bevestigen
     python main.py quick-stock-sync       # lichte, snelle synchronisatie van alleen de voorraad (Boekwinkeltjes + Bol)
     python main.py test-bol-economic-operator   # veilige test: zoekt alleen de marktdeelnemer-ID op, verandert niets
+    python main.py watchdog [test]       # waakhond: mailt als de synchronisatie te lang stilstaat; met 'test' een proefbericht
     python main.py reclaim-space [rapport]  # geeft lege ruimte terug aan de database; verwijdert geen gegevens (met 'rapport' alleen een rapport)
     python main.py check-storage [test]  # opslagcontrole: mailt bij 90/95/98/100% van de limiet; met 'test' een proefbericht
     python main.py photo-vacuum [real]   # fotostofzuiger: proefrun, of met 'real' echt afbeeldingsbestanden opruimen
@@ -83,6 +84,15 @@ def main():
                 print(f"Gevonden! economicOperatorId voor '{sync.BOL_ECONOMIC_OPERATOR_NAME}': {operator_id}")
         except bol_client.BolAPIError as e:
             print(f"Mislukt: {e}")
+    elif command == "watchdog":
+        # Waakhond: mailt als de synchronisatie te lang stilstaat (en als het weer werkt, en elke maandag een overzicht).
+        # Draait elk uur via GitHub's eigen tijdschema. Met 'test' komt alleen een proefbericht, zonder iets op te slaan.
+        test_mail = len(sys.argv) > 2 and sys.argv[2] == "test"
+        watchdog_lines, watchdog_failed = sync.watchdog_check(test_mail=test_mail)
+        for line in watchdog_lines:
+            print(line)
+        if watchdog_failed:
+            sys.exit(1)  # de workflow wordt dan rood: dit is een melding dat de waakhond zijn werk niet kon doen
     elif command == "reclaim-space":
         # Geeft lege ruimte terug aan de database (VACUUM FULL op book_uploaded_images) zonder iets te wissen
         # of te wijzigen. Met 'rapport' alleen een rapport, zonder iets te herschrijven.
