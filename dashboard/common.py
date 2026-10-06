@@ -18,6 +18,7 @@ AMSTERDAM_TZ = ZoneInfo("Europe/Amsterdam")
 
 
 import base64
+import datetime as dt
 import hashlib
 import json
 import os
@@ -470,7 +471,9 @@ def trigger_github_workflow(workflow_file, ref="main"):
     except requests.RequestException as e:
         return False, f"Netwerkfout: {e}"
 
-    if resp.status_code == 204:
+    # GitHub documenteert 204 (geen inhoud) als antwoord. In december 2025 gaf het een paar uur een 200 met een
+    # beschrijving van de gestarte run terug; dan was de workflow ook gewoon gestart. Beide tellen dus als gelukt.
+    if resp.status_code in (200, 204):
         return True, "Gestart! Dit duurt een paar minuten — check het Actions-tabblad op GitHub voor de voortgang."
     return False, f"GitHub gaf een fout terug ({resp.status_code}): {resp.text[:300]}"
 
@@ -1823,6 +1826,95 @@ def set_setting(key, value):
         conn.commit()
     finally:
         conn.close()
+
+
+# ---------- Einddatum van de GitHub-sleutel ----------
+# Alle geplande taken (cron-job.org) en de knoppen in dit dashboard gebruiken één GitHub-sleutel. Heeft die een einddatum,
+# en verloopt hij, dan stopt alles tegelijk. GitHub geeft die datum niet betrouwbaar aan een programma door, dus vul je
+# hem één keer in (Hulp en instellingen). Dezelfde instelling gebruikt de waakhond om je te mailen.
+
+GITHUB_TOKEN_EXPIRES_KEY = "github_token_expires"
+GITHUB_TOKEN_NEVER = "never"  # de sleutel verloopt niet: er is geen einddatum om te bewaken
+GITHUB_TOKEN_SOON_DAYS = 30
+GITHUB_TOKEN_URGENT_DAYS = 7
+
+
+def get_github_token_expiry():
+    """
+    De ingestelde einddatum van de GitHub-sleutel als datum, GITHUB_TOKEN_NEVER ('never') als de sleutel niet verloopt,
+    of None (niet ingesteld of onleesbaar).
+    """
+    raw = get_setting(GITHUB_TOKEN_EXPIRES_KEY)
+    text = str(raw).strip() if raw else ""
+    if text.lower() == GITHUB_TOKEN_NEVER:
+        return GITHUB_TOKEN_NEVER
+    try:
+        return dt.date.fromisoformat(text) if text else None
+    except ValueError:
+        return None
+
+
+def set_github_token_expiry(expiry):
+    """Bewaart de einddatum (een datum), 'never' (verloopt niet), of wist de instelling (None)."""
+    if expiry == GITHUB_TOKEN_NEVER:
+        value = GITHUB_TOKEN_NEVER
+    elif expiry:
+        value = expiry.isoformat()
+    else:
+        value = ""
+    set_setting(GITHUB_TOKEN_EXPIRES_KEY, value)
+
+
+def github_token_status(expiry, today=None):
+    """
+    Hoe staat het met de GitHub-sleutel? Geeft {'state', 'days'} terug; 'state' is 'unset' (niets ingesteld), 'never'
+    (verloopt niet), 'ok', 'soon' (binnen 30 dagen), 'urgent' (binnen 7 dagen) of 'expired'. De einddatum zelf telt al
+    als verlopen: GitHub zet de sleutel op die dag uit, en liever een dag te vroeg gewaarschuwd dan te laat.
+    """
+    if expiry == GITHUB_TOKEN_NEVER:
+        return {"state": "never", "days": None}
+    if not expiry:
+        return {"state": "unset", "days": None}
+    today = today or dt.datetime.now(ZoneInfo("Europe/Amsterdam")).date()
+    days = (expiry - today).days
+    if days <= 0:
+        state = "expired"
+    elif days <= GITHUB_TOKEN_URGENT_DAYS:
+        state = "urgent"
+    elif days <= GITHUB_TOKEN_SOON_DAYS:
+        state = "soon"
+    else:
+        state = "ok"
+    return {"state": state, "days": days}
+
+
+def github_token_banner(expiry, today=None):
+    """Wat Home laat zien: (soort, tekst) met soort 'error', 'warning' of 'caption'."""
+    status = github_token_status(expiry, today)
+    state, days = status["state"], status["days"]
+    if state == "never":
+        return "caption", "GitHub-sleutel: verloopt niet (zo ingesteld)."
+    if state == "unset":
+        return "warning", (
+            "De einddatum van de GitHub-sleutel is niet ingesteld. Vul hem in bij Hulp en instellingen, dan waarschuwt de "
+            "app je op tijd voordat de geplande taken stoppen."
+        )
+    date_text = expiry.strftime("%d-%m-%Y")
+    if state == "expired":
+        return "error", (
+            f"🚨 De GitHub-sleutel is verlopen of verloopt vandaag ({date_text}). Daarna werken de geplande taken en de "
+            f"knoppen in dit dashboard niet meer. Vernieuw hem direct (zie Hulp en instellingen)."
+        )
+    if state == "urgent":
+        return "error", (
+            f"🚨 De GitHub-sleutel verloopt over {days} {'dag' if days == 1 else 'dagen'}, op {date_text}. Daarna stoppen de "
+            f"geplande taken. Vernieuw hem nu (zie Hulp en instellingen)."
+        )
+    if state == "soon":
+        return "warning", (
+            f"⚠️ De GitHub-sleutel verloopt over {days} dagen, op {date_text}. Vernieuw hem op tijd (zie Hulp en instellingen)."
+        )
+    return "caption", f"GitHub-sleutel verloopt op {date_text} (nog {days} dagen)."
 
 
 _PUBLISHER_NOISE_WORDS = {
