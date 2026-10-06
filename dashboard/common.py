@@ -2269,7 +2269,9 @@ def get_database_size_mb():
         with conn.cursor() as cur:
             cur.execute("SELECT COALESCE(sum(pg_database_size(datname)), 0) FROM pg_database")
             size_bytes = cur.fetchone()[0]
-            return size_bytes / (1024 * 1024)
+            # De som van Postgres komt als Decimal binnen; dat laat zich niet delen door een kommagetal (zoals de
+            # limiet op Home), dus eerst naar een gewoon getal.
+            return float(size_bytes) / (1024 * 1024)
     finally:
         conn.close()
 
