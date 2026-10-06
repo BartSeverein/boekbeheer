@@ -91,14 +91,22 @@ _SHIPPING_FORMAT_COLUMN_CHECKED = False
 
 def ensure_shipping_format_column(conn):
     """
-    Zorgt dat books.shipping_format bestaat (veilig om vaak te draaien; per programma-run wordt het
-    maar één keer echt gecontroleerd, want ALTER TABLE vraagt even een slot op de tabel). De aanroeper commit.
+    Zorgt dat books.shipping_format bestaat. Eerst wordt gekeken OF de kolom er al is: een ALTER TABLE vraagt
+    namelijk altijd een exclusief slot op de tabel, ook als er niets te wijzigen valt, en dat kan blijven
+    wachten achter een lopende sync (en dan loopt het af op 'statement timeout'). Alleen als de kolom echt
+    ontbreekt wordt hij aangemaakt. Per programma-run wordt het maar één keer gecontroleerd. De aanroeper commit.
     """
     global _SHIPPING_FORMAT_COLUMN_CHECKED
     if _SHIPPING_FORMAT_COLUMN_CHECKED:
         return
     with conn.cursor() as cur:
-        cur.execute("ALTER TABLE books ADD COLUMN IF NOT EXISTS shipping_format INTEGER")
+        cur.execute(
+            "SELECT 1 FROM information_schema.columns "
+            "WHERE table_schema = current_schema() AND table_name = 'books' AND column_name = 'shipping_format'"
+        )
+        exists = cur.fetchone() is not None
+        if not exists:
+            cur.execute("ALTER TABLE books ADD COLUMN IF NOT EXISTS shipping_format INTEGER")
     _SHIPPING_FORMAT_COLUMN_CHECKED = True
 
 
