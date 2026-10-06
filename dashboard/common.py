@@ -343,6 +343,7 @@ FIELD_LABELS = {
     "price": "Prijs Boekwinkeltjes",
     "shipping_cost": "Verzendkosten Boekwinkeltjes",
     "shipping_cost_bol": "Prijs Bol",
+    "shipping_format": "Verzendformaat",
     "amount": "Voorraad",
     "ean": "ISBN",
     "location": "Locatie",
@@ -687,6 +688,7 @@ EDITABLE_BOOK_FIELDS = [
     "price",
     "shipping_cost",
     "shipping_cost_bol",
+    "shipping_format",
     "amount",
     "location",
     "category1",
@@ -704,6 +706,74 @@ EDITABLE_BOOK_FIELDS = [
 ]
 
 
+# Verzendformaat: het verplichte Boekwinkeltjes-veld 'shippingFormat'. Waarden zoals in hun eigen keuzelijst.
+SHIPPING_FORMAT_LABELS = {
+    0: "Alleen afhalen mogelijk",
+    1: "Brievenbuspakje",
+    2: "Klein pakket",
+    3: "Normaal pakket",
+    4: "Groot of zwaar pakket",
+}
+
+
+def shipping_format_label(value):
+    """1 -> 'Brievenbuspakje'; leeg of onbekend -> 'nog niet ingesteld'."""
+    try:
+        if value is None or pd.isna(value):
+            return "nog niet ingesteld"
+        return SHIPPING_FORMAT_LABELS.get(int(value), f"onbekend ({int(value)})")
+    except (TypeError, ValueError):
+        return "nog niet ingesteld"
+
+
+def shipping_format_for_new_cost(cost, briefpost, pakketpost):
+    """
+    Het verzendformaat dat bij een verzendkostenbedrag hoort, voor boeken die we zelf aanmaken of wijzigen:
+    precies de briefpost-kosten -> Brievenbuspakje (1), precies de pakketpost-kosten -> Normaal pakket (3).
+    Een ander bedrag (vrije invoer): niet hoger dan briefpost -> Brievenbuspakje, hoger -> Normaal pakket.
+    Zonder bedrag -> None. Een boek zonder verzendformaat kan niet worden verkocht, dus liever een
+    voorspelbare keuze dan een leeg veld.
+    """
+    try:
+        if cost is None or pd.isna(cost):
+            return None
+        cost = round(float(cost), 2)
+    except (TypeError, ValueError):
+        return None
+    if cost == round(float(pakketpost), 2):
+        return 3
+    if cost <= round(float(briefpost), 2):
+        return 1
+    return 3
+
+
+def count_books_without_shipping_format(books):
+    """
+    Hoeveel boeken (met echte Boekwinkeltjes-id, waarvan de synchronisatie aanstaat) hebben nog geen
+    verzendformaat? Die kunnen op Boekwinkeltjes niet worden verkocht. Ontbreekt de kolom nog helemaal
+    (de sync heeft hem nog niet aangemaakt), dan tellen alle boeken mee.
+    """
+    if books is None or len(books) == 0:
+        return 0
+    eligible = books[books["id"] > 0]
+    if "push_enabled" in eligible.columns:
+        eligible = eligible[eligible["push_enabled"].fillna(True).astype(bool)]
+    if "shipping_format" not in eligible.columns:
+        return int(len(eligible))
+    return int(eligible["shipping_format"].isna().sum())
+
+
+_SHIPPING_FORMAT_COLUMN_CHECKED = False
+
+
+def _ensure_shipping_format_column(cur):
+    """Zorgt dat books.shipping_format bestaat (één keer per programma-run), ook als de sync dat nog niet deed."""
+    global _SHIPPING_FORMAT_COLUMN_CHECKED
+    if not _SHIPPING_FORMAT_COLUMN_CHECKED:
+        cur.execute("ALTER TABLE books ADD COLUMN IF NOT EXISTS shipping_format INTEGER")
+        _SHIPPING_FORMAT_COLUMN_CHECKED = True
+
+
 def save_book_edits(book_id, fields, user_short_name=None, previous_values=None):
     """
     Slaat handmatige wijzigingen aan een bestaand boek op in Supabase en zet
@@ -718,10 +788,10 @@ def save_book_edits(book_id, fields, user_short_name=None, previous_values=None)
     fields = {k: v for k, v in fields.items() if k in EDITABLE_BOOK_FIELDS}
     if not fields:
         return
-    set_clause = ", ".join(f"{col} = %({col})s" for col in fields)
     conn = psycopg2.connect(get_db_url())
     try:
         with conn.cursor() as cur:
+            _ensure_shipping_format_column(cur)
             cols = list(fields.keys())
             if previous_values is not None:
                 current_values = {col: previous_values.get(col) for col in cols}
@@ -737,13 +807,28 @@ def save_book_edits(book_id, fields, user_short_name=None, previous_values=None)
                 if _normalize_for_compare(current_values.get(col)) != _normalize_for_compare(fields[col])
             ]
 
+            # Het verzendformaat volgt de verzendkosten: als die veranderen, of als het boek nog geen
+            # verzendformaat heeft (zonder kan het niet worden verkocht). Een verzendformaat dat al staat
+            # en waarvan de kosten niet veranderen, blijft zoals het is (bijv. 'Klein pakket' dat op
+            # Boekwinkeltjes zelf is gekozen).
+            db_fields = dict(fields)
+            if "shipping_cost" in fields and "shipping_format" not in fields:
+                cur.execute("SELECT shipping_format FROM books WHERE id = %(id)s", {"id": int(book_id)})
+                row = cur.fetchone()
+                current_format = row[0] if row else None
+                if "shipping_cost" in changed_cols or current_format is None:
+                    new_format = shipping_format_for_new_cost(fields["shipping_cost"], *get_shipping_costs())
+                    if new_format is not None:
+                        db_fields["shipping_format"] = new_format
+
+            set_clause = ", ".join(f"{col} = %({col})s" for col in db_fields)
             cur.execute(
                 f"""
                 UPDATE books
                 SET {set_clause}, pending_push = TRUE, local_updated_at = %(now)s
                 WHERE id = %(id)s
                 """,
-                {**fields, "now": pd.Timestamp.utcnow(), "id": int(book_id)},
+                {**db_fields, "now": pd.Timestamp.utcnow(), "id": int(book_id)},
             )
         conn.commit()
     finally:
@@ -766,9 +851,16 @@ def create_new_book_draft(fields, user_short_name=None):
     het echte. Geeft het tijdelijke id terug.
     """
     fields = {k: v for k, v in fields.items() if k in EDITABLE_BOOK_FIELDS}
+    # Zonder verzendformaat kan Boekwinkeltjes het boek niet verkopen: afleiden uit de verzendkosten.
+    if fields.get("shipping_format") is None and fields.get("shipping_cost") is not None:
+        derived_format = shipping_format_for_new_cost(fields["shipping_cost"], *get_shipping_costs())
+        if derived_format is not None:
+            fields["shipping_format"] = derived_format
     conn = psycopg2.connect(get_db_url())
     try:
         with conn.cursor() as cur:
+            if "shipping_format" in fields:
+                _ensure_shipping_format_column(cur)
             cur.execute("SELECT COALESCE(MIN(id), 0) FROM books")
             row = cur.fetchone()
             lowest = row[0] if row else 0
@@ -3050,6 +3142,34 @@ def abebooks_box_line(result):
 # gedurende de dag niet alsnog tegen die daglimiet aanloopt.
 
 CRON_JOB_API_BASE = "https://api.cron-job.org"
+
+
+# De statuscodes van cron-job.org voor de laatste uitvoering van een taak (zie de REST API-documentatie, 'JobStatus').
+CRON_JOB_STATUS_LABELS = {
+    0: "Nog niet gedraaid",
+    1: "✅ Geslaagd",
+    2: "⚠️ Mislukt (DNS-fout)",
+    3: "⚠️ Mislukt (geen verbinding)",
+    4: "⚠️ Mislukt (HTTP-fout)",
+    5: "⚠️ Mislukt (time-out)",
+    6: "⚠️ Mislukt (te veel antwoord)",
+    7: "⚠️ Mislukt (ongeldige URL)",
+    8: "⚠️ Mislukt (interne fout bij cron-job.org)",
+    9: "⚠️ Mislukt (onbekende reden)",
+    10: "⚠️ Mislukt (controlepagina)",
+}
+
+
+def cron_status_label(code):
+    """De tekst voor een statuscode. Een code die we niet kennen toont de code zelf, nooit een streepje: dat zou een mislukking verbergen."""
+    if code is None:
+        return "–"
+    return CRON_JOB_STATUS_LABELS.get(code, f"⚠️ Onbekende status ({code})")
+
+
+def failed_cron_jobs(jobs):
+    """De taken waarvan de laatste uitvoering mislukte: elke code vanaf 2 (ook een code die we nog niet kennen)."""
+    return [job for job in jobs if isinstance(job.get("lastStatus"), int) and job["lastStatus"] >= 2]
 
 
 @st.cache_data(ttl=21600)

@@ -23,12 +23,17 @@ from pathlib import Path
 from common import (
     get_db_url,
     load_books,
+    count_books_without_shipping_format,
     load_orders,
     format_price,
     format_order_status,
     format_datetime_nl,
     AMSTERDAM_TZ,
+    cron_status_label,
+    failed_cron_jobs,
     get_cron_job_status,
+    get_github_token_expiry,
+    github_token_banner,
     get_cron_job_history,
     format_isbn,
     trigger_github_workflow,
@@ -45,6 +50,19 @@ require_login()
 st.title("📚 Boekbeheersysteem")
 
 books, orders = load_books(), load_orders()
+
+# Zonder verzendformaat kan Boekwinkeltjes een boek niet verkopen: laat zien als er boeken zijn die dat nog missen.
+try:
+    _missing_format = count_books_without_shipping_format(books)
+    if _missing_format:
+        st.warning(
+            f"⚠️ {_missing_format} {'boek heeft' if _missing_format == 1 else 'boeken hebben'} nog geen verzendformaat "
+            "bij Boekwinkeltjes en "
+            f"{'kan' if _missing_format == 1 else 'kunnen'} daar niet worden verkocht. "
+            "Zie de workflow 'Verzendformaat vullen (eenmalig)' in GitHub Actions."
+        )
+except Exception:
+    pass  # een hulpmelding mag Home nooit laten crashen
 
 
 def _poll_sync_completion(timeout_seconds=360, quiet_seconds=6):
@@ -290,6 +308,19 @@ st.divider()
 
 st.subheader("Geplande taken")
 
+# De status van cron-job.org wordt 6 uur onthouden (zijn daglimiet is klein). Deze knop haalt hem nu opnieuw op: dat kost
+# één aanroep. De geschiedenis voor het duurgrafiek blijft bewust onthouden (die kost er veel meer, en duurt een minuut).
+if st.button("🔄 Status verversen", key="refresh_cron_status", help="Haalt de actuele status van cron-job.org op (kost één van de 100 aanroepen per dag)."):
+    get_cron_job_status.clear()
+    st.rerun()
+
+try:
+    # De einddatum van de GitHub-sleutel: verloopt die, dan stoppen alle geplande taken. Een storing hier mag Home niet breken.
+    banner_kind, banner_text = github_token_banner(get_github_token_expiry())
+    getattr(st, banner_kind)(banner_text)
+except Exception:
+    st.caption("De einddatum van de GitHub-sleutel kon nu niet worden opgevraagd.")
+
 cron_jobs, cron_error = get_cron_job_status()
 if not cron_jobs:
     if cron_error:
@@ -297,7 +328,27 @@ if not cron_jobs:
     else:
         st.info("Geen gegevens van cron-job.org beschikbaar (geen taken gevonden).")
 else:
-    CRON_STATUS_LABELS = {0: "Nog niet gedraaid", 1: "✅ Geslaagd", 2: "⚠️ Mislukt (gebruiker)", 3: "⚠️ Mislukt (host)"}
+    # --- mislukte taken (begin) ---
+    failed_jobs = failed_cron_jobs(cron_jobs)
+    if failed_jobs:
+        failed_names = ", ".join(job.get("title", "(naamloos)") for job in failed_jobs)
+        st.error(
+            f"🚨 {len(failed_jobs)} geplande {'taak is' if len(failed_jobs) == 1 else 'taken zijn'} mislukt bij de laatste "
+            f"uitvoering: {failed_names}. Open de taak bij cron-job.org en kijk in de geschiedenis naar de HTTP-code. "
+            f"Deze tabel kan tot 6 uur oud zijn; met de knop hierboven haal je de actuele status op."
+        )
+        with st.expander("Wat betekent de HTTP-code?"):
+            st.markdown(
+                """
+Alle taken roepen GitHub aan om een workflow te starten. Bij een HTTP-fout is dit meestal de oorzaak:
+- **401**: de GitHub-sleutel in de kopregel `Authorization` klopt niet, is ingetrokken of vervangen. Let op: `Bearer ` met een spatie ervoor.
+- **403**: de sleutel mist het recht *Actions: Read and write*.
+- **404**: de sleutel heeft geen toegang tot de repository `boekbeheer`, of de URL of bestandsnaam van de workflow klopt niet.
+- **422**: de workflow heeft geen handmatige start, of de gegevens in de body kloppen niet.
+- **429**: te veel aanroepen kort na elkaar.
+                """
+            )
+    # --- mislukte taken (einde) ---
 
     rows = []
     for job in cron_jobs:
@@ -307,7 +358,7 @@ else:
             {
                 "Taak": job.get("title", "(naamloos)"),
                 "Laatste run": format_datetime_nl(dt.datetime.fromtimestamp(last_exec, tz=dt.timezone.utc)) if last_exec else "–",
-                "Status": CRON_STATUS_LABELS.get(job.get("lastStatus"), "–"),
+                "Status": cron_status_label(job.get("lastStatus")),
                 "Duur": f"{job.get('lastDuration', 0) / 1000:.1f}s" if job.get("lastDuration") else "–",
                 "Volgende run": format_datetime_nl(dt.datetime.fromtimestamp(next_exec, tz=dt.timezone.utc)) if next_exec else "–",
             }
