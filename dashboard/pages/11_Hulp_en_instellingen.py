@@ -15,9 +15,13 @@ from common import (
     delete_placeholder_uploads,
     find_placeholder_uploads,
     get_all_images,
+    GITHUB_TOKEN_NEVER,
+    get_github_token_expiry,
+    github_token_banner,
     render_logo,
     require_login,
     get_setting,
+    set_github_token_expiry,
     set_setting,
     get_shipping_costs,
 )
@@ -268,13 +272,63 @@ if st.button("Opslaan", key="save_shipping_costs"):
             st.warning("Let op: briefpost is nu duurder dan pakketpost. Klopt dat? Zo niet, dan staan ze mogelijk verwisseld.")
 
 
+# ---------- GitHub-sleutel ----------
+
 st.divider()
-st.header("Nepfoto's in de wachtrij")
+st.header("GitHub-sleutel")
+st.caption(
+    "Alle geplande taken (cron-job.org) en de knoppen in dit dashboard gebruiken één GitHub-sleutel. Heeft die een einddatum, "
+    "dan stoppen alle taken tegelijk zodra hij verloopt. GitHub geeft die datum niet betrouwbaar door, dus vul je hem hier in, "
+    "zoals GitHub hem toont (\"Expires on …\"). Home waarschuwt dan 30 dagen van tevoren, en de waakhond mailt je. "
+    "Heeft de sleutel geen einddatum, vink dan \"verloopt niet\" aan: dan blijft de waarschuwing weg."
+)
+current_token_expiry = get_github_token_expiry()
+banner_kind, banner_text = github_token_banner(current_token_expiry)
+getattr(st, banner_kind)(banner_text)
+token_never_expires = st.checkbox(
+    "Deze sleutel verloopt niet", value=(current_token_expiry == GITHUB_TOKEN_NEVER), key="github_token_never"
+)
+token_expiry_input = st.date_input(
+    "Einddatum van de GitHub-sleutel",
+    value=None if current_token_expiry in (None, GITHUB_TOKEN_NEVER) else current_token_expiry,
+    format="DD-MM-YYYY",
+    disabled=token_never_expires,
+    key="github_token_expiry_input",
+)
+if st.button("Opslaan", key="save_github_token_expiry"):
+    if token_never_expires:
+        set_github_token_expiry(GITHUB_TOKEN_NEVER)
+        st.success("Opgeslagen: de sleutel verloopt niet.")
+        st.rerun()
+    elif token_expiry_input is None:
+        st.error("Niet opgeslagen — kies eerst een datum, of vink aan dat de sleutel niet verloopt.")
+    else:
+        set_github_token_expiry(token_expiry_input)
+        st.success(f"Opgeslagen: de sleutel verloopt op {token_expiry_input.strftime('%d-%m-%Y')}.")
+        st.rerun()
+with st.expander("Zo vernieuw je de sleutel"):
+    st.markdown(
+        """
+1. Ga op GitHub (profielfoto rechtsboven) naar **Settings → Developer settings → Personal access tokens → Fine-grained tokens**.
+2. Maak een nieuwe sleutel voor alleen de repository `boekbeheer`, met het recht **Actions: Read and write**. Kies de langst
+   mogelijke looptijd, of geen einddatum als GitHub dat aanbiedt en je dat risico aanvaardbaar vindt. Of kies **Regenerate
+   token** bij de bestaande sleutel, als GitHub dat aanbiedt.
+3. Kopieer de nieuwe waarde meteen, want GitHub toont hem maar één keer. Deel hem nergens, ook niet in een chat.
+4. Vervang hem op twee plekken: in de Streamlit-instellingen (`GITHUB_TOKEN`) en in de kopregel `Authorization`
+   (`Bearer …`) van **elke** job bij cron-job.org.
+5. Vul hierboven de nieuwe einddatum in, of vink aan dat de sleutel niet verloopt.
+        """
+    )
+
+
+st.divider()
+st.header("Nepfoto's die nog niet naar Boekwinkeltjes zijn gestuurd")
 st.caption(
     "Soms geeft Google of een andere bron als omslag alleen een plaatshouder (\"BOOK COVER NOT AVAILABLE\"). "
-    "Nieuwe boeken krijgen die niet meer mee, maar boeken die al eerder in de wachtrij kwamen, kunnen er nog een hebben. "
-    "Hier zoek je ze op en verwijder je ze, **voordat** ze naar Boekwinkeltjes gaan. Alleen foto's die nog niet zijn "
-    "doorgestuurd worden bekeken, en je ziet eerst welke het zijn."
+    "Nieuwe boeken krijgen die niet meer mee, maar boeken die al eerder zijn aangemaakt (in de bulk-wachtrij of via "
+    "Nieuw boek) kunnen er nog een hebben. Hier zoek je ze op en verwijder je ze, **voordat** ze naar Boekwinkeltjes gaan. "
+    "Dit geldt voor alle foto's die nog niet zijn doorgestuurd, niet alleen voor de bulk-wachtrij. Foto's die al bij "
+    "Boekwinkeltjes staan, worden niet bekeken of aangeraakt. Je ziet eerst welke het zijn, en verwijdert ze zelf."
 )
 
 delete_message = st.session_state.pop("placeholder_delete_message", None)
