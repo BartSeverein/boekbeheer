@@ -1496,7 +1496,7 @@ PLAUSIBLE_LENGTH_RANGE_CM = (5, 45)
 PLAUSIBLE_THICKNESS_RANGE_CM = (0.2, 8)
 
 
-SHIPPING_DEFAULT_BRIEFPOST = 3.75
+SHIPPING_DEFAULT_BRIEFPOST = 3.95
 SHIPPING_DEFAULT_PAKKETPOST = 7.25
 
 
@@ -1507,7 +1507,7 @@ def get_shipping_costs():
     pakketpost) in euro's. Instelbaar op 'Hulp en instellingen' (opgeslagen in
     app_settings), zodat een prijswijziging van de vervoerder geen codewijziging
     vraagt. Is er nog niets ingesteld, of is een waarde onleesbaar of niet groter
-    dan 0, dan geldt het oude standaardbedrag (3,75 resp. 7,25).
+    dan 0, dan geldt het standaardbedrag (3,95 resp. 7,25).
     """
     conn = psycopg2.connect(get_db_url())
     try:
