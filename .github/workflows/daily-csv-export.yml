@@ -1,4 +1,4 @@
-name: Dagelijkse CSV-back-up per e-mail
+name: Dagelijkse CSV-back-up (Dropbox of e-mail)
 
 on:
   workflow_dispatch:
@@ -24,7 +24,7 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Stuur de dagelijkse CSV-back-up per e-mail
+      - name: Maak de dagelijkse CSV-back-up (Dropbox, anders per e-mail)
         run: python main.py send-daily-csv-export
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
@@ -36,5 +36,8 @@ jobs:
           SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
           SMTP_TO: ${{ secrets.SMTP_TO }}
+          DROPBOX_APP_KEY: ${{ secrets.DROPBOX_APP_KEY }}
+          DROPBOX_APP_SECRET: ${{ secrets.DROPBOX_APP_SECRET }}
+          DROPBOX_REFRESH_TOKEN: ${{ secrets.DROPBOX_REFRESH_TOKEN }}
           TRIGGER_SOURCE: ${{ github.event.inputs.trigger_source }}
           PYTHONUNBUFFERED: "1"
