@@ -21,6 +21,7 @@ Gebruik:
     python main.py push-new-books-to-bol  # ALLEEN nieuwe boeken (via de app aangemaakt) naar Bol pushen, verder niets
     python main.py drip-push-new-books    # druppelsgewijs (max 1 per interval, alleen in drukke perioden) nieuwe boeken naar Boekwinkeltjes
     python main.py backfill-shipping-format [real] [briefpost pakketpost]   # eenmalig: verzendformaat bij Boekwinkeltjes vullen (zonder 'real' een proefrun)
+    python main.py update-legacy-shipping-cost [real] [briefpost]   # eenmalig: oude briefpost-verzendkosten (3,75/1,40) naar de huidige briefpost (zonder 'real' een proefrun)
     python main.py send-daily-csv-export  # stuurt een e-mail met boeken.csv en orders.csv als back-up
 """
 
@@ -141,6 +142,16 @@ def main():
         brief = float(args[0].replace(",", ".")) if len(args) >= 1 and args[0] else None
         pakket = float(args[1].replace(",", ".")) if len(args) >= 2 and args[1] else None
         for line in sync.backfill_shipping_format(real=real, briefpost=brief, pakketpost=pakket):
+            print(line)
+    elif command == "update-legacy-shipping-cost":
+        # Eenmalig: boeken met de oude briefpost-verzendkosten (3,75 of 1,40) krijgen de huidige briefpost-kosten
+        # en verzendformaat Brievenbuspakje, bij Boekwinkeltjes en lokaal. Zonder 'real' is het een proefrun.
+        args = sys.argv[2:]
+        real = bool(args) and args[0] == "real"
+        if real:
+            args = args[1:]
+        brief = float(args[0].replace(",", ".")) if args and args[0] else None
+        for line in sync.update_legacy_shipping_cost(real=real, briefpost=brief):
             print(line)
     elif command == "send-daily-csv-export":
         sync.send_daily_csv_export()

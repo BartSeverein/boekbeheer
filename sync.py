@@ -29,6 +29,13 @@ def _now():
     return dt.datetime.now(dt.timezone.utc).isoformat()
 
 
+# Hoeveel rijen een pull per keer opslaat (commit). Een transactie houdt alle rijen die ze heeft aangepast vast tot ze
+# klaar is; bij één grote transactie over alle ~3500 boeken kan een gelijktijdige wijziging (in het dashboard of door
+# een andere job) daardoor lang blijven wachten en op een 'statement timeout' stuklopen. Elke 200 rijen opslaan
+# houdt dat kort. Een pull is herhaalbaar (alles is een 'upsert'), dus tussentijds opgeslagen werk is nooit een probleem.
+PULL_COMMIT_EVERY = 200
+
+
 def _n(count, singular, plural):
     """Enkelvoud bij precies 1, anders meervoud (dus ook bij 0)."""
     return singular if count == 1 else plural
@@ -275,6 +282,8 @@ def pull_books():
                 )
                 count += 1
                 seen_ids.append(book.get("id"))
+                if count % PULL_COMMIT_EVERY == 0:
+                    conn.commit()
 
             # Boeken die lokaal nog bestaan (met een echt, positief id) maar niet meer
             # in deze volledige pull voorkwamen, zijn kennelijk uitverkocht of bij
@@ -381,6 +390,8 @@ def pull_orders():
                     },
                 )
                 count += 1
+                if count % PULL_COMMIT_EVERY == 0:
+                    conn.commit()
         conn.commit()
         _log(conn, "pull", "orders", "ok", f"{count} {_n(count, 'order', 'orders')} verwerkt")
         conn.commit()
@@ -443,6 +454,10 @@ def push_pending_books():
                         {"now": _now(), "id": row["id"], "sf": shipping_format},
                     )
                     count += 1
+                    # Per boek opslaan: tussen twee aanroepen naar Boekwinkeltjes (traag) mogen we geen rijen
+                    # vasthouden, en een later probleem mag al verstuurde boeken niet weer 'ongedaan' maken
+                    # (dan zouden ze bij de volgende sync nogmaals worden verstuurd).
+                    conn.commit()
                 except api_client.BoekwinkeltjesAPIError as e:
                     if "-> 404:" in str(e):
                         # Boek bestaat niet meer bij Boekwinkeltjes (bijv. daar handmatig
@@ -453,6 +468,7 @@ def push_pending_books():
                             {"id": row["id"]},
                         )
                         skipped_gone += 1
+                        conn.commit()
                     else:
                         errors.append(f"boek {row['id']}: {e}")
         conn.commit()
@@ -644,6 +660,171 @@ def backfill_shipping_format(real=False, briefpost=None, pakketpost=None, now_fu
     except Exception as e:
         conn.rollback()
         _log(conn, "push", "shipping_format", "error", str(e))
+        conn.commit()
+        raise
+    finally:
+        conn.close()
+    return lines
+
+
+def update_legacy_shipping_cost(real=False, briefpost=None, now_func=time.monotonic, sleep_func=time.sleep):
+    """
+    Eenmalige job: boeken die nog de oude briefpost-verzendkosten hebben (3,75, of de oude standaardwaarde 1,40;
+    zie SHIPPING_LEGACY_BRIEFPOST_AMOUNTS) krijgen de huidige briefpost-kosten (standaard uit 'Hulp en instellingen',
+    of het bedrag dat je meegeeft) en verzendformaat Brievenbuspakje, zowel bij Boekwinkeltjes als lokaal.
+    De boekprijs blijft precies zoals hij is. Verzendkosten bij Bol (shipping_cost_bol) worden niet aangeraakt.
+
+    Zonder real=True is het een proefrun: er wordt niets verstuurd of opgeslagen.
+    Net als bij backfill_shipping_format: per boek eerst uitlezen (Boekwinkeltjes eist de prijs bij elke wijziging,
+    die geven we terug zoals ze is), dan wijzigen, dan pas lokaal bewaren; bij het eerste boek wordt nagekeken of
+    Boekwinkeltjes de waarden echt heeft overgenomen; opnieuw draaien is veilig (wat klaar is wordt overgeslagen).
+    Boeken met een nog niet verstuurde lokale wijziging (pending_push) worden overgeslagen, zodat die later niet
+    het oude bedrag terugzet; ze komen bij een volgende run aan bod.
+    """
+    lines = []
+    conn = get_connection()
+    try:
+        settings_brief, _ = get_shipping_costs_setting(conn)
+        target = settings_brief if briefpost is None else round(float(briefpost), 2)
+        if not (0 < target < 1000):
+            lines.append(f"Ongeldig bedrag voor briefpost: {target}. Er is niets gedaan.")
+            return lines
+        legacy = [a for a in SHIPPING_LEGACY_BRIEFPOST_AMOUNTS if round(a, 2) != target]
+        lines.append(
+            f"Oude briefpost-bedragen ({', '.join(f'€{a:.2f}' for a in legacy)}) worden €{target:.2f}, "
+            f"met verzendformaat {SHIPPING_FORMAT_LABELS[1]}. De boekprijs blijft ongewijzigd."
+        )
+
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, shipping_cost, pending_push FROM books
+                WHERE id > 0 AND pending_create = FALSE AND push_enabled = TRUE AND shipping_cost IS NOT NULL
+                ORDER BY id
+                """
+            )
+            rows = cur.fetchall()
+        conn.rollback()  # alleen gelezen; geen transactie open laten staan
+
+        candidates = [r for r in rows if round(float(r["shipping_cost"]), 2) in [round(a, 2) for a in legacy]]
+        todo = [r["id"] for r in candidates if not r["pending_push"]]
+        waiting = len(candidates) - len(todo)
+        by_amount = {}
+        for r in candidates:
+            key = f"€{float(r['shipping_cost']):.2f}"
+            by_amount[key] = by_amount.get(key, 0) + 1
+        lines.append(f"{len(candidates)} {_n(len(candidates), 'boek', 'boeken')} met een oud bedrag gevonden:")
+        for key, n in sorted(by_amount.items()):
+            lines.append(f"  - {n} x {key}")
+        if waiting:
+            lines.append(
+                f"  - {waiting} {_n(waiting, 'boek heeft', 'boeken hebben')} nog een niet-verstuurde wijziging en "
+                f"worden nu overgeslagen; draai de job later nog eens."
+            )
+
+        if not real:
+            lines.append("Proefrun: er is niets verstuurd of opgeslagen. Draai opnieuw met echt_uitvoeren = ja om het door te voeren.")
+            return lines
+        if not todo:
+            lines.append("Niets te doen.")
+            _log(conn, "push", "shipping_cost", "ok", "niets te doen")
+            conn.commit()
+            return lines
+
+        with conn.cursor() as cur:
+            cur.execute("SET lock_timeout = '3s'")
+        conn.commit()
+        started = now_func()
+        done = gone = local_skipped = consecutive_errors = 0
+        errors = []
+        verified = stopped_for_time = aborted = False
+        for book_id in todo:
+            if now_func() - started > SHIPPING_FORMAT_BACKFILL_MAX_SECONDS:
+                stopped_for_time = True
+                break
+            try:
+                current = api_client.get_book(book_id)
+                data = current.get("data", current) if isinstance(current, dict) else {}
+                price = data.get("price") if isinstance(data, dict) else None
+                if price is None:
+                    raise api_client.BoekwinkeltjesAPIError(
+                        f"GET boek {book_id}: Boekwinkeltjes gaf geen prijs terug; niets verstuurd"
+                    )
+                api_client.update_book(
+                    book_id, {"price": price, "shippingCost": target, "shippingFormat": SHIPPING_FORMAT_MAILBOX}
+                )
+            except api_client.BoekwinkeltjesAPIError as e:
+                if "-> 404:" in str(e):
+                    gone += 1
+                    continue
+                errors.append(f"boek {book_id}: {e}")
+                consecutive_errors += 1
+                if consecutive_errors >= SHIPPING_FORMAT_BACKFILL_MAX_CONSECUTIVE_ERRORS:
+                    aborted = True
+                    break
+                continue
+            consecutive_errors = 0
+
+            if not verified:
+                check = api_client.get_book(book_id)
+                cdata = check.get("data", check) if isinstance(check, dict) else {}
+                if isinstance(cdata, dict) and "shippingCost" in cdata:
+                    try:
+                        cost_ok = round(float(cdata["shippingCost"]), 2) == target
+                    except (TypeError, ValueError):
+                        cost_ok = False
+                    price_ok = cdata.get("price") is None or round(float(cdata["price"]), 2) == round(float(price), 2)
+                    if not (cost_ok and price_ok):
+                        lines.append(
+                            f"GESTOPT: boek {book_id} kreeg verzendkosten €{target:.2f} gestuurd, maar Boekwinkeltjes geeft "
+                            f"verzendkosten {cdata.get('shippingCost')!r} en prijs {cdata.get('price')!r} terug (prijs was {price!r}). "
+                            f"Er is niets lokaal opgeslagen."
+                        )
+                        _log(conn, "push", "shipping_cost", "error", f"controle mislukt bij boek {book_id}")
+                        conn.commit()
+                        return lines
+                    lines.append(f"Controle gelukt: boek {book_id} heeft bij Boekwinkeltjes nu verzendkosten €{target:.2f}, de prijs is ongewijzigd.")
+                else:
+                    lines.append(
+                        f"Let op: Boekwinkeltjes geeft de verzendkosten niet terug bij het uitlezen van boek {book_id}, dus de waarde "
+                        f"kon niet worden gecontroleerd. Controleer dit boek zelf op de site."
+                    )
+                verified = True
+
+            done += 1
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "UPDATE books SET shipping_cost = %(c)s, shipping_format = %(f)s WHERE id = %(id)s AND pending_push = FALSE",
+                        {"c": target, "f": SHIPPING_FORMAT_MAILBOX, "id": book_id},
+                    )
+                conn.commit()
+            except psycopg2.Error:
+                conn.rollback()
+                local_skipped += 1
+            sleep_func(SHIPPING_FORMAT_BACKFILL_PAUSE)
+        conn.commit()
+
+        remaining = len(todo) - done - gone - len(errors)
+        lines.append(f"Klaar: {done} {_n(done, 'boek', 'boeken')} bijgewerkt bij Boekwinkeltjes (verzendkosten €{target:.2f}, {SHIPPING_FORMAT_LABELS[1]}).")
+        if gone:
+            lines.append(f"{gone} {_n(gone, 'boek bestaat', 'boeken bestaan')} niet meer bij Boekwinkeltjes (overgeslagen).")
+        if local_skipped:
+            lines.append(
+                f"{local_skipped} {_n(local_skipped, 'boek is', 'boeken zijn')} wel bij Boekwinkeltjes bijgewerkt, maar onze eigen kopie "
+                f"kon even niet worden bijgewerkt (tabel in gebruik). De eerstvolgende sync haalt de waarde zelf binnen."
+            )
+        if errors:
+            lines.append(f"{len(errors)} {_n(len(errors), 'fout', 'fouten')}; eerste: {errors[0]}")
+        if aborted:
+            lines.append(f"GESTOPT na {SHIPPING_FORMAT_BACKFILL_MAX_CONSECUTIVE_ERRORS} fouten achter elkaar. Los de fout op en draai opnieuw.")
+        if stopped_for_time:
+            lines.append(f"Tijdslimiet bereikt. Er zijn er nog {remaining} te gaan: start de job nog een keer, hij gaat verder waar hij ophield.")
+        _log(conn, "push", "shipping_cost", "error" if (errors or aborted) else "ok", " | ".join(lines[-4:]))
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        _log(conn, "push", "shipping_cost", "error", str(e))
         conn.commit()
         raise
     finally:
@@ -935,6 +1116,10 @@ def push_new_books():
                 try:
                     _create_one_book_at_boekwinkeltjes(cur, row)
                     count += 1
+                    # Per boek opslaan: is een boek eenmaal bij Boekwinkeltjes aangemaakt, dan moet het nieuwe id
+                    # ook echt bewaard zijn. Een latere fout mag dat niet terugdraaien, anders wordt het boek bij
+                    # de volgende poging een tweede keer aangemaakt (dubbel aanbod).
+                    conn.commit()
                 except api_client.BoekwinkeltjesAPIError as e:
                     errors.append(f"boek {row['id']} ({row['title']}): {e}")
         conn.commit()
