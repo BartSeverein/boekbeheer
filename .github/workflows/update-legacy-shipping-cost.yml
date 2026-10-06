@@ -1,0 +1,56 @@
+name: Oude verzendkosten bijwerken (eenmalig)
+
+# Eenmalige job: boeken die nog de oude briefpost-verzendkosten hebben (3,75 of 1,40) krijgen de huidige briefpost-
+# kosten (standaard uit Hulp en instellingen) en verzendformaat Brievenbuspakje, bij Boekwinkeltjes en in de app.
+# De boekprijs blijft precies zoals hij is. Standaard is het een PROEFRUN. Zet 'echt_uitvoeren' op "ja" om het door
+# te voeren. Veilig opnieuw te draaien. Start met 'Run workflow' in de Actions-tab.
+on:
+  workflow_dispatch:
+    inputs:
+      echt_uitvoeren:
+        description: 'Zet op "ja" om echt naar Boekwinkeltjes te sturen. Anders is het een proefrun waarbij niets wordt verstuurd.'
+        required: false
+        type: string
+        default: "nee"
+      briefpost:
+        description: "Nieuwe verzendkosten voor briefpost in euro's (leeg = de waarde uit Hulp en instellingen)"
+        required: false
+        type: string
+        default: ""
+
+# Bewust GEEN 'concurrency'-groep: de job kan een half uur duren en mag de gewone synchronisatie niet ophouden.
+
+jobs:
+  update-legacy-shipping-cost:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Oude verzendkosten bijwerken
+        run: |
+          if [ "$ECHT_UITVOEREN" = "ja" ]; then
+            python main.py update-legacy-shipping-cost real "$BRIEFPOST"
+          else
+            python main.py update-legacy-shipping-cost "$BRIEFPOST"
+          fi
+        env:
+          ECHT_UITVOEREN: ${{ github.event.inputs.echt_uitvoeren }}
+          BRIEFPOST: ${{ github.event.inputs.briefpost }}
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          BOEKWINKELTJES_ENV: ${{ secrets.BOEKWINKELTJES_ENV }}
+          BOEKWINKELTJES_API_KEY_SANDBOX: ${{ secrets.BOEKWINKELTJES_API_KEY_SANDBOX }}
+          BOEKWINKELTJES_API_KEY_LIVE: ${{ secrets.BOEKWINKELTJES_API_KEY_LIVE }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          SMTP_TO: ${{ secrets.SMTP_TO }}
+          PYTHONUNBUFFERED: "1"
