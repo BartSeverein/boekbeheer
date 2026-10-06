@@ -548,6 +548,9 @@ def backfill_shipping_format(real=False, briefpost=None, pakketpost=None, now_fu
             conn.commit()
             return lines
 
+        with conn.cursor() as cur:
+            cur.execute("SET lock_timeout = '3s'")
+        conn.commit()
         started = now_func()
         done = 0
         gone = 0
@@ -556,6 +559,7 @@ def backfill_shipping_format(real=False, briefpost=None, pakketpost=None, now_fu
         verified = False
         stopped_for_time = False
         aborted = False
+        local_skipped = 0
         for book_id, fmt in todo:
             if now_func() - started > SHIPPING_FORMAT_BACKFILL_MAX_SECONDS:
                 stopped_for_time = True
@@ -605,11 +609,17 @@ def backfill_shipping_format(real=False, briefpost=None, pakketpost=None, now_fu
                     )
                 verified = True
 
-            with conn.cursor() as cur:
-                cur.execute("UPDATE books SET shipping_format = %(f)s WHERE id = %(id)s", {"f": fmt, "id": book_id})
             done += 1
-            if done % 25 == 0:
+            # Onze eigen kopie bijwerken, per boek in een eigen kleine transactie. Draait er tegelijk een sync, dan
+            # kan die de rij vasthouden; we wachten dan hooguit 3 seconden (lock_timeout) en gaan door. Dat is niet erg:
+            # Boekwinkeltjes is al bijgewerkt en de eerstvolgende sync haalt de waarde zelf binnen.
+            try:
+                with conn.cursor() as cur:
+                    cur.execute("UPDATE books SET shipping_format = %(f)s WHERE id = %(id)s", {"f": fmt, "id": book_id})
                 conn.commit()
+            except psycopg2.Error:
+                conn.rollback()
+                local_skipped += 1
             sleep_func(SHIPPING_FORMAT_BACKFILL_PAUSE)
         conn.commit()
 
@@ -617,6 +627,11 @@ def backfill_shipping_format(real=False, briefpost=None, pakketpost=None, now_fu
         lines.append(f"Klaar: {done} {_n(done, 'boek', 'boeken')} bijgewerkt bij Boekwinkeltjes.")
         if gone:
             lines.append(f"{gone} {_n(gone, 'boek bestaat', 'boeken bestaan')} niet meer bij Boekwinkeltjes (overgeslagen).")
+        if local_skipped:
+            lines.append(
+                f"{local_skipped} {_n(local_skipped, 'boek is', 'boeken zijn')} wel bij Boekwinkeltjes bijgewerkt, maar onze eigen kopie "
+                f"kon even niet worden bijgewerkt (de tabel was in gebruik door een sync). De eerstvolgende sync haalt de waarde zelf binnen."
+            )
         if errors:
             lines.append(f"{len(errors)} {_n(len(errors), 'fout', 'fouten')}; eerste: {errors[0]}")
         if aborted:
