@@ -26,6 +26,7 @@ Gebruik:
     python main.py send-daily-csv-export  # stuurt een e-mail met boeken.csv en orders.csv als back-up
 """
 
+import re
 import sys
 
 from db import init_db
@@ -159,6 +160,12 @@ def main():
         # en schrijft hoofdafbeelding_controle.csv. Optioneel een maximum aantal boeken, bijvoorbeeld: compare-main-images 50
         limit = int(sys.argv[2]) if len(sys.argv) >= 3 and sys.argv[2].strip() else None
         for line in sync.compare_main_images(limit=limit):
+            print(line)
+    elif command == "show-main-image":
+        # Alleen lezen: toont per boeknummer de foto's (API), wat wij eerder opsloegen en de hoofdfoto op de boekpagina.
+        # Bijvoorbeeld: show-main-image 245006264 245006265
+        ids = [int(x) for x in re.split(r"[\s,;]+", " ".join(sys.argv[2:]).strip()) if x]
+        for line in sync.show_main_image(ids):
             print(line)
     elif command == "send-daily-csv-export":
         sync.send_daily_csv_export()

@@ -1782,6 +1782,82 @@ def compare_main_images(output_path=MAIN_IMAGE_CHECK_CSV, limit=None, workers=MA
     return lines
 
 
+# ---------- Hoofdfoto van een paar boeken bekijken (alleen lezen) ----------
+
+def book_page_urls(book_id, title):
+    """De publieke boekpagina op Boekwinkeltjes: /b/<boeknummer>/<titel-met-streepjes>/, plus de variant zonder titel."""
+    urls = []
+    slug = re.sub(r"[^A-Za-z0-9]+", "-", title or "").strip("-")
+    if slug:
+        urls.append(f"https://www.boekwinkeltjes.nl/b/{book_id}/{slug}/")
+    urls.append(f"https://www.boekwinkeltjes.nl/b/{book_id}/")
+    return urls
+
+
+def show_main_image(book_ids):
+    """
+    ALLEEN LEZEN. Toont per opgegeven boek: de foto's volgens de API (in volgorde), wat wij eerder opsloegen, en welke foto
+    de publieke boekpagina nu als hoofdfoto (og:image) laat zien. Zo is te zien hoe de hoofdfoto zich verhoudt tot de volgorde.
+    """
+    lines = []
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            for book_id in book_ids:
+                cur.execute("SELECT id, title, main_image_url FROM books WHERE id = %(id)s", {"id": book_id})
+                rows = cur.fetchall()
+                title = rows[0]["title"] if rows else None
+                cur.execute(
+                    "SELECT image_id, position, url_large FROM book_images WHERE book_id = %(id)s AND image_id != -1 "
+                    "ORDER BY position, image_id",
+                    {"id": book_id},
+                )
+                stored = list(cur.fetchall())
+                lines.append(f"Boek {book_id}: {title or '(niet in de database)'}")
+                try:
+                    current = api_client.get_book_images(book_id)
+                except api_client.BoekwinkeltjesAPIError as e:
+                    current = None
+                    lines.append(f"  API: fout bij ophalen van de foto's: {e}")
+                if current is not None:
+                    lines.append(f"  API geeft {len(current)} foto's:")
+                    for i, c in enumerate(current, start=1):
+                        lines.append(f"    {i}. id {c.get('id')}  {c.get('urlLarge')}")
+                lines.append(f"  Eerder bij ons opgeslagen: {len(stored)} foto's; eerste: "
+                             f"{stored[0]['image_id'] if stored else '-'}")
+                og, tried = None, []
+                for url in book_page_urls(book_id, title):
+                    ok, found = _fetch_page_main_image(url)
+                    tried.append(f"{url} -> {'gelezen' if ok else 'niet gelezen'}")
+                    if ok:
+                        og = found
+                        break
+                lines.append("  Pagina's geprobeerd: " + "; ".join(tried))
+                if og:
+                    nr = None
+                    for i, c in enumerate(current or [], start=1):
+                        if _image_key(og) in (_image_key(c.get("urlLarge")), _image_key(c.get("urlMedium")), _image_key(c.get("urlSmall"))):
+                            nr = i
+                            break
+                    lines.append(f"  Hoofdfoto op de pagina (og:image): {og}")
+                    lines.append(f"  Dat is foto {nr} in de API-lijst." if nr else "  Die link staat niet in de API-lijst (andere maat of andere naam).")
+                else:
+                    lines.append("  Geen hoofdfoto (og:image) gevonden op de pagina.")
+    finally:
+        conn.close()
+    return lines
+
+
+def _fetch_page_main_image(url):
+    try:
+        resp = requests.get(url, timeout=15, headers={"User-Agent": "Mozilla/5.0"}, allow_redirects=True)
+    except requests.RequestException:
+        return False, None
+    if not resp.ok:
+        return False, None
+    return True, (_extract_og_image(resp.text) or None)
+
+
 # ---------- Fotostofzuiger: afbeeldingsbestanden opruimen ----------
 
 # Afbeeldingen die langer dan dit aantal uren geleden zijn vastgelegd, komen in aanmerking.
