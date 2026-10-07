@@ -1647,6 +1647,163 @@ def pull_main_images(limit=200):
     return {"books_checked": checked, "main_images_found": found}
 
 
+# ---------- Controle: is de hoofdfoto nog dezelfde als eerder? (alleen lezen) ----------
+
+MAIN_IMAGE_CHECK_WORKERS = 4
+MAIN_IMAGE_CHECK_MAX_SECONDS = 30 * 60
+MAIN_IMAGE_CHECK_CSV = "hoofdafbeelding_controle.csv"
+
+MAIN_IMAGE_STATUS_SAME = "gelijk"
+MAIN_IMAGE_STATUS_DIFFERENT = "anders"
+MAIN_IMAGE_STATUS_NONE_NOW = "geen hoofdfoto nu"
+MAIN_IMAGE_STATUS_OLD_UNKNOWN = "eerdere hoofdfoto onbekend"
+MAIN_IMAGE_STATUS_UNREADABLE = "pagina niet gelezen"
+
+
+def _image_key(url):
+    """Vergelijkbare vorm van een afbeeldingslink: zonder http/https, zonder ?-deel, in kleine letters."""
+    if not url:
+        return ""
+    u = url.strip().lower()
+    u = re.sub(r"^https?:", "", u)
+    return re.split(r"[?#]", u, maxsplit=1)[0]
+
+
+def _image_basename(url):
+    key = _image_key(url)
+    return key.rsplit("/", 1)[-1] if key else ""
+
+
+def _matching_image(url, image_rows):
+    """De afbeelding (rij uit book_images) waar deze link bij hoort, of None."""
+    key = _image_key(url)
+    if not key:
+        return None
+    for img in image_rows:
+        if key in (_image_key(img.get("url_large")), _image_key(img.get("url_medium")), _image_key(img.get("url_small"))):
+            return img
+    return None
+
+
+def classify_main_image(old_url, new_url, image_rows):
+    """
+    Vergelijkt de eerdere hoofdfoto (uit onze database) met de huidige (og:image van de boekpagina).
+    Geeft (status, oud_fotonummer, nieuw_fotonummer); fotonummers volgen onze eigen volgorde (1 = eerste).
+    """
+    old_img = _matching_image(old_url, image_rows)
+    new_img = _matching_image(new_url, image_rows)
+    old_nr = old_img["position"] + 1 if old_img else None
+    new_nr = new_img["position"] + 1 if new_img else None
+    if not old_url or old_url.startswith("data:"):
+        return MAIN_IMAGE_STATUS_OLD_UNKNOWN, old_nr, new_nr
+    if not new_url:
+        return MAIN_IMAGE_STATUS_NONE_NOW, old_nr, new_nr
+    if _image_key(old_url) == _image_key(new_url):
+        return MAIN_IMAGE_STATUS_SAME, old_nr, new_nr
+    if old_img is not None and new_img is not None and old_img is new_img:
+        return MAIN_IMAGE_STATUS_SAME, old_nr, new_nr
+    if _image_basename(old_url) and _image_basename(old_url) == _image_basename(new_url):
+        return MAIN_IMAGE_STATUS_SAME, old_nr, new_nr
+    return MAIN_IMAGE_STATUS_DIFFERENT, old_nr, new_nr
+
+
+def _fetch_current_main_image(weblink):
+    """(gelukt, link): gelukt is False als de pagina niet gelezen kon worden; link is None zonder hoofdfoto."""
+    try:
+        resp = requests.get(weblink, timeout=15, headers={"User-Agent": "Mozilla/5.0"})
+    except requests.RequestException:
+        return False, None
+    if not resp.ok:
+        return False, None
+    return True, (_extract_og_image(resp.text) or None)
+
+
+def compare_main_images(output_path=MAIN_IMAGE_CHECK_CSV, limit=None, workers=MAIN_IMAGE_CHECK_WORKERS,
+                        max_seconds=MAIN_IMAGE_CHECK_MAX_SECONDS, now_func=time.monotonic):
+    """
+    ALLEEN LEZEN. Zet per boek de eerdere hoofdfoto (books.main_image_url, zoals die vóór het probleem bij ons
+    stond) naast de hoofdfoto die de publieke boekpagina nu toont, en schrijft een CSV-bestand met het resultaat.
+    Er wordt niets naar Boekwinkeltjes gestuurd en niets in de database veranderd.
+    Geeft regels tekst terug voor het logboek.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, title, location, weblink,
+                       CASE WHEN LEFT(main_image_url, 5) = 'data:' THEN 'data:' ELSE main_image_url END AS main_image_url
+                FROM books
+                WHERE id > 0 AND weblink IS NOT NULL AND weblink != '' AND COALESCE(amount, 0) > 0
+                ORDER BY id
+                """
+            )
+            books = list(cur.fetchall())
+            cur.execute(
+                "SELECT book_id, image_id, position, url_large, url_medium, url_small "
+                "FROM book_images WHERE image_id != -1"
+            )
+            image_rows = list(cur.fetchall())
+    finally:
+        conn.close()
+
+    images_by_book = {}
+    for img in image_rows:
+        images_by_book.setdefault(img["book_id"], []).append(img)
+    for lst in images_by_book.values():
+        lst.sort(key=lambda r: (r["position"], r["image_id"]))
+    if limit:
+        books = books[: int(limit)]
+
+    started = now_func()
+    results = []
+    stopped_early = False
+
+    def work(book):
+        if now_func() - started > max_seconds:
+            return book, None
+        return book, _fetch_current_main_image(book["weblink"])
+
+    with ThreadPoolExecutor(max_workers=max(1, int(workers))) as pool:
+        for book, fetched in pool.map(work, books):
+            images = images_by_book.get(book["id"], [])
+            if fetched is None:
+                stopped_early = True
+                continue
+            ok, new_url = fetched
+            if not ok:
+                status, old_nr, new_nr = MAIN_IMAGE_STATUS_UNREADABLE, None, None
+            else:
+                status, old_nr, new_nr = classify_main_image(book["main_image_url"], new_url, images)
+            results.append((book, status, old_nr, new_nr, new_url, len(images)))
+
+    order = {MAIN_IMAGE_STATUS_DIFFERENT: 0, MAIN_IMAGE_STATUS_NONE_NOW: 1, MAIN_IMAGE_STATUS_UNREADABLE: 2,
+             MAIN_IMAGE_STATUS_OLD_UNKNOWN: 3, MAIN_IMAGE_STATUS_SAME: 4}
+    results.sort(key=lambda r: (order[r[1]], r[0]["id"]))
+    with open(output_path, "w", newline="", encoding="utf-8-sig") as f:
+        writer = csv.writer(f, delimiter=";")
+        writer.writerow(["boek_id", "titel", "locatie", "boekpagina", "status", "eerdere_hoofdfoto",
+                         "huidige_hoofdfoto", "eerdere_foto_nr", "huidige_foto_nr", "aantal_foto_s"])
+        for book, status, old_nr, new_nr, new_url, n_images in results:
+            writer.writerow([book["id"], book["title"], book["location"] or "", book["weblink"], status,
+                             "" if (book["main_image_url"] or "") == "data:" else (book["main_image_url"] or ""),
+                             new_url or "", old_nr or "", new_nr or "", n_images])
+
+    counts = {}
+    for _, status, *_rest in results:
+        counts[status] = counts.get(status, 0) + 1
+    lines = [f"{len(results)} van {len(books)} boeken gecontroleerd (alleen lezen, er is niets gewijzigd)."]
+    for status in (MAIN_IMAGE_STATUS_DIFFERENT, MAIN_IMAGE_STATUS_NONE_NOW, MAIN_IMAGE_STATUS_UNREADABLE,
+                   MAIN_IMAGE_STATUS_OLD_UNKNOWN, MAIN_IMAGE_STATUS_SAME):
+        lines.append(f"  {status}: {counts.get(status, 0)}")
+    if stopped_early:
+        lines.append(f"LET OP: gestopt door de tijdsgrens; {len(books) - len(results)} boeken zijn niet gecontroleerd. Draai opnieuw.")
+    lines.append(f"Resultaat in {output_path}. Boeken met status '{MAIN_IMAGE_STATUS_DIFFERENT}' staan bovenaan.")
+    return lines
+
+
 # ---------- Fotostofzuiger: afbeeldingsbestanden opruimen ----------
 
 # Afbeeldingen die langer dan dit aantal uren geleden zijn vastgelegd, komen in aanmerking.
