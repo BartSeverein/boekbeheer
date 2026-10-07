@@ -616,6 +616,26 @@ def format_datetime_nl(value):
     return ts.strftime("%d-%m-%Y %H:%M:%S")
 
 
+def format_order_datetime(value):
+    """
+    Besteldatum als 'dd-mm-jjjj uu:mm:ss'. Heeft de waarde een tijdzone, dan wordt die omgezet naar Nederlandse tijd;
+    heeft hij geen tijdzone (zoals Boekwinkeltjes die meestal geeft), dan wordt de tijd ongewijzigd getoond.
+    """
+    if value is None:
+        return "–"
+    try:
+        if pd.isna(value):
+            return "–"
+    except (TypeError, ValueError):
+        pass
+    ts = pd.to_datetime(value, errors="coerce")
+    if pd.isna(ts):
+        return str(value)
+    if ts.tzinfo is not None:
+        ts = ts.tz_convert(AMSTERDAM_TZ)
+    return ts.strftime("%d-%m-%Y %H:%M:%S")
+
+
 def set_main_image_url(book_id, url):
     """Zet het main_image_url-veld van een boek handmatig (overschrijft de og:image-detectie)."""
     conn = psycopg2.connect(get_db_url())

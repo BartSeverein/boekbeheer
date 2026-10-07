@@ -31,6 +31,7 @@ from common import (
     format_price,
     format_order_status,
     format_datetime_nl,
+    format_order_datetime,
     AMSTERDAM_TZ,
     cron_status_label,
     failed_cron_jobs,
@@ -260,6 +261,7 @@ with orders_tab:
 
         order_cols = ["order_date", "platform", "status", "book_title", "book_ean", "revenue", "koper"]
         orders_display = orders_sorted[order_cols].copy()
+        orders_display["order_date"] = orders_display["order_date"].apply(format_order_datetime)
         orders_display["revenue"] = orders_display["revenue"].apply(format_price)
         orders_display["status"] = orders_display["status"].map(format_order_status)
         orders_display["book_ean"] = orders_display["book_ean"].apply(format_isbn)
@@ -395,6 +397,7 @@ Alle taken roepen GitHub aan om een workflow te starten. Bij een HTTP-fout is di
             history_df, x="Moment", y="Duur (s)", color="Taak", markers=True,
             labels={"Duur (s)": "Duur (seconden)"},
         )
+        fig_cron.update_xaxes(tickformat="%d-%m-%Y<br>%H:%M:%S", hoverformat="%d-%m-%Y %H:%M:%S")
         st.plotly_chart(fig_cron, width="stretch")
     else:
         st.caption("Nog geen uitvoeringsgeschiedenis beschikbaar.")
