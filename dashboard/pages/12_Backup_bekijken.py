@@ -21,6 +21,7 @@ import bw_live
 from common import (
     FIELD_LABELS,
     _get_secret,
+    format_order_datetime,
     format_order_status,
     format_payment_status,
     load_books,
@@ -140,6 +141,8 @@ with tab_orders:
         )
         st.caption(f"{len(shown)} van {len(backup_orders)} bestellingen")
         table = shown[columns].copy()
+        if "order_date" in table.columns:
+            table["order_date"] = table["order_date"].map(format_order_datetime)
         if "status" in table.columns:
             table["status"] = table["status"].map(format_order_status)
         if "online_payment_status" in table.columns:
@@ -237,7 +240,7 @@ with tab_bw:
                     st.session_state["bw_orders"] = (
                         bw_live.orders_to_frame(bw_live.fetch_orders(api_key, base)) if with_orders else None
                     )
-                    st.session_state["bw_fetched_at"] = pd.Timestamp.now(tz="Europe/Amsterdam").strftime("%d-%m-%Y %H:%M")
+                    st.session_state["bw_fetched_at"] = pd.Timestamp.now(tz="Europe/Amsterdam").strftime("%d-%m-%Y %H:%M:%S")
             except bw_live.BWLiveError as e:
                 st.error(str(e))
         bw_books = st.session_state.get("bw_books")

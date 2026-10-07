@@ -6,7 +6,7 @@ import pandas as pd
 import streamlit as st
 from pathlib import Path
 
-from common import load_books, load_orders, get_all_image_urls, format_price, format_order_status, format_payment_status, format_datetime_nl, format_isbn, render_logo, require_login, na
+from common import load_books, load_orders, get_all_image_urls, format_price, format_order_status, format_payment_status, format_datetime_nl, format_order_datetime, format_isbn, render_logo, require_login, na
 
 
 def _s(value):
@@ -64,7 +64,7 @@ else:
     else:
         st.caption(f"{len(filtered)} resultaat/resultaten")
         order_options = {
-            f"{row['order_date']} — {row['book_title']} — {_s(row['buyer_city']) or 'onbekende plaats'}": row["id"]
+            f"{format_order_datetime(row['order_date'])} — {row['book_title']} — {_s(row['buyer_city']) or 'onbekende plaats'}": row["id"]
             for _, row in filtered.iterrows()
         }
         option_labels = list(order_options.keys())
@@ -102,7 +102,7 @@ else:
         with info_col2:
             st.markdown(f"**Status:** {format_order_status(o['status'])}")
             st.markdown(f"**Betaalstatus:** {format_payment_status(o['online_payment_status'])}")
-            st.markdown(f"**Datum:** {na(o['order_date'])}")
+            st.markdown(f"**Datum:** {format_order_datetime(o['order_date'])}")
             st.markdown(f"**Notitie:** {_s(o['note']) or '–'}")
 
         st.markdown("**Koper:**")
