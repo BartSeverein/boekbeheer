@@ -1647,113 +1647,88 @@ def pull_main_images(limit=200):
     return {"books_checked": checked, "main_images_found": found}
 
 
-# ---------- Controle: is de hoofdfoto nog dezelfde als eerder? (alleen lezen) ----------
+# ---------- Controle: staan de foto's er nog zoals eerder, en is de eerste foto nog dezelfde? (alleen lezen) ----------
 
-MAIN_IMAGE_CHECK_WORKERS = 4
+MAIN_IMAGE_CHECK_WORKERS = 3
 MAIN_IMAGE_CHECK_MAX_SECONDS = 30 * 60
 MAIN_IMAGE_CHECK_CSV = "hoofdafbeelding_controle.csv"
 
 MAIN_IMAGE_STATUS_SAME = "gelijk"
-MAIN_IMAGE_STATUS_DIFFERENT = "anders"
-MAIN_IMAGE_STATUS_NONE_NOW = "geen hoofdfoto nu"
-MAIN_IMAGE_STATUS_OLD_UNKNOWN = "eerdere hoofdfoto onbekend"
-MAIN_IMAGE_STATUS_UNREADABLE = "pagina niet gelezen"
+MAIN_IMAGE_STATUS_ORDER = "andere eerste foto"
+MAIN_IMAGE_STATUS_OTHER = "andere foto's"
+MAIN_IMAGE_STATUS_GONE = "foto's weg"
+MAIN_IMAGE_STATUS_NO_RECORD = "geen eerdere gegevens"
+MAIN_IMAGE_STATUS_NO_IMAGES = "geen foto's (ook niet eerder)"
+MAIN_IMAGE_STATUS_UNREADABLE = "niet opgehaald"
 
 
 def _image_key(url):
     """Vergelijkbare vorm van een afbeeldingslink: zonder http/https, zonder ?-deel, in kleine letters."""
     if not url:
         return ""
-    u = url.strip().lower()
-    u = re.sub(r"^https?:", "", u)
+    u = re.sub(r"^https?:", "", url.strip().lower())
     return re.split(r"[?#]", u, maxsplit=1)[0]
 
 
-def _image_basename(url):
-    key = _image_key(url)
-    return key.rsplit("/", 1)[-1] if key else ""
+def classify_book_images(stored, current):
+    """
+    Vergelijkt de foto's die we eerder van Boekwinkeltjes hebben opgeslagen ('stored': dicts met image_id, position,
+    url_large, op volgorde) met wat Boekwinkeltjes nu teruggeeft ('current': dicts met id, urlLarge, in de volgorde van
+    de API). We nemen aan dat de eerste foto in die lijst de hoofdfoto is, zoals de rest van de app ook doet.
+    Geeft (status, nummer van de huidige eerste foto in onze oude volgorde of None).
+    """
+    stored = [s for s in stored if s.get("image_id") not in (None, -1)]
+    if not stored and not current:
+        return MAIN_IMAGE_STATUS_NO_IMAGES, None
+    if not stored:
+        return MAIN_IMAGE_STATUS_NO_RECORD, None
+    if not current:
+        return MAIN_IMAGE_STATUS_GONE, None
 
+    stored_ids = [s["image_id"] for s in stored]
+    current_ids = [c.get("id") for c in current]
+    stored_keys = [_image_key(s.get("url_large")) for s in stored]
+    current_keys = [_image_key(c.get("urlLarge")) for c in current]
 
-def _matching_image(url, image_rows):
-    """De afbeelding (rij uit book_images) waar deze link bij hoort, of None."""
-    key = _image_key(url)
-    if not key:
+    def first_position():
+        for i, (sid, skey) in enumerate(zip(stored_ids, stored_keys)):
+            if sid == current_ids[0] or (skey and skey == current_keys[0]):
+                return i + 1
         return None
-    for img in image_rows:
-        if key in (_image_key(img.get("url_large")), _image_key(img.get("url_medium")), _image_key(img.get("url_small"))):
-            return img
-    return None
 
-
-def classify_main_image(old_url, new_url, image_rows):
-    """
-    Vergelijkt de eerdere hoofdfoto (uit onze database) met de huidige (og:image van de boekpagina).
-    Geeft (status, oud_fotonummer, nieuw_fotonummer); fotonummers volgen onze eigen volgorde (1 = eerste).
-    """
-    old_img = _matching_image(old_url, image_rows)
-    new_img = _matching_image(new_url, image_rows)
-    old_nr = old_img["position"] + 1 if old_img else None
-    new_nr = new_img["position"] + 1 if new_img else None
-    if not old_url or old_url.startswith("data:"):
-        return MAIN_IMAGE_STATUS_OLD_UNKNOWN, old_nr, new_nr
-    if not new_url:
-        return MAIN_IMAGE_STATUS_NONE_NOW, old_nr, new_nr
-    if _image_key(old_url) == _image_key(new_url):
-        return MAIN_IMAGE_STATUS_SAME, old_nr, new_nr
-    if old_img is not None and new_img is not None and old_img is new_img:
-        return MAIN_IMAGE_STATUS_SAME, old_nr, new_nr
-    if _image_basename(old_url) and _image_basename(old_url) == _image_basename(new_url):
-        return MAIN_IMAGE_STATUS_SAME, old_nr, new_nr
-    return MAIN_IMAGE_STATUS_DIFFERENT, old_nr, new_nr
-
-
-def _fetch_current_main_image(weblink):
-    """(gelukt, link): gelukt is False als de pagina niet gelezen kon worden; link is None zonder hoofdfoto."""
-    try:
-        resp = requests.get(weblink, timeout=15, headers={"User-Agent": "Mozilla/5.0"})
-    except requests.RequestException:
-        return False, None
-    if not resp.ok:
-        return False, None
-    return True, (_extract_og_image(resp.text) or None)
+    if set(stored_ids) == set(current_ids):
+        same = stored_ids[0] == current_ids[0]
+    elif stored_keys and all(stored_keys) and set(stored_keys) == set(current_keys):
+        same = stored_keys[0] == current_keys[0]
+    else:
+        return MAIN_IMAGE_STATUS_OTHER, first_position()
+    return (MAIN_IMAGE_STATUS_SAME if same else MAIN_IMAGE_STATUS_ORDER), first_position()
 
 
 def compare_main_images(output_path=MAIN_IMAGE_CHECK_CSV, limit=None, workers=MAIN_IMAGE_CHECK_WORKERS,
                         max_seconds=MAIN_IMAGE_CHECK_MAX_SECONDS, now_func=time.monotonic):
     """
-    ALLEEN LEZEN. Zet per boek de eerdere hoofdfoto (books.main_image_url, zoals die vóór het probleem bij ons
-    stond) naast de hoofdfoto die de publieke boekpagina nu toont, en schrijft een CSV-bestand met het resultaat.
-    Er wordt niets naar Boekwinkeltjes gestuurd en niets in de database veranderd.
-    Geeft regels tekst terug voor het logboek.
+    ALLEEN LEZEN. Vraagt per boek bij Boekwinkeltjes de foto's op en zet ze naast wat wij eerder hebben opgeslagen
+    (book_images). Schrijft een CSV-bestand met het resultaat. Er wordt niets naar Boekwinkeltjes gestuurd en niets
+    in de database veranderd. Geeft regels tekst terug voor het logboek.
     """
     from concurrent.futures import ThreadPoolExecutor
 
     conn = get_connection()
     try:
         with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT id, title, location, weblink,
-                       CASE WHEN LEFT(main_image_url, 5) = 'data:' THEN 'data:' ELSE main_image_url END AS main_image_url
-                FROM books
-                WHERE id > 0 AND weblink IS NOT NULL AND weblink != '' AND COALESCE(amount, 0) > 0
-                ORDER BY id
-                """
-            )
+            cur.execute("SELECT id, title, location FROM books WHERE id > 0 AND COALESCE(amount, 0) > 0 ORDER BY id")
             books = list(cur.fetchall())
             cur.execute(
-                "SELECT book_id, image_id, position, url_large, url_medium, url_small "
-                "FROM book_images WHERE image_id != -1"
+                "SELECT book_id, image_id, position, url_large FROM book_images ORDER BY book_id, position, image_id"
             )
-            image_rows = list(cur.fetchall())
+            stored_rows = list(cur.fetchall())
     finally:
         conn.close()
 
-    images_by_book = {}
-    for img in image_rows:
-        images_by_book.setdefault(img["book_id"], []).append(img)
-    for lst in images_by_book.values():
-        lst.sort(key=lambda r: (r["position"], r["image_id"]))
+    stored_by_book = {}
+    for row in stored_rows:
+        stored_by_book.setdefault(row["book_id"], []).append(row)
     if limit:
         books = books[: int(limit)]
 
@@ -1763,44 +1738,47 @@ def compare_main_images(output_path=MAIN_IMAGE_CHECK_CSV, limit=None, workers=MA
 
     def work(book):
         if now_func() - started > max_seconds:
+            return book, "stop"
+        try:
+            return book, api_client.get_book_images(book["id"])
+        except api_client.BoekwinkeltjesAPIError:
             return book, None
-        return book, _fetch_current_main_image(book["weblink"])
 
     with ThreadPoolExecutor(max_workers=max(1, int(workers))) as pool:
-        for book, fetched in pool.map(work, books):
-            images = images_by_book.get(book["id"], [])
-            if fetched is None:
+        for book, current in pool.map(work, books):
+            if isinstance(current, str):
                 stopped_early = True
                 continue
-            ok, new_url = fetched
-            if not ok:
-                status, old_nr, new_nr = MAIN_IMAGE_STATUS_UNREADABLE, None, None
-            else:
-                status, old_nr, new_nr = classify_main_image(book["main_image_url"], new_url, images)
-            results.append((book, status, old_nr, new_nr, new_url, len(images)))
+            stored = stored_by_book.get(book["id"], [])
+            if current is None:
+                results.append((book, MAIN_IMAGE_STATUS_UNREADABLE, None, stored, []))
+                continue
+            status, nr = classify_book_images(stored, current)
+            results.append((book, status, nr, stored, current))
 
-    order = {MAIN_IMAGE_STATUS_DIFFERENT: 0, MAIN_IMAGE_STATUS_NONE_NOW: 1, MAIN_IMAGE_STATUS_UNREADABLE: 2,
-             MAIN_IMAGE_STATUS_OLD_UNKNOWN: 3, MAIN_IMAGE_STATUS_SAME: 4}
-    results.sort(key=lambda r: (order[r[1]], r[0]["id"]))
+    order = [MAIN_IMAGE_STATUS_GONE, MAIN_IMAGE_STATUS_OTHER, MAIN_IMAGE_STATUS_ORDER, MAIN_IMAGE_STATUS_UNREADABLE,
+             MAIN_IMAGE_STATUS_NO_RECORD, MAIN_IMAGE_STATUS_NO_IMAGES, MAIN_IMAGE_STATUS_SAME]
+    results.sort(key=lambda r: (order.index(r[1]), r[0]["id"]))
     with open(output_path, "w", newline="", encoding="utf-8-sig") as f:
         writer = csv.writer(f, delimiter=";")
-        writer.writerow(["boek_id", "titel", "locatie", "boekpagina", "status", "eerdere_hoofdfoto",
-                         "huidige_hoofdfoto", "eerdere_foto_nr", "huidige_foto_nr", "aantal_foto_s"])
-        for book, status, old_nr, new_nr, new_url, n_images in results:
-            writer.writerow([book["id"], book["title"], book["location"] or "", book["weblink"], status,
-                             "" if (book["main_image_url"] or "") == "data:" else (book["main_image_url"] or ""),
-                             new_url or "", old_nr or "", new_nr or "", n_images])
+        writer.writerow(["boek_id", "titel", "locatie", "status", "eerdere_eerste_foto", "huidige_eerste_foto",
+                         "eerdere_aantal_fotos", "huidige_aantal_fotos", "huidige_eerste_was_eerder_foto_nr"])
+        for book, status, nr, stored, current in results:
+            real = [s for s in stored if s.get("image_id") not in (None, -1)]
+            writer.writerow([book["id"], book["title"], book["location"] or "", status,
+                             (real[0].get("url_large") or "") if real else "",
+                             (current[0].get("urlLarge") or "") if current else "",
+                             len(real), len(current), nr or ""])
 
     counts = {}
     for _, status, *_rest in results:
         counts[status] = counts.get(status, 0) + 1
     lines = [f"{len(results)} van {len(books)} boeken gecontroleerd (alleen lezen, er is niets gewijzigd)."]
-    for status in (MAIN_IMAGE_STATUS_DIFFERENT, MAIN_IMAGE_STATUS_NONE_NOW, MAIN_IMAGE_STATUS_UNREADABLE,
-                   MAIN_IMAGE_STATUS_OLD_UNKNOWN, MAIN_IMAGE_STATUS_SAME):
+    for status in order:
         lines.append(f"  {status}: {counts.get(status, 0)}")
     if stopped_early:
         lines.append(f"LET OP: gestopt door de tijdsgrens; {len(books) - len(results)} boeken zijn niet gecontroleerd. Draai opnieuw.")
-    lines.append(f"Resultaat in {output_path}. Boeken met status '{MAIN_IMAGE_STATUS_DIFFERENT}' staan bovenaan.")
+    lines.append(f"Resultaat in {output_path}. Boeken waar iets is veranderd staan bovenaan.")
     return lines
 
 

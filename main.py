@@ -22,7 +22,7 @@ Gebruik:
     python main.py drip-push-new-books    # druppelsgewijs (max 1 per interval, alleen in drukke perioden) nieuwe boeken naar Boekwinkeltjes
     python main.py backfill-shipping-format [real] [briefpost pakketpost]   # eenmalig: verzendformaat bij Boekwinkeltjes vullen (zonder 'real' een proefrun)
     python main.py update-legacy-shipping-cost [real] [briefpost]   # eenmalig: oude briefpost-verzendkosten (3,75/1,40) naar de huidige briefpost (zonder 'real' een proefrun)
-    python main.py compare-main-images [aantal]   # alleen lezen: vergelijkt eerdere en huidige hoofdfoto per boek, schrijft hoofdafbeelding_controle.csv
+    python main.py compare-main-images [aantal]   # alleen lezen: vergelijkt eerdere en huidige foto's per boek, schrijft hoofdafbeelding_controle.csv
     python main.py send-daily-csv-export  # stuurt een e-mail met boeken.csv en orders.csv als back-up
 """
 
@@ -155,7 +155,7 @@ def main():
         for line in sync.update_legacy_shipping_cost(real=real, briefpost=brief):
             print(line)
     elif command == "compare-main-images":
-        # Alleen lezen: vergelijkt de eerdere hoofdfoto (uit de database) met de hoofdfoto die Boekwinkeltjes nu toont
+        # Alleen lezen: vergelijkt de foto's die wij eerder opsloegen met wat Boekwinkeltjes nu teruggeeft
         # en schrijft hoofdafbeelding_controle.csv. Optioneel een maximum aantal boeken, bijvoorbeeld: compare-main-images 50
         limit = int(sys.argv[2]) if len(sys.argv) >= 3 and sys.argv[2].strip() else None
         for line in sync.compare_main_images(limit=limit):
