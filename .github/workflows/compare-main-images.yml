@@ -1,0 +1,48 @@
+name: Controle hoofdafbeeldingen (alleen lezen)
+
+# Vergelijkt per boek de eerdere hoofdfoto (uit de database) met de hoofdfoto die Boekwinkeltjes nu toont.
+# Er wordt NIETS gewijzigd, bij Boekwinkeltjes noch in de database. Het resultaat is een CSV-bestand dat je
+# onderaan de run-pagina downloadt bij 'Artifacts'. Start met 'Run workflow' in de Actions-tab.
+on:
+  workflow_dispatch:
+    inputs:
+      aantal:
+        description: "Maximum aantal boeken (leeg = alle boeken). Gebruik bijvoorbeeld 50 voor een snelle proef."
+        required: false
+        type: string
+        default: ""
+
+# Bewust GEEN 'concurrency'-groep: de job leest alleen en mag niets ophouden.
+
+jobs:
+  compare-main-images:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Hoofdafbeeldingen vergelijken
+        run: python main.py compare-main-images "$AANTAL"
+        env:
+          AANTAL: ${{ github.event.inputs.aantal }}
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          BOEKWINKELTJES_ENV: ${{ secrets.BOEKWINKELTJES_ENV }}
+          BOEKWINKELTJES_API_KEY_SANDBOX: ${{ secrets.BOEKWINKELTJES_API_KEY_SANDBOX }}
+          BOEKWINKELTJES_API_KEY_LIVE: ${{ secrets.BOEKWINKELTJES_API_KEY_LIVE }}
+          PYTHONUNBUFFERED: "1"
+
+      - name: CSV bewaren
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hoofdafbeelding-controle
+          path: hoofdafbeelding_controle.csv
+          if-no-files-found: warn
+          retention-days: 14
