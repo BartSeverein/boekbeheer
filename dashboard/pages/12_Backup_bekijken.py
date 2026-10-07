@@ -17,8 +17,10 @@ from backup_view import (
     read_backup,
     search_frame,
 )
+import bw_live
 from common import (
     FIELD_LABELS,
+    _get_secret,
     format_order_status,
     format_payment_status,
     load_books,
@@ -83,7 +85,7 @@ def _pretty_books(frame):
     return out
 
 
-tab_books, tab_orders, tab_compare = st.tabs(["Boeken", "Bestellingen", "Vergelijken met nu"])
+tab_books, tab_orders, tab_compare, tab_bw = st.tabs(["Boeken", "Bestellingen", "Vergelijken met app nu", "Vergelijken met BW nu"])
 
 with tab_books:
     if backup_books is None:
@@ -146,7 +148,7 @@ with tab_orders:
 
 with tab_compare:
     st.write(
-        "Legt de back-up naast wat er nu in de database staat. Zo zie je wat er sinds de back-up is veranderd, "
+        "Legt de back-up naast wat er nu in de database van de app staat. Zo zie je wat er sinds de back-up is veranderd, "
         "bijvoorbeeld na een herstel bij Boekwinkeltjes."
     )
     if st.button("Huidige database opnieuw laden"):
@@ -210,3 +212,94 @@ with tab_compare:
                 f"{len(o_only_b)} bestellingen staan wel in de back-up maar niet meer in de database. "
                 "Controleer die: ze kunnen door een herstel zijn verdwenen."
             )
+
+
+with tab_bw:
+    st.write(
+        "Haalt de stand van Boekwinkeltjes zelf op (alleen lezen) en legt die naast de app of de back-up. Er wordt "
+        "niets in onze database veranderd en niets naar Boekwinkeltjes gestuurd. Zo zie je wat er bij Boekwinkeltjes "
+        "staat, bijvoorbeeld na een herstel, voordat je de sync weer aanzet."
+    )
+    api_key = _get_secret(f"BOEKWINKELTJES_API_KEY_{(_get_secret('BOEKWINKELTJES_ENV') or 'sandbox').strip().upper()}")
+    api_env = _get_secret("BOEKWINKELTJES_ENV") or "sandbox"
+    if not api_key:
+        st.info(
+            "Voor deze vergelijking is de API-sleutel van Boekwinkeltjes nodig in de secrets van het dashboard: "
+            "BOEKWINKELTJES_ENV (live) en BOEKWINKELTJES_API_KEY_LIVE. Die staan nu alleen bij GitHub."
+        )
+    else:
+        with_orders = st.checkbox("Ook de bestellingen ophalen", value=True, key="bw_with_orders")
+        if st.button("Stand van Boekwinkeltjes ophalen", key="bw_fetch"):
+            try:
+                with st.spinner("Bezig met ophalen bij Boekwinkeltjes (duurt even)..."):
+                    base = bw_live.base_url_for(api_env)
+                    st.session_state["bw_books"] = bw_live.books_to_frame(bw_live.fetch_books(api_key, base))
+                    st.session_state["bw_orders"] = (
+                        bw_live.orders_to_frame(bw_live.fetch_orders(api_key, base)) if with_orders else None
+                    )
+                    st.session_state["bw_fetched_at"] = pd.Timestamp.now(tz="Europe/Amsterdam").strftime("%d-%m-%Y %H:%M")
+            except bw_live.BWLiveError as e:
+                st.error(str(e))
+        bw_books = st.session_state.get("bw_books")
+        if bw_books is None:
+            st.caption("Nog niet opgehaald.")
+        else:
+            st.success(f"Stand van {st.session_state.get('bw_fetched_at')}: {len(bw_books)} boeken bij Boekwinkeltjes.")
+            source = st.radio("Vergelijken met", ["App nu (database)", "De geopende back-up"], horizontal=True,
+                              key="bw_source")
+            if source == "App nu (database)":
+                left_books, left_orders, left_name = load_books(), load_orders(), "App"
+            else:
+                left_books, left_orders, left_name = backup_books, backup_orders, "Back-up"
+            if left_books is None:
+                st.info("Geen boekenbestand in deze back-up.")
+            else:
+                only_left, only_bw, diffs = compare_books(left_books, bw_books)
+                diffs = add_titles(diffs, left_books, bw_books)
+                m1, m2, m3, m4 = st.columns(4)
+                m1.metric(f"Boeken in {left_name.lower()}", int((pd.to_numeric(left_books["id"]) > 0).sum()))
+                m2.metric("Boeken bij Boekwinkeltjes", len(bw_books))
+                m3.metric(f"Alleen in {left_name.lower()}", len(only_left))
+                m4.metric("Alleen bij Boekwinkeltjes", len(only_bw))
+                st.caption(
+                    f"'Alleen in {left_name.lower()}' zijn boeken die Boekwinkeltjes niet (meer) toont: uitverkocht, "
+                    "verwijderd, of door het herstel verdwenen."
+                )
+                st.metric("Boeken met een verschil", diffs["id"].nunique() if not diffs.empty else 0)
+                if diffs.empty:
+                    st.success("Geen verschillen in de vergeleken velden.")
+                else:
+                    counts = diffs.groupby("veld")["id"].nunique().rename("Boeken").reset_index()
+                    counts["Veld"] = counts["veld"].map(lambda f: BOOK_LABELS.get(f, f))
+                    st.dataframe(counts[["Veld", "Boeken"]].sort_values("Boeken", ascending=False), hide_index=True)
+                    field_choice = st.multiselect(
+                        "Alleen deze velden tonen", COMPARE_BOOK_FIELDS, format_func=lambda f: BOOK_LABELS.get(f, f),
+                        key="bw_fields",
+                    )
+                    shown = diffs[diffs["veld"].isin(field_choice)] if field_choice else diffs
+                    shown = shown.assign(veld=shown["veld"].map(lambda f: BOOK_LABELS.get(f, f))).rename(
+                        columns={"id": "Boeknummer", "titel": "Titel", "veld": "Veld", "back-up": left_name,
+                                 "nu": "Boekwinkeltjes"})
+                    st.caption(f"{len(shown)} verschillen")
+                    st.dataframe(shown, hide_index=True, width="stretch")
+                    st.download_button("Verschillen downloaden (CSV)",
+                                       shown.to_csv(index=False, sep=";").encode("utf-8-sig"),
+                                       file_name="verschillen_boekwinkeltjes.csv", mime="text/csv", key="bw_dl")
+            bw_orders = st.session_state.get("bw_orders")
+            if bw_orders is not None and left_orders is not None:
+                st.divider()
+                st.subheader("Bestellingen")
+                o_left, o_bw, o_diffs = compare_orders(left_orders, bw_orders)
+                c1, c2, c3 = st.columns(3)
+                c1.metric(f"Alleen in {left_name.lower()}", len(o_left))
+                c2.metric("Alleen bij Boekwinkeltjes", len(o_bw))
+                c3.metric("Bestellingen met een verschil", o_diffs["id"].nunique() if not o_diffs.empty else 0)
+                if o_left:
+                    st.warning(
+                        f"{len(o_left)} bestellingen staan wel in de {left_name.lower()} maar niet bij Boekwinkeltjes. "
+                        "Controleer die: ze kunnen door een herstel zijn verdwenen."
+                    )
+                if not o_diffs.empty:
+                    o_show = o_diffs.assign(veld=o_diffs["veld"].map(lambda f: ORDER_LABELS.get(f, f)))
+                    st.dataframe(o_show.rename(columns={"id": "Ordernummer", "veld": "Veld", "back-up": left_name,
+                                                        "nu": "Boekwinkeltjes"}), hide_index=True, width="stretch")
