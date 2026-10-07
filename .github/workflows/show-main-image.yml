@@ -1,0 +1,35 @@
+name: Hoofdfoto van boeken bekijken (alleen lezen)
+
+# Toont per boek de foto's volgens de API, wat wij eerder opsloegen en welke foto de publieke boekpagina als hoofdfoto laat zien.
+# Er wordt NIETS gewijzigd. Start met 'Run workflow' in de Actions-tab en vul de boeknummers in.
+on:
+  workflow_dispatch:
+    inputs:
+      boeknummers:
+        description: "Boeknummers, gescheiden door een spatie of komma (bijvoorbeeld: 245006264 245006265)"
+        required: true
+        type: string
+
+jobs:
+  show-main-image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Hoofdfoto bekijken
+        run: python main.py show-main-image "$BOEKNUMMERS"
+        env:
+          BOEKNUMMERS: ${{ github.event.inputs.boeknummers }}
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          BOEKWINKELTJES_ENV: ${{ secrets.BOEKWINKELTJES_ENV }}
+          BOEKWINKELTJES_API_KEY_SANDBOX: ${{ secrets.BOEKWINKELTJES_API_KEY_SANDBOX }}
+          BOEKWINKELTJES_API_KEY_LIVE: ${{ secrets.BOEKWINKELTJES_API_KEY_LIVE }}
+          PYTHONUNBUFFERED: "1"
