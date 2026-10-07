@@ -1,6 +1,6 @@
 name: Controle hoofdafbeeldingen (alleen lezen)
 
-# Vergelijkt per boek de eerdere hoofdfoto (uit de database) met de hoofdfoto die Boekwinkeltjes nu toont.
+# Vergelijkt per boek de foto-volgorde die wij eerder opsloegen met wat Boekwinkeltjes nu teruggeeft.
 # Er wordt NIETS gewijzigd, bij Boekwinkeltjes noch in de database. Het resultaat is een CSV-bestand dat je
 # onderaan de run-pagina downloadt bij 'Artifacts'. Start met 'Run workflow' in de Actions-tab.
 on:
