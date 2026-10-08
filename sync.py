@@ -1911,7 +1911,23 @@ def _short(value, limit=12):
     return value if len(value) <= limit else value[:limit] + "…"
 
 
-def describe_page_structure(html, base_url):
+def mask_secrets(text):
+    """Kort lange sleutelachtige reeksen (16+ letters/cijfers) in, zodat er geen sleutels in een (openbaar) log komen."""
+    return re.sub(r"[A-Za-z0-9_-]{16,}", lambda m: m.group(0)[:4] + "…", text)
+
+
+def html_snippets(html, phrase, width=450, limit=2):
+    """Stukjes ruwe HTML rond een zin, met ingekorte sleutels, om te zien hoe een knop of link is opgebouwd."""
+    out = []
+    for m in list(re.finditer(re.escape(phrase), html, re.IGNORECASE))[:limit]:
+        chunk = " ".join(html[max(m.start() - width, 0):m.end() + width // 3].split())
+        chunk = re.sub(r'value=("[^"]*"|\'[^\']*\')', 'value="…"', chunk)
+        chunk = re.sub(r"(<textarea[^>]*>)[^<]*", r"\1…", chunk)
+        out.append(mask_secrets(chunk))
+    return out
+
+
+def describe_page_structure(html, base_url, link_pattern=None, max_links=40, show_values=True):
     """
     Geeft regels terug die de structuur van een pagina laten zien: links die over foto's/bewerken gaan, en elk formulier
     met zijn velden. Waarden van verborgen velden worden ingekort (er kunnen sleutels in zitten) en wachtwoordvelden
@@ -1929,11 +1945,12 @@ def describe_page_structure(html, base_url):
         seen.add(absolute)
         if _FORM_LINK_FORBIDDEN.search(href) or _FORM_LINK_FORBIDDEN.search(text):
             continue
-        if _FORM_LINK_WORDS.search(href) or _FORM_LINK_WORDS.search(text):
+        pattern = link_pattern or _FORM_LINK_WORDS
+        if pattern.search(href) or pattern.search(text):
             relevant.append((absolute, text))
     lines.append(f"  Links over foto's of bewerken: {len(relevant)}")
-    for absolute, text in relevant[:40]:
-        lines.append(f"    {absolute}   [{text[:60]}]")
+    for absolute, text in relevant[:max_links]:
+        lines.append(f"    {mask_secrets(absolute) if not show_values else absolute}   [{text[:60]}]")
     lines.append(f"  Formulieren op de pagina: {len(parser.forms)}")
     for i, form in enumerate(parser.forms, start=1):
         lines.append(f"    Formulier {i}: {form['method'].upper()} {urljoin(base_url, form['action'])}")
@@ -1941,14 +1958,16 @@ def describe_page_structure(html, base_url):
             if ftype.lower() == "password":
                 lines.append(f"      {tag} type=password name={name} (waarde niet getoond)")
             elif ftype.lower() == "hidden":
-                lines.append(f"      {tag} type=hidden name={name} waarde={_short(value, 8)}")
+                lines.append(f"      {tag} type=hidden name={name} waarde={_short(value, 8 if show_values else 3)}")
+            elif not show_values and tag != "button" and ftype.lower() not in ("submit", "button"):
+                lines.append(f"      {tag} type={ftype or '-'} name={name or '-'} (waarde niet getoond)")
             else:
                 lines.append(f"      {tag} type={ftype or '-'} name={name or '-'} waarde={_short(value, 40)}")
     plain = re.sub(r"<[^>]+>", " ", html)
     plain = " ".join(plain.split())
     hits = [m.start() for m in re.finditer(r"hoofdafbeelding", plain, re.IGNORECASE)]
     lines.append(f"  'hoofdafbeelding' komt {len(hits)}x voor in de tekst")
-    for pos in hits[:8]:
+    for pos in hits[:8] if show_values else []:
         lines.append(f"    ...{plain[max(pos - 80, 0):pos + 80]}...")
     return lines, [a for a, _ in relevant]
 
@@ -1963,13 +1982,14 @@ def boekwinkeltjes_website_login():
     session.headers.update({"User-Agent": "Mozilla/5.0"})
     try:
         session.get("https://www.boekwinkeltjes.nl/login/", timeout=15)
-        session.post(
+        login_response = session.post(
             "https://www.boekwinkeltjes.nl/login/",
             data={"boekwinkeltje": username, "wachtwoord": password, "persistentCookie": "yes",
                   "form": "login", "submit": "Inloggen"},
             timeout=15,
             allow_redirects=False,
         )
+        session.landing_url = urljoin("https://www.boekwinkeltjes.nl/login/", login_response.headers.get("Location") or "")
     except requests.RequestException as e:
         return None, f"Kon niet inloggen bij Boekwinkeltjes: {type(e).__name__}"
     if "secureID" not in session.cookies.get_dict():
@@ -1979,58 +1999,36 @@ def boekwinkeltjes_website_login():
 
 def explore_main_image_form(book_id):
     """
-    ALLEEN LEZEN (behalve het inloggen). Logt in op de website, opent de boekpagina en laat zien welke links en
-    formulieren er zijn om foto's te beheren, zodat te zien is wat de knop 'Instellen als hoofdafbeelding' verstuurt.
-    Er wordt niets aangeklikt of verstuurd en nergens op 'verwijderen' gedrukt: links met 'verwijder', 'delete' enz.
-    worden overgeslagen.
+    ALLEEN LEZEN (behalve het inloggen). Logt in op de website en opent de bewerkpagina van één boek
+    (/mbw/boeken/edit/boek/<boeknummer>/). Toont de links en formulieren op die pagina en de ruwe opbouw rond de knop
+    'Instellen als hoofdafbeelding', zodat te zien is wat die knop verstuurt. Er wordt niets aangeklikt of verstuurd.
+    De uitvoer komt in een (openbaar) log: ingevulde waarden en lange sleutels worden daarom niet getoond.
     """
     lines = []
     session, error = boekwinkeltjes_website_login()
     if error:
         return [error]
-    conn = get_connection()
+    url = f"https://www.boekwinkeltjes.nl/mbw/boeken/edit/boek/{int(book_id)}/"
+    lines.append(f"Boek {book_id}: {url}")
     try:
-        with conn.cursor() as cur:
-            cur.execute("SELECT title FROM books WHERE id = %(id)s", {"id": int(book_id)})
-            rows = cur.fetchall()
-    finally:
-        conn.close()
-    title = rows[0]["title"] if rows else None
-    lines.append(f"Boek {book_id}: {title or '(niet in de database)'}")
-    candidates = []
-    for url in book_page_urls(book_id, title):
-        try:
-            resp = session.get(url, timeout=20, allow_redirects=True)
-        except requests.RequestException as e:
-            lines.append(f"{url} -> niet gelezen ({type(e).__name__})")
-            continue
-        lines.append(f"{url} -> HTTP {resp.status_code}")
-        if not resp.ok:
-            continue
-        page_lines, links = describe_page_structure(resp.text, resp.url)
-        lines.extend(page_lines)
-        candidates = links
-        break
-    followed = 0
-    for url in candidates:
-        if followed >= 4 or "boekwinkeltjes.nl" not in url:
-            continue
-        if not re.search(r"afbeeld|foto|image|bewerk|edit", url, re.IGNORECASE):
-            continue
-        followed += 1
-        lines.append("")
-        lines.append(f"== Gevolgd: {url}")
-        try:
-            resp = session.get(url, timeout=20, allow_redirects=True)
-        except requests.RequestException as e:
-            lines.append(f"  niet gelezen ({type(e).__name__})")
-            continue
-        lines.append(f"  HTTP {resp.status_code}, uiteindelijk {resp.url}")
-        if resp.ok:
-            page_lines, _ = describe_page_structure(resp.text, resp.url)
-            lines.extend(page_lines)
-    if not candidates:
-        lines.append("Geen links gevonden om te volgen.")
+        resp = session.get(url, timeout=20, allow_redirects=True)
+    except requests.RequestException as e:
+        return lines + [f"Niet gelezen ({type(e).__name__})"]
+    lines.append(f"HTTP {resp.status_code}, uiteindelijk {resp.url}")
+    if not resp.ok:
+        return lines
+    html = resp.text
+    page_lines, _ = describe_page_structure(
+        html, resp.url, link_pattern=re.compile(r"."), max_links=80, show_values=False
+    )
+    lines.extend(page_lines)
+    for phrase in ("Instellen als hoofdafbeelding", "hoofdafbeelding"):
+        snippets = html_snippets(html, phrase)
+        lines.append(f"Ruwe HTML rond '{phrase}': {len(snippets)} plek(ken) getoond")
+        for snippet in snippets:
+            lines.append(f"  {snippet}")
+        if snippets:
+            break
     return lines
 
 
