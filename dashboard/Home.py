@@ -494,9 +494,12 @@ with middle2:
                 values="aantal",
                 category_orders={"conditie": BOL_CONDITION_ORDER},
                 color="conditie",
+                # Tinten blauw uit de rest van de app. 'Als nieuw' en 'Redelijk' zijn het lichtste en donkerste blauw
+                # van de opslaggrafiek hiernaast. 'Goed' ligt precies halverwege; elke stap (D) is even groot in
+                # helderheid, dus 'Nieuw' is D lichter dan 'Als nieuw' en 'Matig' is D donkerder dan 'Redelijk'.
                 color_discrete_map={
-                    "Nieuw": "#2e7d32", "Als nieuw": "#8bc34a", "Goed": "#fbc02d",
-                    "Redelijk": "#f57c00", "Matig": "#c62828", "Onbekend": "#9e9e9e",
+                    "Nieuw": "#E0F1FF", "Als nieuw": "#83C9FF", "Goed": "#269CFF",
+                    "Redelijk": "#0068C9", "Matig": "#00386C", "Onbekend": "#9E9E9E",
                 },
             )
             fig_condition.update_traces(sort=False, textinfo="label+percent")
