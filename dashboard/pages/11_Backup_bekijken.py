@@ -62,7 +62,7 @@ uploaded = st.file_uploader(
     accept_multiple_files=True,
 )
 if not uploaded:
-    st.info("Kies hierboven een back-upbestand. Je vindt ze in Dropbox, onder Apps, in de map 'back-ups'.")
+    st.info("Kies hierboven een back-upbestand. Je vindt ze in 'Dropbox\\Apps\\Boekbeheer-backup\\back-ups'.")
     st.stop()
 
 try:
