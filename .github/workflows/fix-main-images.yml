@@ -1,0 +1,56 @@
+name: Hoofdfoto's herstellen op Boekwinkeltjes (laatste foto wordt hoofdfoto)
+
+# Zet bij boeken met meer dan één foto de LAATSTE foto als hoofdafbeelding op de website van Boekwinkeltjes.
+# Standaard is dit een PROEFRUN: er wordt alleen gelezen en getoond wat er zou veranderen.
+# Voor een echte run: kies bij 'echt_uitvoeren' de waarde 'ja'. Zet daarvoor eerst de druppel-sync en
+# 'Sync Boekwinkeltjes Afbeeldingen' tijdelijk uit. Opnieuw starten is veilig: wat al goed staat wordt overgeslagen.
+on:
+  workflow_dispatch:
+    inputs:
+      echt_uitvoeren:
+        description: "ja = echt wijzigen, nee = proefrun (alleen tonen)"
+        required: true
+        default: "nee"
+        type: choice
+        options: ["nee", "ja"]
+      maximum:
+        description: "Maximum aantal te wijzigen boeken (leeg = alles). Handig voor een eerste test, bijvoorbeeld 3"
+        required: false
+        type: string
+      overslaan:
+        description: "Boeknummers die je handmatig hebt aangepast en niet moeten worden aangeraakt (gescheiden door komma's)"
+        required: false
+        type: string
+      alleen:
+        description: "Alleen deze boeknummers controleren (gescheiden door komma's; leeg = alle)"
+        required: false
+        type: string
+
+jobs:
+  fix-main-images:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Hoofdfoto's controleren / herstellen
+        run: python main.py fix-main-images "$ECHT" "$MAXIMUM" "$OVERSLAAN" "$ALLEEN"
+        env:
+          ECHT: ${{ github.event.inputs.echt_uitvoeren }}
+          MAXIMUM: ${{ github.event.inputs.maximum }}
+          OVERSLAAN: ${{ github.event.inputs.overslaan }}
+          ALLEEN: ${{ github.event.inputs.alleen }}
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          BOEKWINKELTJES_ENV: ${{ secrets.BOEKWINKELTJES_ENV }}
+          BOEKWINKELTJES_API_KEY_SANDBOX: ${{ secrets.BOEKWINKELTJES_API_KEY_SANDBOX }}
+          BOEKWINKELTJES_API_KEY_LIVE: ${{ secrets.BOEKWINKELTJES_API_KEY_LIVE }}
+          BOEKWINKELTJES_USERNAME: ${{ secrets.BOEKWINKELTJES_USERNAME }}
+          BOEKWINKELTJES_PASSWORD: ${{ secrets.BOEKWINKELTJES_PASSWORD }}
+          PYTHONUNBUFFERED: "1"
