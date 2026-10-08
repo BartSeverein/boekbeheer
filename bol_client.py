@@ -611,11 +611,16 @@ def _offer_to_row(offer):
         stock = int(float(value)) if value is not None else 0
     except (TypeError, ValueError):
         stock = 0
+    condition = offer.get("condition") or {}
     return {
         "ean": ean,
         "offer_id": offer_id,
         "stock": stock,
         "economic_operator_id": str(offer.get("economicOperatorId") or "").strip(),
+        # Conditie zoals Bol die kent: categorie 'NEW' of 'SECONDHAND', en bij tweedehands de staat
+        # ('AS_NEW', 'GOOD', 'REASONABLE' of 'MODERATE'). Alleen in versie 11 aanwezig.
+        "condition_category": str(condition.get("category") or "").strip() or None,
+        "condition_state": str(condition.get("state") or condition.get("name") or "").strip() or None,
     }
 
 

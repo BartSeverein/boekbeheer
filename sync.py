@@ -3306,17 +3306,27 @@ def sync_stock_with_bol():
             mapped_offer_ids = {row["ean"]: row["offer_id"] for row in cur.fetchall()}
         bol_offers = _choose_one_offer_per_ean(bol_offers, mapped_offer_ids)
         with conn.cursor() as cur:
+            # De conditie van elk Bol-aanbod (voor de taartgrafiek op Home) staat in twee extra kolommen.
+            cur.execute("ALTER TABLE bol_offer_mapping ADD COLUMN IF NOT EXISTS condition_category TEXT")
+            cur.execute("ALTER TABLE bol_offer_mapping ADD COLUMN IF NOT EXISTS condition_state TEXT")
             for offer in bol_offers:
                 cur.execute(
                     """
-                    INSERT INTO bol_offer_mapping (ean, offer_id, bol_stock, last_synced_at)
-                    VALUES (%(ean)s, %(offer_id)s, %(stock)s, %(now)s)
+                    INSERT INTO bol_offer_mapping (ean, offer_id, bol_stock, last_synced_at, condition_category, condition_state)
+                    VALUES (%(ean)s, %(offer_id)s, %(stock)s, %(now)s, %(cat)s, %(state)s)
                     ON CONFLICT (ean) DO UPDATE SET
                         offer_id = excluded.offer_id,
                         bol_stock = excluded.bol_stock,
-                        last_synced_at = excluded.last_synced_at
+                        last_synced_at = excluded.last_synced_at,
+                        -- Geeft Bol geen conditie terug (bijv. versie 10), dan blijft de bekende staan.
+                        condition_category = COALESCE(excluded.condition_category, bol_offer_mapping.condition_category),
+                        condition_state = CASE WHEN excluded.condition_category IS NULL
+                                               THEN bol_offer_mapping.condition_state ELSE excluded.condition_state END
                     """,
-                    {"ean": offer["ean"], "offer_id": offer["offer_id"], "stock": offer["stock"], "now": _now()},
+                    {
+                        "ean": offer["ean"], "offer_id": offer["offer_id"], "stock": offer["stock"], "now": _now(),
+                        "cat": offer.get("condition_category"), "state": offer.get("condition_state"),
+                    },
                 )
         conn.commit()
 
@@ -3482,8 +3492,8 @@ def send_daily_csv_export():
     """
     Dagelijkse back-up van de volledige boeken- en orderlijst (CSV, gezipt).
 
-    Is Dropbox ingesteld (zie dropbox_backup.py), dan komt de back-up in Dropbox te staan (map 'back-ups', de laatste
-    30 dagen blijven bewaard) en bevat de e-mail alleen een melding met een link naar Dropbox, zonder bijlage. Zo staat de
+    Is Dropbox ingesteld (zie dropbox_backup.py), dan komt de back-up in Dropbox te staan (map 'back-ups'; de laatste
+    60 dagen blijven bewaard, daarna alleen die van de 1e en 15e) en bevat de e-mail alleen een melding met een link naar Dropbox, zonder bijlage. Zo staat de
     back-up buiten je mailbox en blijft hij niet afhankelijk van de maximale grootte van een e-mail.
 
     Lukt Dropbox niet, of is het niet ingesteld, dan gaat de back-up als bijlage mee als die klein genoeg is. Is hij te
@@ -3530,7 +3540,7 @@ def send_daily_csv_export():
                 f"Bestand: {filename}\n\n"
                 f"Open Dropbox (inloggen vereist): {dropbox_backup.DROPBOX_FOLDER_URL}\n\n"
                 f"Er is bewust geen openbare link gemaakt, omdat de back-up persoonsgegevens van kopers bevat. "
-                f"De laatste {dropbox_backup.KEEP_DAYS} dagen blijven bewaard"
+                f"De laatste {dropbox_backup.KEEP_DAYS} dagen blijven alle back-ups bewaard, daarna alleen die van de 1e en de 15e"
                 + (f"; {pruned} oudere {_n(pruned, 'back-up is', 'back-ups zijn')} vandaag opgeruimd." if pruned else ".")
             )
             if prune_error:

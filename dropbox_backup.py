@@ -24,7 +24,8 @@ DELETE_URL = "https://api.dropboxapi.com/2/files/delete_v2"
 
 BACKUP_FOLDER = "/back-ups"
 MAX_SINGLE_UPLOAD_BYTES = 140 * 1024 * 1024   # Dropbox staat 150 MB toe in één aanvraag
-KEEP_DAYS = 30                                 # zoveel dagelijkse back-ups blijven bewaard
+KEEP_DAYS = 60                                 # zoveel dagen blijven alle dagelijkse back-ups bewaard
+KEEP_DAYS_OF_MONTH = (1, 15)                   # daarna blijven alleen de back-ups van de 1e en de 15e bewaard
 BACKUP_NAME_RE = re.compile(r"^boekbeheer_back-up_(\d{4}-\d{2}-\d{2})\.zip$")
 # Dropbox-link die om inloggen vraagt (geen openbare deellink).
 DROPBOX_FOLDER_URL = "https://www.dropbox.com/home/Apps"
@@ -98,7 +99,10 @@ def _list_backup_files(token):
 
 def prune_old_backups(token, keep_days=KEEP_DAYS):
     """
-    Verwijdert dagelijkse back-ups die ouder zijn dan 'keep_days' dagen — gerekend vanaf de NIEUWSTE back-up in de map.
+    Ruimt oude back-ups op, gerekend vanaf de NIEUWSTE back-up in de map:
+    - back-ups van de laatste 'keep_days' dagen blijven allemaal bewaard;
+    - oudere back-ups worden verwijderd, behalve die van de 1e en de 15e van de maand (bestandsnaam eindigt op -01.zip
+      of -15.zip), die blijven blijvend bewaard.
     Alleen bestanden die precies de naam 'boekbeheer_back-up_JJJJ-MM-DD.zip' hebben worden aangeraakt, en de nieuwste
     wordt nooit verwijderd. Geeft het aantal verwijderde bestanden terug.
     """
@@ -114,7 +118,7 @@ def prune_old_backups(token, keep_days=KEEP_DAYS):
     cutoff = newest - dt.timedelta(days=keep_days)
     removed = 0
     for day, entry in dated:
-        if day < cutoff and day != newest:
+        if day < cutoff and day != newest and day.day not in KEEP_DAYS_OF_MONTH:
             resp = requests.post(
                 DELETE_URL,
                 headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},

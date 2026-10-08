@@ -197,6 +197,11 @@ CREATE INDEX IF NOT EXISTS idx_isbn_prefix_observations_prefix ON isbn_prefix_ob
 -- 2 = klein pakket, 3 = normaal pakket, 4 = groot of zwaar pakket. NULL = nog niet ingesteld.
 ALTER TABLE books ADD COLUMN IF NOT EXISTS shipping_format INTEGER;
 
+-- Conditie van het Bol-aanbod (voor de taartgrafiek op Home): categorie 'NEW' of 'SECONDHAND', en bij tweedehands de
+-- staat 'AS_NEW', 'GOOD', 'REASONABLE' of 'MODERATE'. Wordt door de voorraadsync met Bol bijgehouden.
+ALTER TABLE bol_offer_mapping ADD COLUMN IF NOT EXISTS condition_category TEXT;
+ALTER TABLE bol_offer_mapping ADD COLUMN IF NOT EXISTS condition_state TEXT;
+
 -- Row Level Security (RLS) op elke tabel. Dit blokkeert alleen Supabase's eigen,
 -- in dit project ongebruikte publieke webAPI (PostgREST) — de app zelf praat via
 -- een directe databaseverbinding (SUPABASE_DB_URL) en die omzeilt RLS altijd,
