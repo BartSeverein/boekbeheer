@@ -516,64 +516,66 @@ with col_b:
 st.divider()
 st.subheader("📷 Afbeeldingen")
 st.caption(
-    "Deze afbeeldingen worden naar Boekwinkeltjes gepusht zodra het boek daar is "
-    "aangemaakt (en push is toegestaan). Boekwinkeltjes bepaalt zelf welke "
-    "afbeelding daar als hoofdfoto geldt — dat weten we hier niet. De keuze hieronder "
-    "geldt dus alleen voor hoe het boek in deze app wordt getoond."
+    "Kies de voorkant en eventueel overige foto's. De voorkant gaat als eerste naar Boekwinkeltjes en wordt daar de "
+    "hoofdafbeelding. Daar hoef je na het opslaan dus niets meer aan te doen."
 )
-uploaded_files = st.file_uploader(
-    "Afbeeldingen uploaden",
+front_file = st.file_uploader(
+    "Voorkant",
+    type=["jpg", "jpeg", "png"],
+    accept_multiple_files=False,
+    key=k("front_upload"),
+)
+other_files = st.file_uploader(
+    "Overige foto's",
     type=["jpg", "jpeg", "png"],
     accept_multiple_files=True,
     key=k("images_upload"),
 )
 
-# Combineer je eigen uploads met een eventueel automatisch gevonden omslagfoto
-# (via ISBNdb/Google Books/Open Library) tot één lijst voor de weergave/hoofdfoto-keuze.
-all_images = [
-    {"data": f.getvalue(), "content_type": f.type or "image/jpeg", "label": f.name}
-    for f in (uploaded_files or [])
-]
+# De voorkant is de eigen upload, of anders de automatisch gevonden omslag (via ISBNdb/Google Books/Open Library).
 external_images = st.session_state.get(k("external_images"), [])
-all_images.extend(external_images)
 cover_note = st.session_state.get(k("cover_note"))
-if cover_note and not external_images:
+front_image = None
+if front_file is not None:
+    front_image = {"data": front_file.getvalue(), "content_type": front_file.type or "image/jpeg", "label": front_file.name}
+    if external_images:
+        st.caption("De automatisch gevonden omslag wordt niet gebruikt, omdat je zelf een voorkant hebt gekozen.")
+elif external_images:
+    front_image = external_images[0]
+elif cover_note:
     st.caption(cover_note)
 
-main_image_index = 0
-if all_images:
-    if st.session_state.get(k("main_image_index"), 0) >= len(all_images):
-        st.session_state[k("main_image_index")] = 0
-    main_image_index = st.session_state.get(k("main_image_index"), 0)
+other_images = [
+    {"data": f.getvalue(), "content_type": f.type or "image/jpeg", "label": f.name} for f in (other_files or [])
+]
+all_images = ([front_image] if front_image else []) + other_images
 
-    thumbs_per_row = 5
-    for row_start in range(0, len(all_images), thumbs_per_row):
-        row_images = all_images[row_start : row_start + thumbs_per_row]
-        thumb_cols = st.columns(thumbs_per_row)
-        for offset, img in enumerate(row_images):
-            i = row_start + offset
-            with thumb_cols[offset]:
-                image_b64 = base64.b64encode(img["data"]).decode("ascii")
+if all_images and front_image is None:
+    st.warning("Je hebt geen voorkant gekozen: de eerste overige foto wordt nu de hoofdafbeelding.")
+
+thumbs_per_row = 5
+for row_start in range(0, len(all_images), thumbs_per_row):
+    row_images = all_images[row_start : row_start + thumbs_per_row]
+    thumb_cols = st.columns(thumbs_per_row)
+    for offset, img in enumerate(row_images):
+        i = row_start + offset
+        with thumb_cols[offset]:
+            image_b64 = base64.b64encode(img["data"]).decode("ascii")
+            st.markdown(
+                f'<img src="data:{img["content_type"]};base64,{image_b64}" '
+                f'style="height:320px; width:auto; max-width:100%; object-fit:contain;" />',
+                unsafe_allow_html=True,
+            )
+            st.caption(img["label"])
+            if i == 0:
                 st.markdown(
-                    f'<img src="data:{img["content_type"]};base64,{image_b64}" '
-                    f'style="height:320px; width:auto; max-width:100%; object-fit:contain;" />',
+                    "<div style='text-align:center;'>⭐ Hoofdafbeelding</div>",
                     unsafe_allow_html=True,
                 )
-                st.caption(img["label"])
-                if len(all_images) > 1:
-                    if i == main_image_index:
-                        st.markdown(
-                            "<div style='text-align:center;'>⭐ Hoofdafbeelding</div>",
-                            unsafe_allow_html=True,
-                        )
-                    else:
-                        if st.button("Maak dit de hoofdafbeelding", key=k(f"main_btn_{i}")):
-                            st.session_state[k("main_image_index")] = i
-                            st.rerun()
-                if img in external_images:
-                    if st.button("Verwijderen", key=k(f"remove_external_{i}")):
-                        st.session_state[k("external_images")] = []
-                        st.rerun()
+            if img in external_images and front_file is None:
+                if st.button("Verwijderen", key=k(f"remove_external_{i}")):
+                    st.session_state[k("external_images")] = []
+                    st.rerun()
 
 just_saved = st.session_state.get("new_book_just_saved", False)
 button_label = "Nog een boek toevoegen" if just_saved else "Boek toevoegen"
@@ -618,7 +620,7 @@ if st.button(button_label, key="new_book_submit"):
             # De gekozen hoofdfoto vooraan: de volgorde bepaalt wat Boekwinkeltjes als eerste krijgt.
             images_to_save = order_main_first(
                 [{"data": img["data"], "content_type": img["content_type"]} for img in all_images],
-                main_image_index,
+                0,
             )
             save_uploaded_images(temp_id, images_to_save)
 

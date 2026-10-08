@@ -19,9 +19,8 @@ from common import (
     image_identity_urls,
     format_price,
     format_datetime_nl,
-    set_main_image_url,
-    set_uploaded_main,
-    star_url_for,
+    front_upload_allowed,
+    save_front_image,
     format_isbn,
     save_book_edits,
     get_known_publishers,
@@ -259,7 +258,7 @@ else:
             st.markdown(
                 """
                 <style>
-                button[aria-label="🔍"], button[aria-label="⭐"], button[aria-label="🗑️"] {
+                button[aria-label="🔍"], button[aria-label="🗑️"] {
                     padding: 0.25rem !important;
                     min-width: unset !important;
                     width: auto !important;
@@ -270,8 +269,8 @@ else:
                 unsafe_allow_html=True,
             )
             st.markdown(
-                "**Alle foto's** — klik op 🔍 voor een groter afbeelding, op ⭐ om hem aan te wijzen "
-                "als hoofdafbeelding, en op 🗑️ om hem te verwijderen:"
+                "**Alle foto's** — klik op 🔍 voor een groter afbeelding en op 🗑️ om hem te verwijderen. "
+                "De voorkant kies je bij het uploaden (onder 'Boek bewerken')."
             )
             thumbs_per_row = 5
             for row_start in range(0, len(images), thumbs_per_row):
@@ -294,44 +293,14 @@ else:
                             is_current_main = bool(img.get("is_main"))
                         else:
                             is_current_main = bool(main_image_url) and main_image_url in image_identity_urls(img)
-                        b1, b2, b3 = st.columns([1, 1, 1])
+                        if is_current_main:
+                            st.markdown("<div style='text-align:center;'>⭐ Voorkant</div>", unsafe_allow_html=True)
+                        b1, b2 = st.columns([1, 1])
                         with b1:
                             if st.button("🔍", key=f"thumb_btn_{chosen_id}_{i}"):
                                 st.session_state[idx_key] = i
                                 st.rerun()
                         with b2:
-                            star_url = star_url_for(img)
-                            if is_current_main:
-                                st.markdown(
-                                    "<div style='text-align:center;'>⭐</div>", unsafe_allow_html=True
-                                )
-                            elif img["source"] == "uploaded" and img.get("can_be_main"):
-                                if st.button(
-                                    "⭐",
-                                    key=f"main_btn_{chosen_id}_{i}",
-                                    help="Maak dit de hoofdfoto: deze wordt als eerste naar Boekwinkeltjes gestuurd",
-                                ):
-                                    set_uploaded_main(chosen_id, img["ref_id"])
-                                    st.session_state[idx_key] = 0
-                                    get_all_images.clear()
-                                    st.rerun()
-                            elif star_url is None:
-                                # Geen echte link om op te slaan. Bij een eigen upload betekent dat: er staan al foto's
-                                # van dit boek bij Boekwinkeltjes (die bepalen de hoofdfoto), of deze foto is gepusht
-                                # maar nog niet verwerkt.
-                                st.button(
-                                    "⭐",
-                                    key=f"main_btn_{chosen_id}_{i}",
-                                    disabled=True,
-                                    help="Kan pas als Boekwinkeltjes deze foto heeft verwerkt",
-                                )
-                            elif st.button("⭐", key=f"main_btn_{chosen_id}_{i}"):
-                                set_main_image_url(chosen_id, star_url)
-                                st.session_state[idx_key] = i
-                                get_all_images.clear()
-                                load_books.clear()
-                                st.rerun()
-                        with b3:
                             if st.button("🗑️", key=f"delete_img_btn_{chosen_id}_{i}"):
                                 delete_book_image(chosen_id, img["source"], img["ref_id"])
                                 st.session_state[idx_key] = 0
@@ -595,8 +564,23 @@ else:
                     )
 
                 st.markdown("**📷 Afbeeldingen toevoegen**")
+                front_allowed = front_upload_allowed(images)
+                new_front_file = st.file_uploader(
+                    "Voorkant",
+                    type=["jpg", "jpeg", "png"],
+                    accept_multiple_files=False,
+                    key=f"{edit_prefix}_front_upload",
+                    disabled=not front_allowed,
+                    help="De voorkant wordt de eerste foto bij Boekwinkeltjes en dus de hoofdafbeelding.",
+                )
+                if not front_allowed:
+                    st.caption(
+                        "Er staan al foto's van dit boek bij Boekwinkeltjes. De eerste foto daar is de hoofdafbeelding "
+                        "en de app kan die niet meer wijzigen, dus een nieuwe voorkant kan hier niet. Nieuwe foto's "
+                        "kun je wel toevoegen bij 'Overige foto's'."
+                    )
                 new_uploaded_files = st.file_uploader(
-                    "Afbeeldingen uploaden",
+                    "Overige foto's",
                     type=["jpg", "jpeg", "png"],
                     accept_multiple_files=True,
                     key=f"{edit_prefix}_images_upload",
@@ -668,6 +652,13 @@ else:
                         "queued": b["queued"],
                     },
                 )
+
+                if new_front_file is not None and front_allowed:
+                    if not save_front_image(
+                        chosen_id,
+                        {"data": new_front_file.getvalue(), "content_type": new_front_file.type or "image/jpeg"},
+                    ):
+                        st.warning("De voorkant is niet opgeslagen: er staan inmiddels foto's van dit boek bij Boekwinkeltjes.")
 
                 if new_uploaded_files:
                     images_to_save = [
