@@ -3,7 +3,6 @@ pages/12_Hulp_en_instellingen.py — Architectuurschema, handleiding-download,
 supportgegevens en de instellingen voor het druppelsysteem.
 """
 
-import base64
 import json
 import re
 from pathlib import Path
@@ -11,7 +10,9 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
+from dropbox_files import fetch_help_file
 from common import (
+    _get_secret,
     delete_placeholder_uploads,
     find_placeholder_uploads,
     get_all_images,
@@ -33,27 +34,36 @@ st.title("ℹ️ Hulp en instellingen")
 
 # ---------- Info & help ----------
 
+@st.cache_data(ttl=600, show_spinner=False)
+def _help_file(filename):
+    """Een bestand uit de Dropbox-map 'handleiding' (alleen opgehaald voor ingelogde gebruikers). (bytes, fout)."""
+    return fetch_help_file(
+        filename,
+        _get_secret("DROPBOX_APP_KEY"),
+        _get_secret("DROPBOX_APP_SECRET"),
+        _get_secret("DROPBOX_REFRESH_TOKEN"),
+    )
+
+
 st.subheader("Architectuur")
-architecture_path = Path(__file__).parent.parent / "assets" / "Architectuur.png"
-if architecture_path.exists():
-    st.image(str(architecture_path), width="stretch")
+architecture_bytes, architecture_error = _help_file("Architectuur.png")
+if architecture_bytes:
+    st.image(architecture_bytes, width="stretch")
 else:
-    st.info("Architectuur.png is nog niet gevonden in de assets-map.")
+    st.info(f"Het architectuurschema kon niet worden getoond: {architecture_error}")
 
 st.divider()
 
-manual_path = Path(__file__).parent.parent / "assets" / "boekbeheer.pdf"
-if manual_path.exists():
-    manual_bytes = manual_path.read_bytes()
-    size_kb = round(len(manual_bytes) / 1024)
-    manual_b64 = base64.b64encode(manual_bytes).decode("ascii")
-    st.markdown(
-        f'Download handleiding: <a href="data:application/pdf;base64,{manual_b64}" '
-        f'download="boekbeheer.pdf">klik hier</a> (PDF, {size_kb} Kb)',
-        unsafe_allow_html=True,
+manual_bytes, manual_error = _help_file("boekbeheer.pdf")
+if manual_bytes:
+    st.download_button(
+        f"Download handleiding (PDF, {round(len(manual_bytes) / 1024)} Kb)",
+        data=manual_bytes,
+        file_name="boekbeheer.pdf",
+        mime="application/pdf",
     )
 else:
-    st.info("boekbeheer.pdf is nog niet gevonden in de assets-map.")
+    st.info(f"De handleiding kon niet worden opgehaald: {manual_error}")
 
 st.markdown(
     "**Support:** Bart, 06-20539792 of [klik hier voor Whatsapp](https://wa.me/0031620539792)"
