@@ -31,6 +31,9 @@ jobs:
         env:
           BOEKNUMMER: ${{ github.event.inputs.boeknummer }}
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          BOEKWINKELTJES_ENV: ${{ secrets.BOEKWINKELTJES_ENV }}
+          BOEKWINKELTJES_API_KEY_SANDBOX: ${{ secrets.BOEKWINKELTJES_API_KEY_SANDBOX }}
+          BOEKWINKELTJES_API_KEY_LIVE: ${{ secrets.BOEKWINKELTJES_API_KEY_LIVE }}
           BOEKWINKELTJES_USERNAME: ${{ secrets.BOEKWINKELTJES_USERNAME }}
           BOEKWINKELTJES_PASSWORD: ${{ secrets.BOEKWINKELTJES_PASSWORD }}
           PYTHONUNBUFFERED: "1"
