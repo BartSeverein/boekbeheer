@@ -1101,6 +1101,56 @@ def save_uploaded_images(book_id, images):
         conn.close()
 
 
+def front_upload_allowed(images):
+    """
+    Mag er nog een voorkant worden gekozen? Alleen zolang er nog niets van dit boek bij Boekwinkeltjes staat: de eerste
+    foto daar wordt de hoofdfoto en de API kan dat achteraf niet wijzigen. 'images' is de lijst van get_all_images.
+    """
+    for img in images:
+        if img.get("source") == "confirmed" or img.get("pushed"):
+            return False
+    return True
+
+
+def save_front_image(book_id, image):
+    """
+    Slaat een nieuwe voorkant op als EERSTE foto van het boek (de bestaande eigen uploads schuiven een plaats op en
+    zijn geen hoofdfoto meer). Dat kan alleen zolang er nog niets van dit boek bij Boekwinkeltjes staat (geen gepushte
+    of bevestigde foto's). Geeft True terug als het gelukt is, anders False (en wordt er niets gewijzigd).
+    'image' is {"data": bytes, "content_type": str}.
+    """
+    conn = psycopg2.connect(get_db_url())
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT COUNT(*) FROM book_uploaded_images WHERE book_id = %(book_id)s AND pushed_to_boekwinkeltjes = TRUE",
+                {"book_id": int(book_id)},
+            )
+            already_pushed = cur.fetchone()[0]
+            cur.execute(
+                "SELECT COUNT(*) FROM book_images WHERE book_id = %(book_id)s AND image_id != -1",
+                {"book_id": int(book_id)},
+            )
+            already_confirmed = cur.fetchone()[0]
+            if already_pushed or already_confirmed:
+                return False
+            cur.execute(
+                "UPDATE book_uploaded_images SET position = position + 1, is_main = FALSE WHERE book_id = %(book_id)s",
+                {"book_id": int(book_id)},
+            )
+            cur.execute(
+                """
+                INSERT INTO book_uploaded_images (book_id, image_data, content_type, is_main, position, pushed_to_boekwinkeltjes)
+                VALUES (%(book_id)s, %(data)s, %(ct)s, TRUE, 0, FALSE)
+                """,
+                {"book_id": int(book_id), "data": psycopg2.Binary(image["data"]), "ct": image["content_type"]},
+            )
+        conn.commit()
+        return True
+    finally:
+        conn.close()
+
+
 def order_main_first(images, main_index):
     """
     Zet de gekozen hoofdfoto vooraan en markeert alleen die als hoofdfoto. De volgorde bepaalt wat
