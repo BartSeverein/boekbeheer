@@ -2440,7 +2440,7 @@ def get_queued_books():
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT b.id, b.title, b.author, b.ean,
+                SELECT b.id, b.title, b.author, b.ean, b.location,
                        (SELECT l.user_short_name FROM book_activity_log l
                         WHERE l.book_id = b.id AND l.action = 'created'
                         ORDER BY l.occurred_at LIMIT 1) AS added_by
@@ -2479,10 +2479,16 @@ def queued_caption(mine, total):
 
 
 def queued_row_text(book):
-    """'Titel — Auteur — ISBN 978… (Bart)'; zonder '(naam)' als niet bekend is wie het boek toegevoegd heeft."""
+    """
+    'Titel — Auteur — ISBN 978… (Bart, 0413R)': tussen haakjes wie het boek heeft toegevoegd en waar het ligt.
+    Is een van beide niet bekend, dan staat alleen de andere er; zijn ze allebei onbekend, dan geen haakjes.
+    """
     text = f"**{book['title'] or '(geen titel)'}** — {book['author'] or '–'} — ISBN {book['ean'] or '–'}"
-    if book.get("added_by"):
-        text += f" ({book['added_by']})"
+    location = book.get("location")
+    location = str(location).strip() if location is not None else ""
+    details = [part for part in (book.get("added_by"), location) if part]
+    if details:
+        text += f" ({', '.join(details)})"
     return text
 
 
