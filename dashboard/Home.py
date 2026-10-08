@@ -44,6 +44,9 @@ from common import (
     render_logo,
     require_login,
     get_database_size_mb,
+    get_bol_condition_rows,
+    bol_condition_counts,
+    BOL_CONDITION_ORDER,
 )
 
 st.set_page_config(page_title="Boekbeheersysteem", page_icon="📚", layout="wide")
@@ -454,7 +457,7 @@ st.divider()
 
 # ---------- Boeken per uitgever + Supabase-opslag ----------
 
-left2, right2 = st.columns(2)
+left2, middle2, right2 = st.columns(3)
 
 with left2:
     st.subheader("Boeken per uitgever (top 20)")
@@ -466,6 +469,39 @@ with left2:
         st.plotly_chart(fig, width="stretch")
     else:
         st.info("Nog geen boeken om te tonen.")
+
+with middle2:
+    st.subheader("Conditie Bol-aanbod")
+    try:
+        condition_rows = get_bol_condition_rows()
+        condition_error = None
+    except Exception as error:
+        condition_rows = None
+        condition_error = type(error).__name__
+    if condition_error:
+        st.info(f"De conditie van het Bol-aanbod kon nu niet worden opgevraagd ({condition_error}).")
+    elif condition_rows is None:
+        st.info("Nog niet beschikbaar: de conditie wordt bij de eerstvolgende voorraadsync met Bol opgeslagen.")
+    else:
+        condition_counts = bol_condition_counts(condition_rows)
+        if not condition_counts:
+            st.info("Nog geen conditie bekend. Die wordt bij de eerstvolgende voorraadsync met Bol opgeslagen.")
+        else:
+            condition_df = pd.DataFrame(condition_counts, columns=["conditie", "aantal"])
+            fig_condition = px.pie(
+                condition_df,
+                names="conditie",
+                values="aantal",
+                category_orders={"conditie": BOL_CONDITION_ORDER},
+                color="conditie",
+                color_discrete_map={
+                    "Nieuw": "#2e7d32", "Als nieuw": "#8bc34a", "Goed": "#fbc02d",
+                    "Redelijk": "#f57c00", "Matig": "#c62828", "Onbekend": "#9e9e9e",
+                },
+            )
+            fig_condition.update_traces(sort=False, textinfo="label+percent")
+            st.plotly_chart(fig_condition, width="stretch")
+            st.caption(f"{len(condition_rows)} aanbiedingen met voorraad bij Bol.")
 
 with right2:
     st.subheader("Supabase-opslag")

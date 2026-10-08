@@ -2571,6 +2571,58 @@ def find_existing_book_by_isbn(isbn, exclude_id=None):
         conn.close()
 
 
+# Conditie van het Bol-aanbod, in de volgorde van de taartgrafiek op Home (van best naar slechtst).
+BOL_CONDITION_ORDER = ["Nieuw", "Als nieuw", "Goed", "Redelijk", "Matig", "Onbekend"]
+_BOL_CONDITION_STATES = {"AS_NEW": "Als nieuw", "GOOD": "Goed", "REASONABLE": "Redelijk", "MODERATE": "Matig"}
+
+
+def bol_condition_label(category, state):
+    """De Nederlandse naam van een Bol-conditie ('Nieuw', 'Als nieuw', 'Goed', 'Redelijk', 'Matig'), anders 'Onbekend'."""
+    category = str(category or "").strip().upper()
+    state = str(state or "").strip().upper()
+    if category == "NEW":
+        return "Nieuw"
+    if category == "SECONDHAND":
+        return _BOL_CONDITION_STATES.get(state, "Onbekend")
+    # Staat er alleen een staat (zonder categorie), dan telt die ook.
+    return _BOL_CONDITION_STATES.get(state, "Onbekend")
+
+
+def bol_condition_counts(rows):
+    """
+    'rows' is een lijst met (categorie, staat). Geeft [(naam, aantal), ...] in vaste volgorde (BOL_CONDITION_ORDER),
+    alleen de condities die er daadwerkelijk zijn.
+    """
+    counts = {}
+    for category, state in rows:
+        label = bol_condition_label(category, state)
+        counts[label] = counts.get(label, 0) + 1
+    return [(label, counts[label]) for label in BOL_CONDITION_ORDER if counts.get(label)]
+
+
+@st.cache_data(ttl=300)
+def get_bol_condition_rows():
+    """
+    (categorie, staat) van elk Bol-aanbod dat nu voorraad heeft, zoals de voorraadsync het laatst bij Bol zag.
+    Geeft None als de kolommen er nog niet zijn (de voorraadsync heeft dan nog niet gedraaid met deze versie).
+    """
+    conn = psycopg2.connect(get_db_url())
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() "
+                "AND table_name = 'bol_offer_mapping' AND column_name = 'condition_category'"
+            )
+            if cur.fetchone() is None:
+                return None
+            cur.execute(
+                "SELECT condition_category, condition_state FROM bol_offer_mapping WHERE COALESCE(bol_stock, 0) > 0"
+            )
+            return [(row[0], row[1]) for row in cur.fetchall()]
+    finally:
+        conn.close()
+
+
 def get_database_size_mb():
     """
     Huidige grootte van de database in MB, zoals Supabase de limiet toepast: de som over alle databases
