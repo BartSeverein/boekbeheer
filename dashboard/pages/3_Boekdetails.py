@@ -242,7 +242,7 @@ else:
                 st.markdown("**Prijs Bol:** niet op Bol")
             if show_logistics:
                 st.markdown(f"**Verzendkosten Boekwinkeltjes:** €{format_price(b['shipping_cost'])}")
-                st.markdown(f"**Verzendformaat Boekwinkeltjes:** {shipping_format_label(b.get('shipping_format'))}")
+                st.markdown(f"**Verzendformaat:** {shipping_format_label(b.get('shipping_format'))}")
         with info_col2:
             categories = [
                 str(c).strip()
