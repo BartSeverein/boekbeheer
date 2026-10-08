@@ -243,7 +243,6 @@ else:
             if show_logistics:
                 st.markdown(f"**Verzendkosten Boekwinkeltjes:** €{format_price(b['shipping_cost'])}")
                 st.markdown(f"**Verzendformaat Boekwinkeltjes:** {shipping_format_label(b.get('shipping_format'))}")
-            st.markdown(f"**Voorraad:** {na(b['amount'])}")
         with info_col2:
             categories = [
                 str(c).strip()
@@ -254,6 +253,7 @@ else:
             st.markdown(f"**Taal:** {na(b['language'])}")
             st.markdown(f"**ISBN:** {format_isbn(b['ean'])}")
             st.markdown(f"**Boeknummer:** {int(chosen_id)}")
+            st.markdown(f"**Voorraad:** {na(b['amount'])}")
             if show_logistics:
                 st.markdown(f"**Locatie:** {na(b['location'])}")
 
