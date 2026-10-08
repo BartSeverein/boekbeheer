@@ -14,6 +14,8 @@ import json
 import os
 import re
 import time
+from html.parser import HTMLParser
+from urllib.parse import urljoin
 from zoneinfo import ZoneInfo
 
 import psycopg2
@@ -1856,6 +1858,180 @@ def _fetch_page_main_image(url):
     if not resp.ok:
         return False, None
     return True, (_extract_og_image(resp.text) or None)
+
+
+# ---------- Verkennen van het hoofdfoto-formulier op de website (alleen lezen) ----------
+
+_FORM_LINK_WORDS = re.compile(r"bewerk|afbeeld|foto|image|edit|wijzig", re.IGNORECASE)
+_FORM_LINK_FORBIDDEN = re.compile(r"verwijder|delete|remove|uitlog|logout|afmeld|bestel|koop|betaal", re.IGNORECASE)
+
+
+class _PageStructure(HTMLParser):
+    """Leest uit een HTML-pagina de links, de formulieren (met velden en knoppen) en de knoppen buiten formulieren."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.links = []   # (href, tekst)
+        self.forms = []   # {'method', 'action', 'fields': [(tag, type, name, value)]}
+        self._form = None
+        self._link = None
+        self._button = None
+
+    def handle_starttag(self, tag, attrs):
+        a = dict(attrs)
+        if tag == "a" and a.get("href"):
+            self._link = [a["href"], ""]
+        elif tag == "form":
+            self._form = {"method": (a.get("method") or "get").lower(), "action": a.get("action") or "", "fields": []}
+            self.forms.append(self._form)
+        elif tag in ("input", "select", "textarea") and self._form is not None:
+            self._form["fields"].append((tag, a.get("type") or "", a.get("name") or "", a.get("value") or ""))
+        elif tag == "button" and self._form is not None:
+            self._button = [a.get("type") or "", a.get("name") or "", a.get("value") or "", ""]
+
+    def handle_data(self, data):
+        if self._link is not None:
+            self._link[1] += data
+        if self._button is not None:
+            self._button[3] += data
+
+    def handle_endtag(self, tag):
+        if tag == "a" and self._link is not None:
+            self.links.append((self._link[0], " ".join(self._link[1].split())))
+            self._link = None
+        elif tag == "form":
+            self._form = None
+        elif tag == "button" and self._button is not None and self._form is not None:
+            self._form["fields"].append(("button", self._button[0], self._button[1], " ".join(self._button[3].split()) or self._button[2]))
+            self._button = None
+
+
+def _short(value, limit=12):
+    value = str(value or "")
+    return value if len(value) <= limit else value[:limit] + "…"
+
+
+def describe_page_structure(html, base_url):
+    """
+    Geeft regels terug die de structuur van een pagina laten zien: links die over foto's/bewerken gaan, en elk formulier
+    met zijn velden. Waarden van verborgen velden worden ingekort (er kunnen sleutels in zitten) en wachtwoordvelden
+    worden nooit getoond. Geeft ook de plekken waar 'hoofdafbeelding' in de tekst staat.
+    """
+    parser = _PageStructure()
+    parser.feed(html)
+    lines = []
+    seen = set()
+    relevant = []
+    for href, text in parser.links:
+        absolute = urljoin(base_url, href)
+        if absolute in seen:
+            continue
+        seen.add(absolute)
+        if _FORM_LINK_FORBIDDEN.search(href) or _FORM_LINK_FORBIDDEN.search(text):
+            continue
+        if _FORM_LINK_WORDS.search(href) or _FORM_LINK_WORDS.search(text):
+            relevant.append((absolute, text))
+    lines.append(f"  Links over foto's of bewerken: {len(relevant)}")
+    for absolute, text in relevant[:40]:
+        lines.append(f"    {absolute}   [{text[:60]}]")
+    lines.append(f"  Formulieren op de pagina: {len(parser.forms)}")
+    for i, form in enumerate(parser.forms, start=1):
+        lines.append(f"    Formulier {i}: {form['method'].upper()} {urljoin(base_url, form['action'])}")
+        for tag, ftype, name, value in form["fields"]:
+            if ftype.lower() == "password":
+                lines.append(f"      {tag} type=password name={name} (waarde niet getoond)")
+            elif ftype.lower() == "hidden":
+                lines.append(f"      {tag} type=hidden name={name} waarde={_short(value, 8)}")
+            else:
+                lines.append(f"      {tag} type={ftype or '-'} name={name or '-'} waarde={_short(value, 40)}")
+    plain = re.sub(r"<[^>]+>", " ", html)
+    plain = " ".join(plain.split())
+    hits = [m.start() for m in re.finditer(r"hoofdafbeelding", plain, re.IGNORECASE)]
+    lines.append(f"  'hoofdafbeelding' komt {len(hits)}x voor in de tekst")
+    for pos in hits[:8]:
+        lines.append(f"    ...{plain[max(pos - 80, 0):pos + 80]}...")
+    return lines, [a for a, _ in relevant]
+
+
+def boekwinkeltjes_website_login():
+    """Ingelogde sessie op de WEBSITE van Boekwinkeltjes (niet de API). (session, None) of (None, foutmelding)."""
+    username = os.environ.get("BOEKWINKELTJES_USERNAME")
+    password = os.environ.get("BOEKWINKELTJES_PASSWORD")
+    if not username or not password:
+        return None, "BOEKWINKELTJES_USERNAME en/of BOEKWINKELTJES_PASSWORD ontbreken (zet ze als GitHub-secret)."
+    session = requests.Session()
+    session.headers.update({"User-Agent": "Mozilla/5.0"})
+    try:
+        session.get("https://www.boekwinkeltjes.nl/login/", timeout=15)
+        session.post(
+            "https://www.boekwinkeltjes.nl/login/",
+            data={"boekwinkeltje": username, "wachtwoord": password, "persistentCookie": "yes",
+                  "form": "login", "submit": "Inloggen"},
+            timeout=15,
+            allow_redirects=False,
+        )
+    except requests.RequestException as e:
+        return None, f"Kon niet inloggen bij Boekwinkeltjes: {type(e).__name__}"
+    if "secureID" not in session.cookies.get_dict():
+        return None, "Inloggen bij Boekwinkeltjes is mislukt (verkeerde gebruikersnaam of wachtwoord?)."
+    return session, None
+
+
+def explore_main_image_form(book_id):
+    """
+    ALLEEN LEZEN (behalve het inloggen). Logt in op de website, opent de boekpagina en laat zien welke links en
+    formulieren er zijn om foto's te beheren, zodat te zien is wat de knop 'Instellen als hoofdafbeelding' verstuurt.
+    Er wordt niets aangeklikt of verstuurd en nergens op 'verwijderen' gedrukt: links met 'verwijder', 'delete' enz.
+    worden overgeslagen.
+    """
+    lines = []
+    session, error = boekwinkeltjes_website_login()
+    if error:
+        return [error]
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT title FROM books WHERE id = %(id)s", {"id": int(book_id)})
+            rows = cur.fetchall()
+    finally:
+        conn.close()
+    title = rows[0]["title"] if rows else None
+    lines.append(f"Boek {book_id}: {title or '(niet in de database)'}")
+    candidates = []
+    for url in book_page_urls(book_id, title):
+        try:
+            resp = session.get(url, timeout=20, allow_redirects=True)
+        except requests.RequestException as e:
+            lines.append(f"{url} -> niet gelezen ({type(e).__name__})")
+            continue
+        lines.append(f"{url} -> HTTP {resp.status_code}")
+        if not resp.ok:
+            continue
+        page_lines, links = describe_page_structure(resp.text, resp.url)
+        lines.extend(page_lines)
+        candidates = links
+        break
+    followed = 0
+    for url in candidates:
+        if followed >= 4 or "boekwinkeltjes.nl" not in url:
+            continue
+        if not re.search(r"afbeeld|foto|image|bewerk|edit", url, re.IGNORECASE):
+            continue
+        followed += 1
+        lines.append("")
+        lines.append(f"== Gevolgd: {url}")
+        try:
+            resp = session.get(url, timeout=20, allow_redirects=True)
+        except requests.RequestException as e:
+            lines.append(f"  niet gelezen ({type(e).__name__})")
+            continue
+        lines.append(f"  HTTP {resp.status_code}, uiteindelijk {resp.url}")
+        if resp.ok:
+            page_lines, _ = describe_page_structure(resp.text, resp.url)
+            lines.extend(page_lines)
+    if not candidates:
+        lines.append("Geen links gevonden om te volgen.")
+    return lines
 
 
 # ---------- Fotostofzuiger: afbeeldingsbestanden opruimen ----------

@@ -167,6 +167,11 @@ def main():
         ids = [int(x) for x in re.split(r"[\s,;]+", " ".join(sys.argv[2:]).strip()) if x]
         for line in sync.show_main_image(ids):
             print(line)
+    elif command == "explore-main-image-form":
+        # Alleen lezen: laat zien welke links/formulieren de website heeft om de hoofdfoto in te stellen.
+        # Bijvoorbeeld: explore-main-image-form 245006264
+        for line in sync.explore_main_image_form(int(sys.argv[2])):
+            print(line)
     elif command == "send-daily-csv-export":
         sync.send_daily_csv_export()
         print("Dagelijkse CSV-back-up klaar (Dropbox, of anders per e-mail; zie 'Laatste sync-runs' op Home).")
