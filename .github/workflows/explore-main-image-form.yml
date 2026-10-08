@@ -1,0 +1,36 @@
+name: Hoofdfoto-knop op de website verkennen (alleen lezen)
+
+# Logt in op de website van Boekwinkeltjes, opent de pagina van één boek en laat zien welke links en formulieren er zijn om
+# foto's te beheren (waaronder 'Instellen als hoofdafbeelding'). Er wordt NIETS aangeklikt of gewijzigd.
+# Vereist de GitHub-secrets BOEKWINKELTJES_USERNAME en BOEKWINKELTJES_PASSWORD (het gewone inlogaccount, dezelfde
+# waarden als in de Streamlit-instellingen). Start met 'Run workflow' in de Actions-tab en vul een boeknummer in.
+on:
+  workflow_dispatch:
+    inputs:
+      boeknummer:
+        description: "Eén boeknummer met meerdere foto's (bijvoorbeeld: 245006264)"
+        required: true
+        type: string
+
+jobs:
+  explore-main-image-form:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Website verkennen
+        run: python main.py explore-main-image-form "$BOEKNUMMER"
+        env:
+          BOEKNUMMER: ${{ github.event.inputs.boeknummer }}
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          BOEKWINKELTJES_USERNAME: ${{ secrets.BOEKWINKELTJES_USERNAME }}
+          BOEKWINKELTJES_PASSWORD: ${{ secrets.BOEKWINKELTJES_PASSWORD }}
+          PYTHONUNBUFFERED: "1"
