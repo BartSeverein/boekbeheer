@@ -236,6 +236,10 @@ else:
             st.markdown(f"**Adres:** {na(b['publisher_address'])}")
             st.markdown(f"**Contact:** {na(b['publisher_contact'])}")
             st.markdown(f"**{price_label}:** €{format_price(b['price'])}")
+            if pd.notna(b["shipping_cost_bol"]):
+                st.markdown(f"**Prijs Bol:** €{format_price(b['shipping_cost_bol'])}")
+            else:
+                st.markdown("**Prijs Bol:** niet op Bol")
             if show_logistics:
                 st.markdown(f"**Verzendkosten Boekwinkeltjes:** €{format_price(b['shipping_cost'])}")
                 st.markdown(f"**Verzendformaat Boekwinkeltjes:** {shipping_format_label(b.get('shipping_format'))}")
@@ -249,6 +253,7 @@ else:
             st.markdown(f"**Categorie:** {' / '.join(categories) if categories else '–'}")
             st.markdown(f"**Taal:** {na(b['language'])}")
             st.markdown(f"**ISBN:** {format_isbn(b['ean'])}")
+            st.markdown(f"**Boeknummer:** {int(chosen_id)}")
             if show_logistics:
                 st.markdown(f"**Locatie:** {na(b['location'])}")
 
