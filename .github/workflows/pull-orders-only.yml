@@ -1,0 +1,35 @@
+name: Alleen bestellingen ophalen (veilig)
+
+# Haalt ALLEEN de bestellingen van Boekwinkeltjes op en bewaart ze in de app. Er worden geen boeken opgehaald of
+# aangepast, en er wordt niets naar Boekwinkeltjes of Bol gestuurd. Handig als de gewone sync tijdelijk uit staat.
+# Start met 'Run workflow' in de Actions-tab.
+on:
+  workflow_dispatch:
+
+jobs:
+  pull-orders:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Bestellingen ophalen
+        run: python main.py pull-orders
+        env:
+          BOEKWINKELTJES_ENV: ${{ secrets.BOEKWINKELTJES_ENV }}
+          BOEKWINKELTJES_API_KEY_SANDBOX: ${{ secrets.BOEKWINKELTJES_API_KEY_SANDBOX }}
+          BOEKWINKELTJES_API_KEY_LIVE: ${{ secrets.BOEKWINKELTJES_API_KEY_LIVE }}
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          SMTP_TO: ${{ secrets.SMTP_TO }}
+          PYTHONUNBUFFERED: "1"
