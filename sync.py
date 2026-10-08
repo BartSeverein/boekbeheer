@@ -2032,6 +2032,167 @@ def explore_main_image_form(book_id):
     return lines
 
 
+# ---------- Hoofdafbeelding op de website herstellen ----------
+
+class _ImageRowsParser(HTMLParser):
+    """Leest uit de bewerkpagina van een boek per foto het formulier 'editafbeelding' (verborgen velden + knop)."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.rows = []
+        self._last_img = None
+        self._form = None
+
+    def handle_starttag(self, tag, attrs):
+        a = dict(attrs)
+        if tag == "img" and "img.boekwinkeltjes.nl/large/" in (a.get("src") or ""):
+            self._last_img = a.get("src")
+        elif tag == "form" and a.get("name") == "editafbeelding":
+            self._form = {"img": self._last_img, "hidden": {}, "submit": None}
+        elif tag == "input" and self._form is not None:
+            kind = (a.get("type") or "text").lower()
+            if kind == "hidden" and a.get("name"):
+                self._form["hidden"][a["name"]] = a.get("value") or ""
+            elif kind == "submit":
+                self._form["submit"] = {"name": a.get("name") or "submit", "value": a.get("value") or ""}
+
+    def handle_endtag(self, tag):
+        if tag == "form" and self._form is not None:
+            if self._form["hidden"].get("afbeeldingID"):
+                self.rows.append(self._form)
+            self._form = None
+
+
+def parse_image_rows(html):
+    """Lijst foto's in paginavolgorde. Per foto: img, hidden (dict), submit (None = dit is de hoofdafbeelding)."""
+    parser = _ImageRowsParser()
+    parser.feed(html)
+    return parser.rows
+
+
+def _book_edit_url(book_id):
+    return f"https://www.boekwinkeltjes.nl/mbw/boeken/edit/boek/{int(book_id)}/"
+
+
+def fix_main_images(execute=False, limit=None, skip_ids=(), only_ids=(), pause_seconds=1.0):
+    """
+    Zet bij boeken met meer dan één foto de LAATSTE foto als hoofdafbeelding op de website van Boekwinkeltjes
+    (via de knop 'Instellen als hoofdafbeelding' in het verkoopgedeelte). Regel van Bart: bij een verkeerde hoofdfoto is
+    de echte voorkant altijd de laatste foto.
+    execute=False (standaard) is een PROEFRUN: alleen de bewerkpagina's lezen en tonen wat er zou veranderen.
+    Opvolgbaar: boeken waarvan de laatste foto al de hoofdafbeelding is, worden overgeslagen; opnieuw draaien gaat dus door waar het
+    ophield. In het (openbare) log staan alleen boeknummers en aantallen.
+    """
+    lines = []
+    session, error = boekwinkeltjes_website_login()
+    if error:
+        return [error]
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT book_id FROM book_images WHERE image_id <> -1 GROUP BY book_id HAVING COUNT(*) > 1 ORDER BY book_id"
+            )
+            candidates = [r[0] for r in cur.fetchall()]
+    finally:
+        conn.close()
+    only = {int(x) for x in only_ids}
+    skip = {int(x) for x in skip_ids}
+    if only:
+        candidates = [b for b in candidates if b in only]
+    candidates = [b for b in candidates if b not in skip]
+    lines.append(f"{'ECHTE RUN' if execute else 'PROEFRUN (er wordt niets gewijzigd)'}: {len(candidates)} boeken met meer dan één foto om te controleren"
+                 + (f" (overgeslagen op verzoek: {len(skip)})" if skip else ""))
+
+    stats = {"checked": 0, "already_ok": 0, "to_change": 0, "changed": 0, "failed": 0, "unreadable": 0, "no_buttons": 0}
+    to_change_ids = []
+    failed_ids = []
+    consecutive_failures = 0
+    relogged = False
+
+    def fetch(book_id):
+        nonlocal session, relogged
+        for attempt in range(2):
+            resp = session.get(_book_edit_url(book_id), timeout=25, allow_redirects=True)
+            if "/login" in resp.url and not relogged:
+                session, err = boekwinkeltjes_website_login()
+                relogged = True
+                if err:
+                    raise RuntimeError(err)
+                continue
+            return resp
+        return resp
+
+    for book_id in candidates:
+        if limit is not None and stats["to_change"] >= limit:
+            lines.append(f"Maximum van {limit} te wijzigen boeken bereikt; gestopt.")
+            break
+        stats["checked"] += 1
+        try:
+            resp = fetch(book_id)
+        except (requests.RequestException, RuntimeError) as e:
+            stats["unreadable"] += 1
+            lines.append(f"  {book_id}: pagina niet gelezen ({type(e).__name__})")
+            time.sleep(pause_seconds)
+            continue
+        if not resp.ok or "/login" in resp.url:
+            stats["unreadable"] += 1
+            lines.append(f"  {book_id}: pagina niet gelezen (HTTP {resp.status_code})")
+            time.sleep(pause_seconds)
+            continue
+        rows = parse_image_rows(resp.text)
+        if len(rows) < 2:
+            stats["no_buttons"] += 1  # bijvoorbeeld maar één foto op de website, of een andere opbouw
+            time.sleep(pause_seconds)
+            continue
+        main_index = next((i for i, r in enumerate(rows) if r["submit"] is None), None)
+        last = rows[-1]
+        if main_index is None:
+            stats["no_buttons"] += 1
+            lines.append(f"  {book_id}: geen hoofdafbeelding herkend; overgeslagen")
+        elif main_index == len(rows) - 1:
+            stats["already_ok"] += 1
+        else:
+            stats["to_change"] += 1
+            to_change_ids.append(book_id)
+            lines.append(f"  {book_id}: {len(rows)} foto's, hoofdafbeelding is nr. {main_index + 1}, wordt nr. {len(rows)}")
+            if execute:
+                data = dict(last["hidden"])
+                data[last["submit"]["name"]] = last["submit"]["value"]
+                try:
+                    post = session.post(_book_edit_url(book_id), data=data, timeout=25, allow_redirects=True)
+                    check = fetch(book_id)
+                    new_rows = parse_image_rows(check.text)
+                    ok = (post.ok and new_rows
+                          and any(r["submit"] is None and r["hidden"]["afbeeldingID"] == last["hidden"]["afbeeldingID"]
+                                  for r in new_rows))
+                except (requests.RequestException, RuntimeError) as e:
+                    ok = False
+                if ok:
+                    stats["changed"] += 1
+                    consecutive_failures = 0
+                else:
+                    stats["failed"] += 1
+                    failed_ids.append(book_id)
+                    consecutive_failures += 1
+                    lines.append(f"    {book_id}: wijziging NIET bevestigd na het opslaan")
+                    if consecutive_failures >= 3:
+                        lines.append("Drie keer achter elkaar niet bevestigd; gestopt om niets stuk te maken.")
+                        break
+        if stats["checked"] % 100 == 0:
+            print(f"  ... {stats['checked']} van {len(candidates)} gecontroleerd; te wijzigen tot nu toe: {stats['to_change']}", flush=True)
+        time.sleep(pause_seconds)
+
+    lines.append(
+        f"Klaar: gecontroleerd {stats['checked']}, al goed {stats['already_ok']}, te wijzigen {stats['to_change']}, "
+        f"gewijzigd en bevestigd {stats['changed']}, niet gelukt {stats['failed']}, pagina niet gelezen {stats['unreadable']}, "
+        f"overig overgeslagen {stats['no_buttons']}"
+    )
+    if failed_ids:
+        lines.append("Niet gelukt: " + ", ".join(str(b) for b in failed_ids))
+    return lines
+
+
 # ---------- Fotostofzuiger: afbeeldingsbestanden opruimen ----------
 
 # Afbeeldingen die langer dan dit aantal uren geleden zijn vastgelegd, komen in aanmerking.

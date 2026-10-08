@@ -172,6 +172,16 @@ def main():
         # Bijvoorbeeld: explore-main-image-form 245006264
         for line in sync.explore_main_image_form(int(sys.argv[2])):
             print(line)
+    elif command == "fix-main-images":
+        # Zet bij boeken met meerdere foto's de laatste foto als hoofdafbeelding op de website van Boekwinkeltjes.
+        # Argumenten: <echt: ja/nee> [maximum aantal te wijzigen boeken] [over te slaan boeknummers] [alleen deze boeknummers]
+        # Zonder 'ja' is het een proefrun. Bijvoorbeeld: fix-main-images nee   of   fix-main-images ja 5
+        def _ids(i):
+            return [int(x) for x in re.split(r"[\s,;]+", sys.argv[i].strip()) if x] if len(sys.argv) > i else []
+        execute = len(sys.argv) > 2 and sys.argv[2].strip().lower() in ("ja", "yes", "true")
+        limit = int(sys.argv[3]) if len(sys.argv) > 3 and sys.argv[3].strip() else None
+        for line in sync.fix_main_images(execute=execute, limit=limit, skip_ids=_ids(4), only_ids=_ids(5)):
+            print(line)
     elif command == "send-daily-csv-export":
         sync.send_daily_csv_export()
         print("Dagelijkse CSV-back-up klaar (Dropbox, of anders per e-mail; zie 'Laatste sync-runs' op Home).")
