@@ -2093,7 +2093,7 @@ def fix_main_images(execute=False, limit=None, skip_ids=(), only_ids=(), pause_s
             cur.execute(
                 "SELECT book_id FROM book_images WHERE image_id <> -1 GROUP BY book_id HAVING COUNT(*) > 1 ORDER BY book_id"
             )
-            candidates = [r[0] for r in cur.fetchall()]
+            candidates = [r["book_id"] for r in cur.fetchall()]
     finally:
         conn.close()
     only = {int(x) for x in only_ids}
