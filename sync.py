@@ -3277,6 +3277,34 @@ def _choose_one_offer_per_ean(offers, mapped_offer_ids):
     return list(chosen.values())
 
 
+_BOL_CONDITION_COLUMNS_CHECKED = False
+
+
+def _ensure_bol_condition_columns(conn):
+    """
+    Zorgt dat bol_offer_mapping de kolommen voor de conditie van het Bol-aanbod heeft (voor de taartgrafiek op Home).
+    Eerst kijken en alleen aanmaken als ze ontbreken, en meteen vastleggen: ook 'ADD COLUMN IF NOT EXISTS' vergrendelt
+    de tabel tot het einde van de transactie, en dan moet Home wachten tot de hele voorraadsync klaar is
+    (en loopt zijn vraag af met 'QueryCanceled').
+    """
+    global _BOL_CONDITION_COLUMNS_CHECKED
+    if _BOL_CONDITION_COLUMNS_CHECKED:
+        return
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema = current_schema() AND table_name = 'bol_offer_mapping' "
+            "AND column_name IN ('condition_category', 'condition_state')"
+        )
+        present = {row["column_name"] for row in cur.fetchall()}
+        if "condition_category" not in present:
+            cur.execute("ALTER TABLE bol_offer_mapping ADD COLUMN IF NOT EXISTS condition_category TEXT")
+        if "condition_state" not in present:
+            cur.execute("ALTER TABLE bol_offer_mapping ADD COLUMN IF NOT EXISTS condition_state TEXT")
+    conn.commit()
+    _BOL_CONDITION_COLUMNS_CHECKED = True
+
+
 def sync_stock_with_bol():
     """
     Voorraad afstemmen met Bol — met opzet ASYMMETRISCH:
@@ -3305,10 +3333,8 @@ def sync_stock_with_bol():
             cur.execute("SELECT ean, offer_id FROM bol_offer_mapping")
             mapped_offer_ids = {row["ean"]: row["offer_id"] for row in cur.fetchall()}
         bol_offers = _choose_one_offer_per_ean(bol_offers, mapped_offer_ids)
+        _ensure_bol_condition_columns(conn)
         with conn.cursor() as cur:
-            # De conditie van elk Bol-aanbod (voor de taartgrafiek op Home) staat in twee extra kolommen.
-            cur.execute("ALTER TABLE bol_offer_mapping ADD COLUMN IF NOT EXISTS condition_category TEXT")
-            cur.execute("ALTER TABLE bol_offer_mapping ADD COLUMN IF NOT EXISTS condition_state TEXT")
             for offer in bol_offers:
                 cur.execute(
                     """
