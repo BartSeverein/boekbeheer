@@ -776,6 +776,12 @@ def count_books_without_shipping_format(books):
     if books is None or len(books) == 0:
         return 0
     eligible = books[books["id"] > 0]
+    if "pending_create" in eligible.columns:
+        # Zelfde regel als de workflow: boeken die nog op hun eerste aanmaak bij Boekwinkeltjes wachten tellen niet mee.
+        eligible = eligible[~eligible["pending_create"].fillna(False).astype(bool)]
+    if "amount" in eligible.columns:
+        # Verkochte boeken (voorraad 0) staan niet meer te koop; een ontbrekend verzendformaat is daar geen probleem.
+        eligible = eligible[eligible["amount"].fillna(0) > 0]
     if "push_enabled" in eligible.columns:
         eligible = eligible[eligible["push_enabled"].fillna(True).astype(bool)]
     if "shipping_format" not in eligible.columns:
