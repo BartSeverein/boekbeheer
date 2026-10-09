@@ -209,6 +209,7 @@ if isbn_is_valid:
         st.link_button("Open op Bol", bol_url)
 
 if abebooks_result:
+    st.link_button("Zoek op Abebooks", f"https://www.abebooks.com/servlet/SearchResults?isbn={isbn_clean}")
     with st.expander("Technische details van de Abebooks-opzoeking"):
         st.caption(
             "Wat Abebooks teruggaf. Handig om te controleren of het bedrag klopt, of om door te geven "

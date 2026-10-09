@@ -40,6 +40,8 @@ from common import (
     get_shipping_costs,
     shipping_options_labels,
     shipping_format_label,
+    lookup_abebooks_lowest_price,
+    abebooks_box_line,
 )
 from categories import CATEGORY1_OPTIONS, CATEGORY2_OPTIONS
 
@@ -407,8 +409,33 @@ else:
                     else:
                         bw_box_lines.append("Bij Bol wordt dit boek momenteel niet aangeboden.")
 
+                # Nergens te koop (niet bij Boekwinkeltjes en niet bij Bol)? Dan als hulpmiddel de laagste prijs bij
+                # Abebooks erbij, net als bij Nieuw boek.
+                abebooks_result = None
+                if market_info and (market_info.get("activeAmount") or 0) == 0 and bol_count == 0:
+                    abebooks_result = lookup_abebooks_lowest_price(edit_ean)
+                    bw_box_lines.append(abebooks_box_line(abebooks_result))
+
                 if bw_box_lines:
                     info_box("<br>".join(bw_box_lines))
+
+                if abebooks_result:
+                    _abe_isbn = re.sub(r"\D", "", edit_ean or "")
+                    st.link_button(
+                        "Zoek op Abebooks",
+                        f"https://www.abebooks.com/servlet/SearchResults?isbn={_abe_isbn}",
+                    )
+
+                if abebooks_result:
+                    with st.expander("Technische details van de Abebooks-opzoeking"):
+                        if abebooks_result["status"] == "price":
+                            st.write("Bedrag gelezen uit het veld:")
+                            st.code(abebooks_result["source"] or "(onbekend)", language=None)
+                            if abebooks_result.get("rate_note"):
+                                st.write(f"Omrekening naar euro: {abebooks_result['rate_note']}.")
+                        elif abebooks_result["message"]:
+                            st.write(f"Melding: {abebooks_result['message']}.")
+                        st.code(abebooks_result["raw"] or "(geen antwoord ontvangen)", language="json")
 
             cat1_col, cat2_col = st.columns(2)
             with cat1_col:
