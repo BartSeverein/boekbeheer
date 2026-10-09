@@ -45,6 +45,7 @@ from common import (
     require_login,
     get_database_size_mb,
     get_bol_condition_rows,
+    get_weekly_stock_snapshots,
     bol_condition_counts,
     BOL_CONDITION_ORDER,
 )
@@ -433,6 +434,64 @@ with right1:
         st.caption("Gebaseerd op een 'r' (hoofd- of kleine letter) in het locatieveld.")
     else:
         st.info("Nog geen boeken om te tonen.")
+
+st.divider()
+
+# ---------- Wekelijks aanbod: titels en exemplaren, met het deel dat ook op Bol staat ----------
+
+def _weekly_stock_chart(snapshots, total_key, bol_key, y_title, money=False):
+    """Gestapelde staaf per meting: onderaan wat ook op Bol staat, daarboven de rest van wat in de verkoop is (samen = totaal)."""
+    data = pd.DataFrame(snapshots)
+    data["week"] = pd.to_datetime(data["measured_on"]).dt.strftime("%d-%m-%Y")
+    long_rows = []
+    for _, row in data.iterrows():
+        long_rows.append({"week": row["week"], "soort": "Ook op Bol", "aantal": float(row[bol_key])})
+        long_rows.append({"week": row["week"], "soort": "Alleen Boekwinkeltjes", "aantal": max(float(row[total_key]) - float(row[bol_key]), 0)})
+    fig = px.bar(
+        pd.DataFrame(long_rows), x="week", y="aantal", color="soort",
+        category_orders={"week": list(data["week"]), "soort": ["Ook op Bol", "Alleen Boekwinkeltjes"]},
+        # Dezelfde blauwtinten als de andere grafieken: donker = ook op Bol, licht = alleen Boekwinkeltjes.
+        color_discrete_map={"Ook op Bol": "#0068C9", "Alleen Boekwinkeltjes": "#83C9FF"},
+    )
+    fig.update_traces(texttemplate="€%{y:,.0f}" if money else "%{y:,.0f}")
+    fig.update_layout(barmode="stack", xaxis_title=None, yaxis_title=y_title, legend_title_text=None)
+    if money:
+        fig.update_yaxes(tickprefix="€")
+    # Het totaal (hele staaf) boven elke staaf.
+    fig.add_scatter(
+        x=list(data["week"]), y=[float(v) for v in data[total_key]], mode="text",
+        text=[(f"€{float(v):,.0f}" if money else f"{float(v):,.0f}") for v in data[total_key]],
+        textposition="top center", showlegend=False, hoverinfo="skip",
+    )
+    return fig
+
+
+try:
+    weekly_snapshots = get_weekly_stock_snapshots()
+    weekly_error = None
+except Exception as error:
+    weekly_snapshots = None
+    weekly_error = type(error).__name__
+
+week_left, week_right = st.columns(2)
+with week_left:
+    st.subheader("Boeken met voorraad per week")
+    if weekly_error:
+        st.info(f"De wekelijkse metingen konden nu niet worden opgevraagd ({weekly_error}).")
+    elif not weekly_snapshots:
+        st.info("Nog geen metingen. De eerste komt in de nacht van zondag op maandag, of start de workflow 'Wekelijkse voorraadmeting' handmatig.")
+    else:
+        st.plotly_chart(_weekly_stock_chart(weekly_snapshots, "bw_titles", "bol_titles", "aantal boeken"), width="stretch")
+        st.caption("Titels met voorraad boven 0. Het donkere deel staat ook op Bol. Meting: nacht van zondag op maandag.")
+with week_right:
+    st.subheader("Verkoopwaarde per week")
+    if weekly_error:
+        st.info(f"De wekelijkse metingen konden nu niet worden opgevraagd ({weekly_error}).")
+    elif not weekly_snapshots:
+        st.info("Nog geen metingen.")
+    else:
+        st.plotly_chart(_weekly_stock_chart(weekly_snapshots, "bw_value", "bol_value", "verkoopwaarde (€)", money=True), width="stretch")
+        st.caption("Prijs Boekwinkeltjes x voorraad van alle boeken met voorraad boven 0. Het donkere deel staat ook op Bol.")
 
 st.divider()
 

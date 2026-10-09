@@ -2632,6 +2632,39 @@ def get_bol_condition_rows():
         conn.close()
 
 
+@st.cache_data(ttl=600)
+def get_weekly_stock_snapshots(max_weeks=26):
+    """
+    De laatste wekelijkse metingen (oudste eerst) als lijst van dicts met measured_on, bw_titles, bol_titles,
+    bw_value en bol_value (verkoopwaarde in euro). Geeft None als de tabel er nog niet is (de eerste meting is dan nog niet gedraaid).
+    """
+    conn = psycopg2.connect(get_db_url())
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT to_regclass('weekly_stock_snapshots')")
+            if cur.fetchone()[0] is None:
+                return None
+            cur.execute(
+                "SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() "
+                "AND table_name = 'weekly_stock_snapshots' AND column_name = 'bol_value'"
+            )
+            if cur.fetchone() is None:
+                return None
+            cur.execute(
+                "SELECT measured_on, bw_titles, bol_titles, bw_value, bol_value FROM weekly_stock_snapshots "
+                "ORDER BY measured_on DESC LIMIT %(n)s",
+                {"n": int(max_weeks)},
+            )
+            rows = [
+                {"measured_on": r[0], "bw_titles": r[1], "bol_titles": r[2],
+                 "bw_value": float(r[3] or 0), "bol_value": float(r[4] or 0)}
+                for r in cur.fetchall()
+            ]
+            return list(reversed(rows))
+    finally:
+        conn.close()
+
+
 def get_database_size_mb():
     """
     Huidige grootte van de database in MB, zoals Supabase de limiet toepast: de som over alle databases
