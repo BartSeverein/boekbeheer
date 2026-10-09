@@ -202,6 +202,21 @@ ALTER TABLE books ADD COLUMN IF NOT EXISTS shipping_format INTEGER;
 ALTER TABLE bol_offer_mapping ADD COLUMN IF NOT EXISTS condition_category TEXT;
 ALTER TABLE bol_offer_mapping ADD COLUMN IF NOT EXISTS condition_state TEXT;
 
+-- Wekelijkse meting van het aanbod (voor de twee staafgrafieken op Home). Eén rij per meetdag; de taak
+-- 'Wekelijkse voorraadmeting' vult hem in de nacht van zondag op maandag.
+CREATE TABLE IF NOT EXISTS weekly_stock_snapshots (
+    measured_on   DATE PRIMARY KEY,
+    taken_at      TIMESTAMPTZ DEFAULT now(),
+    bw_titles     INTEGER NOT NULL,   -- titels actief in de verkoop (Boekwinkeltjes): voorraad > 0, niet in een wachtrij
+    bol_titles    INTEGER NOT NULL,   -- daarvan ook actief op Bol (bol_stock > 0)
+    bw_units      INTEGER NOT NULL,   -- exemplaren in voorraad van die titels
+    bol_units     INTEGER NOT NULL,   -- exemplaren die op Bol worden aangeboden (nooit meer dan de eigen voorraad)
+    bw_value      NUMERIC,            -- verkoopwaarde: som van Prijs Boekwinkeltjes x voorraad van die titels (in euro)
+    bol_value     NUMERIC             -- daarvan het deel dat op Bol staat (zelfde prijs x exemplaren op Bol)
+);
+ALTER TABLE weekly_stock_snapshots ADD COLUMN IF NOT EXISTS bw_value NUMERIC;
+ALTER TABLE weekly_stock_snapshots ADD COLUMN IF NOT EXISTS bol_value NUMERIC;
+
 -- Row Level Security (RLS) op elke tabel. Dit blokkeert alleen Supabase's eigen,
 -- in dit project ongebruikte publieke webAPI (PostgREST) — de app zelf praat via
 -- een directe databaseverbinding (SUPABASE_DB_URL) en die omzeilt RLS altijd,
@@ -220,3 +235,4 @@ ALTER TABLE known_publishers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE app_users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE book_activity_log ENABLE ROW LEVEL SECURITY;
 ALTER TABLE isbn_prefix_observations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE weekly_stock_snapshots ENABLE ROW LEVEL SECURITY;

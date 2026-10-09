@@ -3849,6 +3849,87 @@ def _build_backup_zip(today_str, books_rows, orders_rows):
     return buffer.getvalue()
 
 
+def take_weekly_stock_snapshot():
+    """
+    Legt vast hoeveel titels/exemplaren er nu actief in de verkoop zijn en hoeveel daarvan ook op Bol staan.
+    Bedoeld voor de nacht van zondag op maandag (de taak 'Wekelijkse voorraadmeting'); elke meting krijgt de
+    datum van de dag waarop ze gedraaid is (Nederlandse tijd), en een tweede meting op dezelfde dag vervangt de eerste.
+    Actief in de verkoop = voorraad boven 0, echt bij Boekwinkeltjes aangemaakt, niet in een wachtrij en met
+    synchronisatie aan. Actief op Bol = bij Bol bekende voorraad boven 0. Verkoopwaarde = Prijs Boekwinkeltjes x voorraad. Geeft regels tekst terug.
+    """
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS weekly_stock_snapshots (
+                    measured_on DATE PRIMARY KEY,
+                    taken_at    TIMESTAMPTZ DEFAULT now(),
+                    bw_titles   INTEGER NOT NULL,
+                    bol_titles  INTEGER NOT NULL,
+                    bw_units    INTEGER NOT NULL,
+                    bol_units   INTEGER NOT NULL,
+                    bw_value    NUMERIC,
+                    bol_value   NUMERIC
+                )
+                """
+            )
+            # Een eerder aangemaakte tabel (zonder de waardekolommen) aanvullen; eerst kijken of het nodig is.
+            cur.execute(
+                "SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() "
+                "AND table_name = 'weekly_stock_snapshots' AND column_name = 'bol_value'"
+            )
+            if cur.fetchone() is None:
+                cur.execute("ALTER TABLE weekly_stock_snapshots ADD COLUMN IF NOT EXISTS bw_value NUMERIC")
+                cur.execute("ALTER TABLE weekly_stock_snapshots ADD COLUMN IF NOT EXISTS bol_value NUMERIC")
+            conn.commit()
+            cur.execute(
+                """
+                SELECT COUNT(*) AS bw_titles,
+                       COALESCE(SUM(b.amount), 0) AS bw_units,
+                       COUNT(*) FILTER (WHERE COALESCE(m.bol_stock, 0) > 0) AS bol_titles,
+                       COALESCE(SUM(LEAST(m.bol_stock, b.amount)) FILTER (WHERE COALESCE(m.bol_stock, 0) > 0), 0) AS bol_units,
+                       COALESCE(SUM(COALESCE(b.price, 0) * b.amount), 0) AS bw_value,
+                       COALESCE(SUM(COALESCE(b.price, 0) * LEAST(m.bol_stock, b.amount))
+                                FILTER (WHERE COALESCE(m.bol_stock, 0) > 0), 0) AS bol_value
+                FROM books b
+                LEFT JOIN bol_offer_mapping m ON m.ean = b.ean
+                WHERE b.id > 0
+                  AND COALESCE(b.pending_create, FALSE) = FALSE
+                  AND COALESCE(b.queued, FALSE) = FALSE
+                  AND COALESCE(b.push_enabled, TRUE) = TRUE
+                  AND COALESCE(b.amount, 0) > 0
+                """
+            )
+            row = cur.fetchone()
+            measured_on = dt.datetime.now(ZoneInfo("Europe/Amsterdam")).date()
+            values = {
+                "d": measured_on, "bw_t": int(row["bw_titles"]), "bol_t": int(row["bol_titles"]),
+                "bw_u": int(row["bw_units"]), "bol_u": int(row["bol_units"]),
+                "bw_v": round(float(row["bw_value"]), 2), "bol_v": round(float(row["bol_value"]), 2),
+            }
+            cur.execute(
+                """
+                INSERT INTO weekly_stock_snapshots (measured_on, taken_at, bw_titles, bol_titles, bw_units, bol_units, bw_value, bol_value)
+                VALUES (%(d)s, now(), %(bw_t)s, %(bol_t)s, %(bw_u)s, %(bol_u)s, %(bw_v)s, %(bol_v)s)
+                ON CONFLICT (measured_on) DO UPDATE SET
+                    taken_at = now(), bw_titles = excluded.bw_titles, bol_titles = excluded.bol_titles,
+                    bw_units = excluded.bw_units, bol_units = excluded.bol_units,
+                    bw_value = excluded.bw_value, bol_value = excluded.bol_value
+                """,
+                values,
+            )
+        conn.commit()
+        detail = (f"{values['bw_t']} titels actief ({values['bol_t']} ook op Bol); "
+                  f"{values['bw_u']} exemplaren ({values['bol_u']} op Bol); "
+                  f"verkoopwaarde € {values['bw_v']:.2f} (waarvan € {values['bol_v']:.2f} op Bol)")
+        _log(conn, "pull", "weekly_stock_snapshot", "ok", detail)
+        conn.commit()
+        return [f"Meting van {measured_on.isoformat()} bewaard: {detail}."]
+    finally:
+        conn.close()
+
+
 def send_daily_csv_export():
     """
     Dagelijkse back-up van de volledige boeken- en orderlijst (CSV, gezipt).

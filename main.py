@@ -182,6 +182,10 @@ def main():
         limit = int(sys.argv[3]) if len(sys.argv) > 3 and sys.argv[3].strip() else None
         for line in sync.fix_main_images(execute=execute, limit=limit, skip_ids=_ids(4), only_ids=_ids(5)):
             print(line)
+    elif command == "weekly-stock-snapshot":
+        # Legt het aantal actieve titels/exemplaren (totaal en op Bol) vast voor de weekgrafieken op Home.
+        for line in sync.take_weekly_stock_snapshot():
+            print(line)
     elif command == "send-daily-csv-export":
         sync.send_daily_csv_export()
         print("Dagelijkse CSV-back-up klaar (Dropbox, of anders per e-mail; zie 'Laatste sync-runs' op Home).")
