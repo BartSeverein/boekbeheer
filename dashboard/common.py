@@ -1715,6 +1715,9 @@ def pick_cover(candidates, open_library_url=None):
     return {"bytes": None, "content_type": None, "source": None, "rejected": rejected}
 
 
+# Onthouden (10 min): elke keuze in een keuzelijst laadt de pagina opnieuw, en dit zijn drie live opzoekingen
+# (ISBNdb, Google Books, Open Library). Zonder dit wacht je daar bij elke klik opnieuw op.
+@st.cache_data(ttl=600, show_spinner=False)
 def lookup_book_metadata_external(isbn):
     """
     Haalt boekgegevens (titel, auteur, uitgever, taal, omslagfoto, beschrijving,
@@ -3272,6 +3275,8 @@ def convert_to_eur(amount, display_currency):
     return round(amount / rate, 2), f"1 euro = {rate_text} {iso} (referentiekoers van de ECB, {rate_date})"
 
 
+# Onthouden (10 min), ook een mislukte opzoeking: anders wacht elke klik op een keuzelijst opnieuw op de time-out.
+@st.cache_data(ttl=600, show_spinner=False)
 def lookup_abebooks_lowest_price(isbn):
     """
     Zoekt het laagste bedrag voor dit ISBN bij Abebooks. Geeft altijd een dict
