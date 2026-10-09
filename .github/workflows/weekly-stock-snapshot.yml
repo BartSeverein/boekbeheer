@@ -1,0 +1,37 @@
+name: Wekelijkse voorraadmeting (voor de grafieken op Home)
+
+# Legt vast hoeveel titels en exemplaren er actief in de verkoop zijn en hoeveel daarvan ook op Bol staan.
+# Timing via cron-job.org: in de nacht van zondag op maandag (bijvoorbeeld zondag 23:55 of maandag 00:05, Nederlandse tijd).
+# Handmatig starten mag ook: dat voegt een meting toe met de datum van vandaag.
+on:
+  workflow_dispatch:
+    inputs:
+      trigger_source:
+        description: "Wordt door cron-job.org meegestuurd om een geplande run te herkennen"
+        required: false
+        type: string
+        default: ""
+
+jobs:
+  weekly-stock-snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Voorraadmeting vastleggen
+        run: python main.py weekly-stock-snapshot
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          BOEKWINKELTJES_ENV: ${{ secrets.BOEKWINKELTJES_ENV }}
+          BOEKWINKELTJES_API_KEY_SANDBOX: ${{ secrets.BOEKWINKELTJES_API_KEY_SANDBOX }}
+          BOEKWINKELTJES_API_KEY_LIVE: ${{ secrets.BOEKWINKELTJES_API_KEY_LIVE }}
+          TRIGGER_SOURCE: ${{ github.event.inputs.trigger_source }}
+          PYTHONUNBUFFERED: "1"
