@@ -439,28 +439,43 @@ st.divider()
 
 # ---------- Wekelijks aanbod: titels en exemplaren, met het deel dat ook op Bol staat ----------
 
+def _nl_number(value):
+    """Nederlandse schrijfwijze van een heel getal: punt als duizendtalscheiding, maar pas vanaf 10.000 (dus 3400, 12.345)."""
+    value = int(round(float(value)))
+    return f"{value:,}".replace(",", ".") if abs(value) >= 10000 else str(value)
+
+
 def _weekly_stock_chart(snapshots, total_key, bol_key, y_title, money=False):
     """Gestapelde staaf per meting: onderaan wat ook op Bol staat, daarboven de rest van wat in de verkoop is (samen = totaal)."""
     data = pd.DataFrame(snapshots)
     data["week"] = pd.to_datetime(data["measured_on"]).dt.strftime("%d-%m-%Y")
+    # Hele getallen (ook bij euro's): eerst afronden, dan pas 'alleen Boekwinkeltjes' = totaal min Bol,
+    # zodat de getoonde delen precies bij het totaal optellen.
+    data[total_key] = data[total_key].astype(float).round(0)
+    data[bol_key] = data[bol_key].astype(float).round(0)
+    prefix = "€ " if money else ""
     long_rows = []
     for _, row in data.iterrows():
-        long_rows.append({"week": row["week"], "soort": "Ook op Bol", "aantal": float(row[bol_key])})
-        long_rows.append({"week": row["week"], "soort": "Alleen Boekwinkeltjes", "aantal": max(float(row[total_key]) - float(row[bol_key]), 0)})
+        alone = max(float(row[total_key]) - float(row[bol_key]), 0)
+        long_rows.append({"week": row["week"], "soort": "Ook op Bol", "aantal": float(row[bol_key]),
+                          "label": prefix + _nl_number(row[bol_key])})
+        long_rows.append({"week": row["week"], "soort": "Alleen Boekwinkeltjes", "aantal": alone,
+                          "label": prefix + _nl_number(alone)})
     fig = px.bar(
-        pd.DataFrame(long_rows), x="week", y="aantal", color="soort",
+        pd.DataFrame(long_rows), x="week", y="aantal", color="soort", text="label",
         category_orders={"week": list(data["week"]), "soort": ["Ook op Bol", "Alleen Boekwinkeltjes"]},
         # Dezelfde blauwtinten als de andere grafieken: donker = ook op Bol, licht = alleen Boekwinkeltjes.
         color_discrete_map={"Ook op Bol": "#0068C9", "Alleen Boekwinkeltjes": "#83C9FF"},
     )
-    fig.update_traces(texttemplate="€%{y:,.0f}" if money else "%{y:,.0f}")
-    fig.update_layout(barmode="stack", xaxis_title=None, yaxis_title=y_title, legend_title_text=None)
-    if money:
-        fig.update_yaxes(tickprefix="€")
+    fig.update_traces(texttemplate="%{text}", hovertemplate="%{x}<br>%{fullData.name}: %{text}<extra></extra>")
+    # Komma voor decimalen, punt voor duizendtallen (voor de aslabels; de getallen in de staven zijn hierboven al gezet).
+    fig.update_layout(barmode="stack", xaxis_title=None, yaxis_title=y_title, legend_title_text=None, separators=",.")
+    top = float(data[total_key].max()) if len(data) else 0
+    fig.update_yaxes(tickformat=",.0f" if top >= 10000 else ".0f", tickprefix=prefix)
     # Het totaal (hele staaf) boven elke staaf.
     fig.add_scatter(
         x=list(data["week"]), y=[float(v) for v in data[total_key]], mode="text",
-        text=[(f"€{float(v):,.0f}" if money else f"{float(v):,.0f}") for v in data[total_key]],
+        text=[prefix + _nl_number(v) for v in data[total_key]],
         textposition="top center", showlegend=False, hoverinfo="skip",
     )
     return fig
@@ -475,7 +490,7 @@ except Exception as error:
 
 week_left, week_right = st.columns(2)
 with week_left:
-    st.subheader("Boeken met voorraad per week")
+    st.subheader("Verkoopvoorraad, aantallen")
     if weekly_error:
         st.info(f"De wekelijkse metingen konden nu niet worden opgevraagd ({weekly_error}).")
     elif not weekly_snapshots:
@@ -484,7 +499,7 @@ with week_left:
         st.plotly_chart(_weekly_stock_chart(weekly_snapshots, "bw_titles", "bol_titles", "aantal boeken"), width="stretch")
         st.caption("Titels met voorraad boven 0. Het donkere deel staat ook op Bol. Meting: nacht van zondag op maandag.")
 with week_right:
-    st.subheader("Verkoopwaarde per week")
+    st.subheader("Verkoopvoorraad, in waarde")
     if weekly_error:
         st.info(f"De wekelijkse metingen konden nu niet worden opgevraagd ({weekly_error}).")
     elif not weekly_snapshots:
