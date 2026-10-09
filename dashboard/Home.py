@@ -545,7 +545,7 @@ with left2:
         st.info("Nog geen boeken om te tonen.")
 
 with middle2:
-    st.subheader("Conditie Bol-aanbod")
+    st.subheader("Conditie")
     try:
         condition_rows = get_bol_condition_rows()
         condition_error = None
