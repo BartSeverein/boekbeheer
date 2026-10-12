@@ -1343,6 +1343,35 @@ def drip_push_new_books():
         conn.close()
 
 
+def _normalize_image_for_upload(image_bytes):
+    """
+    Zet een afbeelding om naar een gewone JPEG (RGB, rechtgezet volgens de camera-oriëntatie, hoogstens 2000 px per kant).
+    Boekwinkeltjes weigert soms het origineel ("Invalid image data"), bijvoorbeeld een PNG met doorzichtigheid, een
+    WebP/HEIC met een verkeerd opgegeven type of een vreemd kleurprofiel. Geeft de nieuwe bytes terug, of None als de
+    afbeelding ook zo niet te lezen is (of Pillow ontbreekt).
+    """
+    try:
+        from PIL import Image, ImageOps
+    except ImportError:
+        return None
+    try:
+        with Image.open(io.BytesIO(image_bytes)) as img:
+            img = ImageOps.exif_transpose(img)
+            if img.mode in ("RGBA", "LA") or (img.mode == "P" and "transparency" in img.info):
+                rgba = img.convert("RGBA")
+                background = Image.new("RGB", rgba.size, (255, 255, 255))
+                background.paste(rgba, mask=rgba.split()[-1])
+                img = background
+            else:
+                img = img.convert("RGB")
+            img.thumbnail((2000, 2000))
+            out = io.BytesIO()
+            img.save(out, format="JPEG", quality=90)
+            return out.getvalue()
+    except Exception:
+        return None
+
+
 def push_uploaded_images():
     """
     Stuurt lokaal geüploade, nog niet gepushte afbeeldingen naar Boekwinkeltjes —
@@ -1370,7 +1399,21 @@ def push_uploaded_images():
         errors = []
         for row in rows:
             try:
-                api_client.upload_book_image(row["book_id"], bytes(row["image_data"]), row["content_type"])
+                original = bytes(row["image_data"])
+                try:
+                    api_client.upload_book_image(row["book_id"], original, row["content_type"])
+                except api_client.BoekwinkeltjesAPIError as first_error:
+                    # Weigert Boekwinkeltjes het bestand als ongeldig (422), dan één nieuwe poging met een
+                    # schoon omgezette JPEG. Lukt dat niet, dan geldt de oorspronkelijke fout.
+                    if "422" not in str(first_error):
+                        raise
+                    converted = _normalize_image_for_upload(original)
+                    if converted is None:
+                        raise
+                    try:
+                        api_client.upload_book_image(row["book_id"], converted, "image/jpeg")
+                    except api_client.BoekwinkeltjesAPIError:
+                        raise first_error
                 with conn.cursor() as cur:
                     cur.execute(
                         "UPDATE book_uploaded_images SET pushed_to_boekwinkeltjes = TRUE WHERE id = %(id)s",
