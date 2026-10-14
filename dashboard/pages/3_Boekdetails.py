@@ -74,10 +74,10 @@ VIEW_OPTIONS = {
     "📘 Alles": "alles",
 }
 SEARCH_LABELS = {
-    "voorradig": "🔎 Zoek op titel, auteur of ISBN in alle voorradige boeken.",
-    "voorradig_nog_niet_bw": "🔎 Zoek op titel, auteur of ISBN in voorradige boeken die nog wachten op het druppelsysteem.",
-    "niet_voorradig": "🔎 Zoek op titel, auteur of ISBN in alle boeken die ooit zijn ingevoerd, maar niet meer voorradig zijn.",
-    "alles": "🔎 Zoek op titel, auteur of ISBN in álle boeken: voorradig en niet voorradig.",
+    "voorradig": "🔎 Zoek op titel, auteur, ISBN of locatie (bijv. 0412) in alle voorradige boeken.",
+    "voorradig_nog_niet_bw": "🔎 Zoek op titel, auteur, ISBN of locatie (bijv. 0412) in voorradige boeken die nog wachten op het druppelsysteem.",
+    "niet_voorradig": "🔎 Zoek op titel, auteur, ISBN of locatie (bijv. 0412) in alle boeken die ooit zijn ingevoerd, maar niet meer voorradig zijn.",
+    "alles": "🔎 Zoek op titel, auteur, ISBN of locatie (bijv. 0412) in álle boeken: voorradig en niet voorradig.",
 }
 EMPTY_MESSAGES = {
     "voorradig": "Nog geen voorradige boeken om te tonen.",
@@ -148,20 +148,28 @@ else:
 
     if search:
         s = search.strip().lower()
+        # Locatie: alles wat met de zoekterm begint (0412 vindt 0412, 0412A, 0412B...); spaties negeren we, dus "0111 a" vindt "0111A".
+        s_loc = s.replace(" ", "")
+        loc_norm = books["location"].fillna("").astype(str).str.lower().str.replace(" ", "", regex=False)
         mask = (
             books["title"].str.lower().str.contains(s, na=False)
             | books["author"].str.lower().str.contains(s, na=False)
             | books["book_number"].astype(str).str.contains(s, na=False)
             | books["ean"].astype(str).str.contains(s, na=False)
+            | (loc_norm.str.startswith(s_loc) if s_loc else False)
         )
         filtered = books[mask]
+        if loc_norm[mask].str.startswith(s_loc).any():
+            # Staat er een locatie bij de resultaten, dan eerst op locatie sorteren (daarna titel), handig voor "alles van 0412".
+            filtered = filtered.assign(_loc=loc_norm[mask]).sort_values(["_loc", "title"], na_position="last").drop(columns="_loc")
 
         if filtered.empty:
             st.warning("Geen boeken gevonden voor deze zoekterm.")
         else:
             st.caption(f"{len(filtered)} resultaat/resultaten")
             book_options = {
-                f"{row['title']} — {row['author']} — ISBN {format_isbn(row['ean'])}": row["id"]
+                f"{row['title']} — {row['author']} — ISBN {format_isbn(row['ean'])}"
+                + (f" — locatie {row['location']}" if pd.notna(row.get("location")) and str(row.get("location")).strip() else ""): row["id"]
                 for _, row in filtered.iterrows()
             }
             option_labels = list(book_options.keys())
