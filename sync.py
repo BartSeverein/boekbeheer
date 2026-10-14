@@ -182,6 +182,70 @@ def _log(conn, direction, resource, status, detail="", platform="BW"):
             pass  # een mislukte e-mail mag de sync zelf nooit laten crashen
 
 
+# ---------- Taalcode voor Boekwinkeltjes ----------
+# Boekwinkeltjes accepteert bij "language" maximaal 2 tekens (of MET voor meertalig, maar dat sturen we nooit).
+# Deze tabel staat bewust ook in dashboard/common.py (aparte map, geen gedeelde module): wijzig je er één, wijzig dan ook de ander.
+_BW_LANG_ALIASES = {
+    "nl": ("nl", "nederlands", "dutch", "dut", "nld", "vlaams", "flemish"),
+    "en": ("en", "engels", "english", "eng", "gb", "gbr", "uk", "us", "usa"),
+    "de": ("de", "duits", "german", "deutsch", "ger", "deu"),
+    "fr": ("fr", "frans", "french", "français", "francais", "fre", "fra"),
+    "es": ("es", "spaans", "spanish", "español", "espanol", "spa"),
+    "it": ("it", "italiaans", "italian", "italiano", "ita"),
+    "la": ("la", "latijn", "latin", "lat"),
+    "fy": ("fy", "fries", "frisian", "fry"),
+    "pt": ("pt", "portugees", "portuguese", "por"),
+    "sv": ("sv", "zweeds", "swedish", "swe"),
+    "da": ("da", "deens", "danish", "dan", "dk"),
+    "no": ("no", "noors", "norwegian", "nor", "nb", "nn"),
+    "ru": ("ru", "russisch", "russian", "rus"),
+    "pl": ("pl", "pools", "polish", "pol"),
+    "cs": ("cs", "tsjechisch", "czech", "ces", "cze"),
+    "hu": ("hu", "hongaars", "hungarian", "hun"),
+    "el": ("el", "grieks", "greek", "ell", "gre"),
+    "tr": ("tr", "turks", "turkish", "tur"),
+    "af": ("af", "afrikaans", "afr"),
+    "id": ("id", "indonesisch", "indonesian", "ind"),
+    "ja": ("ja", "japans", "japanese", "jpn", "jp"),
+    "zh": ("zh", "chinees", "chinese", "chi", "zho"),
+    "he": ("he", "hebreeuws", "hebrew", "heb"),
+    "ar": ("ar", "arabisch", "arabic", "ara"),
+}
+_BW_LANG_LOOKUP = {alias: code for code, names in _BW_LANG_ALIASES.items() for alias in names}
+_BW_MULTI = {"met", "multi", "multilingual", "meertalig", "mehrsprachig", "multilingue", "poly"}
+
+
+def to_bw_language(raw):
+    """
+    Zet een taalwaarde (naam, code, of een rijtje als "nl/en") om naar de tweeletterige code die Boekwinkeltjes
+    accepteert. Meertalig (MET of meerdere talen): "en" als Engels erbij zit, anders de eerste herkende taal; staat er
+    alleen "meertalig" zonder talen, dan "en". Onbekend: None (het veld wordt dan niet meegestuurd,
+    zodat het boek toch wordt aangemaakt).
+    """
+    import re as _re
+    text = (raw or "").strip().lower()
+    if not text:
+        return None
+    if text in _BW_MULTI:
+        return "en"
+    codes = []
+    for part in _re.split(r"[/,;&+|]| en | and | und | et ", text):
+        part = part.strip().strip(".")
+        part = _re.split(r"[-_]", part)[0]   # pt-BR -> pt
+        if not part:
+            continue
+        if part in _BW_MULTI:
+            return "en"
+        code = _BW_LANG_LOOKUP.get(part)
+        if not code and len(part) == 2 and part.isalpha():
+            code = part   # onbekende maar geldige tweeletterige code laten we staan
+        if code and code not in codes:
+            codes.append(code)
+    if not codes:
+        return None
+    return "en" if "en" in codes else codes[0]
+
+
 # ---------- PULL ----------
 
 def _normalize_language(raw):
@@ -433,7 +497,7 @@ def push_pending_books():
                     "category1": row["category1"],
                     "category2": row["category2"],
                     "category3": row["category3"],
-                    "language": row["language"],
+                    "language": to_bw_language(row["language"]),
                     "author": row["author"],
                     "title": row["title"],
                     "publisher": row["publisher"],
@@ -1044,7 +1108,7 @@ def _create_one_book_at_boekwinkeltjes(cur, row):
         "category1": row["category1"],
         "category2": row["category2"],
         "category3": row["category3"],
-        "language": row["language"],
+        "language": to_bw_language(row["language"]),
         "author": row["author"],
         "title": row["title"],
         "publisher": row["publisher"],
@@ -3853,12 +3917,22 @@ def quick_stock_sync():
     (om echte verkopen te herkennen), en trekt de voorraad daarna gelijk.
     Bedoeld om vaak te draaien (bijv. elke 15 minuten).
     """
+    import time as _time
+    t0 = _time.perf_counter()
+
+    def _lap(label):
+        # Tijd per onderdeel in de log, zodat zichtbaar is waar een trage run zijn tijd aan kwijt is.
+        print(f"[{_time.perf_counter() - t0:6.1f}s] {label}", flush=True)
+
     pull_books()
+    _lap("boekenlijst van Boekwinkeltjes opgehaald")
     try:
         pull_bol_orders()
     except Exception:
         pass  # al gelogd in pull_bol_orders(); zonder verse orders werkt sync_stock_with_bol nog steeds, alleen minder actueel
+    _lap("Bol-orders opgehaald")
     sync_stock_with_bol()
+    _lap("voorraad met Bol gelijkgetrokken")
 
 
 def _rows_to_csv_bytes(rows):
