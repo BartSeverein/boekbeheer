@@ -49,6 +49,26 @@
   }
   function $(id) { return document.getElementById(id); }
 
+  // --- Fotogalerij: een klein plaatje wisselt van plek met de grote foto ---
+  var mainImg = document.querySelector('.book img.mi');
+  if (mainImg) {
+    document.querySelectorAll('.book .thumbs a').forEach(function (a) {
+      a.addEventListener('click', function (ev) {
+        var t = a.querySelector('img');
+        if (!t) return;
+        ev.preventDefault();
+        var m = { src: mainImg.getAttribute('src'), w: +mainImg.dataset.w, h: +mainImg.dataset.h };
+        var n = { src: t.getAttribute('src'), w: +t.dataset.w, h: +t.dataset.h };
+        mainImg.setAttribute('src', n.src); mainImg.dataset.w = n.w; mainImg.dataset.h = n.h;
+        mainImg.setAttribute('width', n.w); mainImg.setAttribute('height', n.h);
+        var tw = 120, th = Math.max(1, Math.round(tw * m.h / m.w));
+        t.setAttribute('src', m.src); t.dataset.w = m.w; t.dataset.h = m.h;
+        t.setAttribute('width', tw); t.setAttribute('height', th);
+        a.setAttribute('href', m.src);
+      });
+    });
+  }
+
   // --- Toevoegen aan winkelwagen (boekpagina's) ---
   var add = document.querySelector('button.add');
   if (add) {

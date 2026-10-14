@@ -56,6 +56,7 @@ td.n{text-align:right;white-space:nowrap}
 .hp{position:absolute;left:-9999px;height:0;overflow:hidden}
 footer{color:var(--mut);font-size:.9rem;border-top:1px solid var(--line);margin-top:2rem}
 footer a,footer>span{margin-right:1rem}
+footer>span{color:var(--acct)}
 footer{display:flex;flex-wrap:wrap;gap:.3rem 0;align-items:center}
 nav.cats a.more{display:inline-flex;align-items:center;gap:.35rem;border-style:dashed;color:var(--acct)}
 footer .il{display:inline-flex}
