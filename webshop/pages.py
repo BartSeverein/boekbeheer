@@ -113,7 +113,7 @@ class Site:
                 href = i18n.localize("/" if path == "/404.html" else path, l)
                 cur = ' aria-current="true"' if l == lang else ""
                 items.append(f'<a href="{href}" hreflang="{l}" lang="{l}" title="{esc(i18n.LANG_NAME[l])}"{cur}>{i18n.LANG_LABEL[l]}</a>')
-            switch = f'<nav class="lang" aria-label="{esc(self.t("p_lang"))}">{icon("language")}{"".join(items)}</nav>'
+            switch = f'<nav class="lang" aria-label="{esc(self.t("p_lang"))}">{"".join(items)}</nav>'
         header = (
             f'<body {data}>{switch}<header><a class="brand" href="{self.L("/")}">{brand}</a>'
             f'<form action="{self.L("/zoeken/")}" method="get" role="search">'
@@ -215,11 +215,13 @@ class Site:
         gallery = ""
         if imgs:
             p, w, h = imgs[0]["detail"]
-            gallery = (f'<img src="{p}" width="{w}" height="{h}" alt="{esc(b["title"])}" fetchpriority="high" decoding="async">')
+            # Klik op een klein plaatje: het wisselt van plek met de grote foto (c.js). Zonder script opent het plaatje gewoon groot.
+            gallery = (f'<img class="mi" src="{p}" width="{w}" height="{h}" data-w="{w}" data-h="{h}" alt="{esc(b["title"])}" fetchpriority="high" decoding="async">')
             if len(imgs) > 1:
                 gallery += '<div class="thumbs">' + "".join(
-                    f'<a href="{i["detail"][0]}"><img src="{i["thumb"][0]}" width="{i["thumb"][1]}" height="{i["thumb"][2]}" alt="" loading="lazy" decoding="async"></a>'
-                    for i in imgs[1:]) + "</div>"
+                    f'<a href="{i["detail"][0]}" aria-label="{esc(self.t("p_show_photo", n=n))}"><img src="{i["detail"][0]}" width="{i["thumb"][1]}" height="{i["thumb"][2]}" '
+                    f'data-w="{i["detail"][1]}" data-h="{i["detail"][2]}" alt="" loading="lazy" decoding="async"></a>'
+                    for n, i in enumerate(imgs[1:], 2)) + "</div>"
         nl_attr = ' lang="nl"'
         rows = []
         isbn = b.get("isbn")
@@ -246,7 +248,7 @@ class Site:
         )
         body = nav + f"<article class=\"book\"><div>{gallery}</div><div><h1>{esc(b['title'])}</h1>" + \
             (f"<p>{esc(b['author'])}</p>" if b.get("author") else "") + buy + (f"<dl>{''.join(rows)}</dl>" if rows else "") + \
-            (f"<h2>{esc(self.t('p_about'))}</h2>{desc_html}" if desc_html else "") + "</div></article>"
+            (f"<h2>{esc(self.t('p_about_nl' if loc.get('long_fb') and self.lang != 'nl' else 'p_about'))}</h2>{desc_html}" if desc_html else "") + "</div></article>"
 
         my_url = self.url(self.L(path))
         image_urls = [self.url(i["detail"][0]) for i in imgs]

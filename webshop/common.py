@@ -111,7 +111,7 @@ def shop_config():
     return {
         "base_url": base,
         "name": os.environ.get("WEBSHOP_NAME") or "Severein",
-        "tagline": os.environ.get("WEBSHOP_TAGLINE") or "Prachtige boeken, zorgvuldig verpakt en snel verzonden.",
+        "tagline": os.environ.get("WEBSHOP_TAGLINE") or "Eindeloze variatie in buitengewone boeken: van de mooiste beelden tot de beste verhalen!",
         "year": __import__("datetime").date.today().year,
         "copyright_name": os.environ.get("WEBSHOP_COPYRIGHT_NAME") or "Severein Services",
         "tagline_custom": bool(os.environ.get("WEBSHOP_TAGLINE")),
@@ -129,6 +129,8 @@ def shop_config():
         "deepl_max_chars": int(os.environ.get("WEBSHOP_DEEPL_MAX_CHARS") or 100000),
         # Harde grens over alle runs samen (alles wat ooit is vertaald, opgeteld); houd dit onder je DeepL-tegoed.
         "deepl_total_chars": int(os.environ.get("WEBSHOP_DEEPL_TOTAL_CHARS") or 900000),
+        # Bijzonderheden (korte tekst per boek) worden standaard wel vertaald; de lange beschrijving alleen met WEBSHOP_TRANSLATE_BOOKS=ja.
+        "translate_short": (os.environ.get("WEBSHOP_TRANSLATE_SHORT") or "ja").strip().lower() not in ("0", "nee", "no", "false", "uit"),
         "translate_books": (os.environ.get("WEBSHOP_TRANSLATE_BOOKS") or "").strip().lower() in ("1", "ja", "yes", "true", "aan"),
         "data_key": os.environ.get("WEBSHOP_DATA_KEY") or "",
         "mollie_key": os.environ.get("WEBSHOP_MOLLIE_API_KEY") or "",

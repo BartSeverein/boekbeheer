@@ -504,19 +504,21 @@ def build_site(raw_books, out_dir, cfg=None, *, mode="full", imported_order_ids=
     if tr and foreign:
         labels = sorted({b["c1_label"] for b in books} | {b["c2_label"] for b in books if b["c2_label"]})
         tr.ensure(labels + ([cfg["tagline"]] if cfg["tagline_custom"] else []), foreign)
-        if cfg["translate_books"]:
+        keys = (("short",) if cfg["translate_short"] else ()) + (("long",) if cfg["translate_books"] else ())
+        if keys:
             for i in range(0, len(books), 40):
                 if tr.stopped:
-                    rest = [b.get(k) for b in books[i:] for k in ("short", "long") if (b.get(k) or "").strip()]
+                    rest = [b.get(k) for b in books[i:] for k in keys if (b.get(k) or "").strip()]
                     tr.missing += len(rest) * len(foreign)
                     tr.missing_chars += sum(len(x) for x in rest) * len(foreign)
                     break
-                tr.ensure([x for b in books[i:i + 40] for x in (b.get("short"), b.get("long")) if x and x.strip()], foreign)
-        else:
-            log("Boekbeschrijvingen worden niet vertaald (WEBSHOP_TRANSLATE_BOOKS staat niet aan); alleen de categorienamen gaan via DeepL.")
+                tr.ensure([x for b in books[i:i + 40] for x in (b.get(k) for k in keys) if x and x.strip()], foreign)
+        if not cfg["translate_books"]:
+            log("Alleen de Bijzonderheden en de categorienamen gaan via DeepL; de lange beschrijvingen blijven Nederlands "
+                "(WEBSHOP_TRANSLATE_BOOKS=ja om die ook te vertalen).")
         log(tr.summary())
         stats["translation"] = tr.summary()
-    book_tr = tr if cfg["translate_books"] else None
+    book_tr = tr if (cfg["translate_books"] or cfg["translate_short"]) else None
 
     def cat_label(label, lang):
         if lang == "nl" or not tr:
