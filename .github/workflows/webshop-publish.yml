@@ -59,6 +59,9 @@ jobs:
           WEBSHOP_SFTP_PORT: ${{ secrets.WEBSHOP_SFTP_PORT }}
           WEBSHOP_SFTP_USER: ${{ secrets.WEBSHOP_SFTP_USER }}
           WEBSHOP_SFTP_PASS: ${{ secrets.WEBSHOP_SFTP_PASS }}
+          WEBSHOP_SFTP_KEY: ${{ secrets.WEBSHOP_SFTP_KEY }}
+          WEBSHOP_SFTP_DEBUG: ${{ secrets.WEBSHOP_SFTP_DEBUG }}
+          WEBSHOP_SFTP_WORKERS: ${{ secrets.WEBSHOP_SFTP_WORKERS }}
           WEBSHOP_SFTP_ROOT: ${{ secrets.WEBSHOP_SFTP_ROOT }}
           WEBSHOP_ALLOW_OVERWRITE: ${{ secrets.WEBSHOP_ALLOW_OVERWRITE }}
           WEBSHOP_DATA_KEY: ${{ secrets.WEBSHOP_DATA_KEY }}
