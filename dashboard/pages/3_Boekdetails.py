@@ -151,13 +151,18 @@ else:
         # Locatie: alles wat met de zoekterm begint (0412 vindt 0412, 0412A, 0412B...); spaties negeren we, dus "0111 a" vindt "0111A".
         s_loc = s.replace(" ", "")
         loc_norm = books["location"].fillna("").astype(str).str.lower().str.replace(" ", "", regex=False)
-        mask = (
-            books["title"].str.lower().str.contains(s, na=False)
-            | books["author"].str.lower().str.contains(s, na=False)
-            | books["book_number"].astype(str).str.contains(s, na=False)
-            | books["ean"].astype(str).str.contains(s, na=False)
-            | (loc_norm.str.startswith(s_loc) if s_loc else False)
-        )
+        if 4 <= len(s_loc) <= 6 and s_loc[:4].isdigit():
+            # Vier tot zes tekens waarvan de eerste vier cijfers zijn (0412, 0111A): dat is een locatie.
+            # Dan alleen op locatie zoeken, anders komen ook ISBN's en boeknummers met die cijfers erin mee.
+            mask = loc_norm.str.startswith(s_loc)
+        else:
+            mask = (
+                books["title"].str.lower().str.contains(s, na=False)
+                | books["author"].str.lower().str.contains(s, na=False)
+                | books["book_number"].astype(str).str.contains(s, na=False)
+                | books["ean"].astype(str).str.contains(s, na=False)
+                | (loc_norm.str.startswith(s_loc) if s_loc else False)
+            )
         filtered = books[mask]
         if loc_norm[mask].str.startswith(s_loc).any():
             # Staat er een locatie bij de resultaten, dan eerst op locatie sorteren (daarna titel), handig voor "alles van 0412".
