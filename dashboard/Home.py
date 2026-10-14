@@ -52,6 +52,9 @@ from common import (
 
 st.set_page_config(page_title="Boekbeheersysteem", page_icon="📚", layout="wide")
 
+# Kleurbolletje voor de kolom "Met": Boekwinkeltjes geel, Bol blauw, eigen webshop paars.
+PLATFORM_EMOJI = {"BW": "🟡", "Bol": "🔵", "Webshop": "🟣"}
+
 render_logo(Path(__file__).parent / "assets" / "logo_mail.png")
 require_login()
 
@@ -183,10 +186,12 @@ if not orders.empty:
     order_platform = recent_orders["platform"].fillna("BW")
     n_orders_bw = int((order_platform == "BW").sum())
     n_orders_bol = int((order_platform == "Bol").sum())
+    n_orders_ws = int((order_platform == "Webshop").sum())
 else:
     n_orders_bw = 0
     n_orders_bol = 0
-col5.metric("Orders laatste 7 dagen (BW/Bol)", f"{n_orders_bw}/{n_orders_bol} ({n_orders_bw + n_orders_bol})")
+    n_orders_ws = 0
+col5.metric("Orders laatste 7 dagen (BW/Bol/WS)", f"{n_orders_bw}/{n_orders_bol}/{n_orders_ws} ({n_orders_bw + n_orders_bol + n_orders_ws})")
 
 st.divider()
 
@@ -260,7 +265,7 @@ with orders_tab:
             (orders_sorted["buyer_first_name"].fillna("") + " " + orders_sorted["buyer_last_name"].fillna("")).str.strip(),
         )
         orders_sorted["platform"] = orders_sorted["platform"].fillna("BW").map(
-            lambda p: f"🟡{p}" if p == "BW" else f"🔵{p}"
+            lambda p: PLATFORM_EMOJI.get(p, "🔵") + p
         )
 
         order_cols = ["order_date", "platform", "status", "book_title", "book_ean", "revenue", "koper"]
@@ -301,7 +306,7 @@ with sync_tab:
     conn.close()
     log["run_at"] = log["run_at"].apply(format_datetime_nl)
     log["trigger"] = log["trigger"].fillna("Handmatig")
-    log["platform"] = log["platform"].fillna("BW").map(lambda p: f"🟡{p}" if p == "BW" else f"🔵{p}")
+    log["platform"] = log["platform"].fillna("BW").map(lambda p: PLATFORM_EMOJI.get(p, "🔵") + p)
     log = log.rename(
         columns={
             "id": "ID",
