@@ -420,6 +420,15 @@ def build_site(raw_books, out_dir, cfg=None, *, mode="full", imported_order_ids=
     js_name = f"c.{hashlib.sha1(js_src).hexdigest()[:8]}.js"
     _write(out_dir, css_name, css_src)
     _write(out_dir, js_name, js_src)
+    logo = None
+    logo_file = HERE / "assets" / "logo.png"
+    if logo_file.exists():
+        from PIL import Image
+        lsrc = logo_file.read_bytes()
+        lname = f"logo.{hashlib.sha1(lsrc).hexdigest()[:8]}.png"
+        _write(out_dir, lname, lsrc)
+        with Image.open(logo_file) as im:
+            logo = (lname, im.size[0], im.size[1])
 
     # ---- categorieën
     tree = {}
@@ -430,7 +439,21 @@ def build_site(raw_books, out_dir, cfg=None, *, mode="full", imported_order_ids=
             s = c["subs"].setdefault(b["c2_slug"], {"label": b["c2_label"], "slug": b["c2_slug"], "books": []})
             s["books"].append(b)
     top = sorted(tree.values(), key=lambda c: c["label"].lower())
-    site = Site(cfg, css_name, js_name, [{"label": c["label"], "slug": c["slug"], "count": len(c["books"])} for c in top])
+    # Knoppen onder de zoekbalk: als een hoofdcategorie subcategorieën heeft, tonen we die (bijv. Fotografie) en niet
+    # de hoofdcategorie zelf (Hobby). Boeken zonder subcategorie houden een knop met de hoofdcategorie.
+    buttons = []
+    for c in top:
+        if not c["subs"]:
+            buttons.append({"label": c["label"], "slug": c["slug"], "count": len(c["books"])})
+            continue
+        for s in c["subs"].values():
+            buttons.append({"label": s["label"], "slug": s["slug"], "count": len(s["books"]),
+                            "href": f"/categorie/{c['slug']}/{s['slug']}/"})
+        rest = sum(1 for b in c["books"] if not b["c2_slug"])
+        if rest:
+            buttons.append({"label": f"{c['label']} (overig)", "slug": c["slug"], "count": rest})
+    buttons.sort(key=lambda x: x["label"].lower())
+    site = Site(cfg, css_name, js_name, buttons, logo)
 
     urls = ["/"]
     count_pages = 0

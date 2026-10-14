@@ -28,8 +28,9 @@ def jsonld(data):
 
 
 class Site:
-    def __init__(self, cfg, css_name, js_name, categories):
+    def __init__(self, cfg, css_name, js_name, categories, logo=None):
         self.cfg = cfg
+        self.logo = logo  # (bestandsnaam, breedte, hoogte) of None
         self.css = css_name
         self.js = js_name
         self.categories = categories  # lijst van dicts: label, slug, count
@@ -70,10 +71,14 @@ class Site:
         cats = ""
         if show_cats and self.categories:
             cats = '<nav class="cats" aria-label="Categorieën"><ul class="cats" style="display:contents;list-style:none;padding:0;margin:0">' + "".join(
-                f'<li><a href="/categorie/{c["slug"]}/">{esc(c["label"])} ({c["count"]})</a></li>' for c in self.categories
+                f'<li><a href="{c.get("href") or "/categorie/" + c["slug"] + "/"}">{esc(c["label"])} ({c["count"]})</a></li>' for c in self.categories
             ) + "</ul></nav>"
+        if self.logo:
+            brand = f'<img src="/{self.logo[0]}" width="{self.logo[1]}" height="{self.logo[2]}" alt="{esc(cfg["name"])}">'
+        else:
+            brand = esc(cfg["name"])
         header = (
-            f'<body {data}><header><a class="brand" href="/">{esc(cfg["name"])}</a>'
+            f'<body {data}><header><a class="brand" href="/">{brand}</a>'
             '<form action="/zoeken/" method="get" role="search">'
             '<input type="search" name="q" placeholder="Zoek op titel, auteur of ISBN" aria-label="Zoeken" minlength="2" required>'
             '<button type="submit">Zoek</button></form>'
@@ -115,6 +120,7 @@ class Site:
         ld = [{
             "@context": "https://schema.org", "@type": "BookStore", "name": cfg["name"], "url": self.url("/"),
             "description": cfg["tagline"],
+            **({"logo": self.url("/" + self.logo[0])} if self.logo else {}),
         }, {
             "@context": "https://schema.org", "@type": "WebSite", "name": cfg["name"], "url": self.url("/"),
         }]
