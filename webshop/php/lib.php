@@ -85,16 +85,18 @@ function clean_text($s, $max) {
     return function_exists('mb_substr') ? mb_substr($s, 0, $max, 'UTF-8') : substr($s, 0, $max);
 }
 
-// Verzendkosten: hoogste verzendprijs in de wagen + toeslag per extra boek; eventueel gratis vanaf een bedrag.
+// Verzendkosten: tarief van het land voor een klein pakje, of voor een groot pakje als een boek in de wagen groot is,
+// plus toeslag per extra boek; eventueel gratis vanaf een bedrag. Landen zonder eigen tarief gebruiken het tarief OTHER.
 // Dezelfde regel staat in c.js (totals) — wijzig je er één, wijzig dan ook de ander.
-// Buiten Nederland komt er een toeslag per bestelling bij; gratis verzenden vanaf een bedrag geldt alleen voor Nederland.
+// Gratis verzenden vanaf een bedrag geldt alleen voor Nederland.
 function shipping_for($lines, $subtotal, $country = 'NL') {
     $c = cfg();
-    $max = 0; $n = 0;
-    foreach ($lines as $l) { $n += $l['qty']; if ($l['ship_cents'] > $max) { $max = $l['ship_cents']; } }
+    $big = 0; $n = 0;
+    foreach ($lines as $l) { $n += $l['qty']; if (!empty($l['big'])) { $big = 1; } }
     if ($n < 1) { return 0; }
-    $ship = $max + $c['extra_cents'] * ($n - 1);
-    if ($country !== 'NL') { $ship += (int)(($c['country_surcharge'] ?? [])[$country] ?? 0); }
+    $rates = $c['rates'] ?? [];
+    $rate = $rates[$country] ?? ($rates['OTHER'] ?? ($rates['NL'] ?? [$c['default_shipping_cents'], $c['default_shipping_cents']]));
+    $ship = (int)$rate[$big] + $c['extra_cents'] * ($n - 1);
     if ($c['free_from_cents'] > 0 && $subtotal >= $c['free_from_cents'] && $country === 'NL') { $ship = 0; }
     return $ship;
 }

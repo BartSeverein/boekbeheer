@@ -55,7 +55,7 @@ try {
     $cat = db_catalog();
     $ids = array_keys($want);
     $ph = implode(',', array_fill(0, count($ids), '?'));
-    $st = $cat->prepare("SELECT id, title, author, isbn, price_cents, ship_cents FROM books WHERE id IN ($ph)");
+    $st = $cat->prepare("SELECT id, title, author, isbn, price_cents, ship_cents, big FROM books WHERE id IN ($ph)");
     $st->execute($ids);
     $books = [];
     foreach ($st->fetchAll() as $r) { $books[(int)$r['id']] = $r; }
@@ -70,9 +70,9 @@ try {
     foreach ($want as $id => $q) {
         $b = $books[$id];
         $lines[] = ['book_id' => $id, 'qty' => $q, 'title' => $b['title'], 'author' => $b['author'], 'isbn' => $b['isbn'],
-                    'price_cents' => (int)$b['price_cents'], 'ship_cents' => (int)$b['ship_cents']];
+                    'price_cents' => (int)$b['price_cents'], 'ship_cents' => (int)$b['ship_cents'], 'big' => (int)$b['big']];
         $sub += (int)$b['price_cents'] * $q;
-        $prices[$id] = ['p' => (int)$b['price_cents'], 's' => (int)$b['ship_cents']];
+        $prices[$id] = ['p' => (int)$b['price_cents'], 's' => (int)$b['ship_cents'], 'g' => (int)$b['big']];
     }
     $ship = shipping_for($lines, $sub, $cust['country']);
     $total = $sub + $ship;
