@@ -1,18 +1,20 @@
 <?php
 // Neemt de winkelwagen (JSON) van de pagina, controleert prijzen en voorraad tegen de catalogus en geeft een Mollie-betaallink terug.
 require __DIR__ . '/lib.php';
+$lang = 'nl';
 
-if ($_SERVER['REQUEST_METHOD'] !== 'POST') { json_out(['ok' => false, 'error' => 'Ongeldig verzoek.'], 405); }
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') { json_out(['ok' => false, 'error' => tr('php_invalid', $lang)], 405); }
 $c = cfg();
 $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
-if ($origin !== '' && parse_url($origin, PHP_URL_HOST) !== parse_url($c['base_url'], PHP_URL_HOST)) { json_out(['ok' => false, 'error' => 'Ongeldig verzoek.'], 403); }
+if ($origin !== '' && parse_url($origin, PHP_URL_HOST) !== parse_url($c['base_url'], PHP_URL_HOST)) { json_out(['ok' => false, 'error' => tr('php_invalid', $lang)], 403); }
 $raw = file_get_contents('php://input', false, null, 0, 20001);
-if ($raw === false || strlen($raw) > 20000) { json_out(['ok' => false, 'error' => 'Verzoek te groot.'], 413); }
+if ($raw === false || strlen($raw) > 20000) { json_out(['ok' => false, 'error' => tr('php_too_big', $lang)], 413); }
 $in = json_decode($raw, true);
 if (!is_array($in) || !isset($in['items']) || !is_array($in['items']) || !isset($in['customer']) || !is_array($in['customer'])) {
-    json_out(['ok' => false, 'error' => 'Ongeldig verzoek.'], 400);
+    json_out(['ok' => false, 'error' => tr('php_invalid', $lang)], 400);
 }
-if (!empty($in['hp'])) { json_out(['ok' => false, 'error' => 'Er ging iets mis. Probeer het opnieuw.']); }
+$lang = pick_lang($in['lang'] ?? 'nl');
+if (!empty($in['hp'])) { json_out(['ok' => false, 'error' => tr('php_retry', $lang)]); }
 
 try {
     $shop = db_shop();
@@ -21,7 +23,7 @@ try {
     $shop->prepare('DELETE FROM ratelimit WHERE ts < ?')->execute([time() - 600]);
     $st = $shop->prepare('SELECT COUNT(*) AS n FROM ratelimit WHERE ip = ?');
     $st->execute([$ip]);
-    if ((int)$st->fetch()['n'] >= 30) { json_out(['ok' => false, 'error' => 'Te veel pogingen. Probeer het over een paar minuten opnieuw.'], 429); }
+    if ((int)$st->fetch()['n'] >= 30) { json_out(['ok' => false, 'error' => tr('php_too_many', $lang)], 429); }
     $shop->prepare('INSERT INTO ratelimit (ip, ts) VALUES (?, ?)')->execute([$ip, time()]);
 
     // Klantgegevens
@@ -33,10 +35,10 @@ try {
         'note' => clean_text($cu['note'] ?? '', 300),
     ];
     foreach (['name', 'email', 'street', 'postcode', 'city'] as $f) {
-        if ($cust[$f] === '') { json_out(['ok' => false, 'error' => 'Vul alle verplichte velden in.']); }
+        if ($cust[$f] === '') { json_out(['ok' => false, 'error' => tr('php_required', $lang)]); }
     }
-    if (!filter_var($cust['email'], FILTER_VALIDATE_EMAIL)) { json_out(['ok' => false, 'error' => 'Dit e-mailadres lijkt niet te kloppen.']); }
-    if (!in_array($cust['country'], $c['countries'], true)) { json_out(['ok' => false, 'error' => 'We verzenden helaas niet naar dit land.']); }
+    if (!filter_var($cust['email'], FILTER_VALIDATE_EMAIL)) { json_out(['ok' => false, 'error' => tr('php_email', $lang)]); }
+    if (!in_array($cust['country'], $c['countries'], true)) { json_out(['ok' => false, 'error' => tr('php_country', $lang)]); }
 
     // Regels samenvoegen en begrenzen
     $want = [];
@@ -46,7 +48,7 @@ try {
         if ($id < 1 || $q < 1) { continue; }
         $want[$id] = min(20, ($want[$id] ?? 0) + $q);
     }
-    if (!$want || count($want) > 20) { json_out(['ok' => false, 'error' => 'Je winkelwagen is leeg of te groot.']); }
+    if (!$want || count($want) > 20) { json_out(['ok' => false, 'error' => tr('php_cart_bad', $lang)]); }
 
     // Voorraad controleren en bestelling vastleggen in één transactie, zodat twee klanten niet hetzelfde boek krijgen.
     $shop->exec('BEGIN IMMEDIATE');
@@ -62,7 +64,7 @@ try {
     foreach ($want as $id => $q) { if (!isset($books[$id]) || ($av[$id] ?? 0) < $q) { $unavailable[] = $id; } }
     if ($unavailable) {
         $shop->exec('ROLLBACK');
-        json_out(['ok' => false, 'unavailable' => $unavailable, 'error' => 'Helaas, een of meer boeken zijn net verkocht. We hebben ze uit je winkelwagen gehaald.']);
+        json_out(['ok' => false, 'unavailable' => $unavailable, 'error' => tr('php_sold', $lang)]);
     }
     $lines = []; $sub = 0; $prices = [];
     foreach ($want as $id => $q) {
@@ -72,17 +74,17 @@ try {
         $sub += (int)$b['price_cents'] * $q;
         $prices[$id] = ['p' => (int)$b['price_cents'], 's' => (int)$b['ship_cents']];
     }
-    $ship = shipping_for($lines, $sub);
+    $ship = shipping_for($lines, $sub, $cust['country']);
     $total = $sub + $ship;
     if ((int)($in['expected'] ?? -1) !== $total) {
         $shop->exec('ROLLBACK');
-        json_out(['ok' => false, 'prices' => $prices, 'error' => 'De prijzen zijn gewijzigd. Controleer je winkelwagen en probeer het opnieuw.']);
+        json_out(['ok' => false, 'prices' => $prices, 'error' => tr('php_prices', $lang)]);
     }
     $token = bin2hex(random_bytes(16));
     $now = time();
-    $shop->prepare("INSERT INTO orders (token, status, created_at, reserved_until, subtotal_cents, ship_cents, total_cents, name, email, street, postcode, city, country, note)
-        VALUES (?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-        ->execute([$token, $now, $now + (int)$c['reserve_seconds'], $sub, $ship, $total, $cust['name'], $cust['email'], $cust['street'], $cust['postcode'], $cust['city'], $cust['country'], $cust['note']]);
+    $shop->prepare("INSERT INTO orders (token, status, created_at, reserved_until, subtotal_cents, ship_cents, total_cents, name, email, street, postcode, city, country, note, lang)
+        VALUES (?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        ->execute([$token, $now, $now + (int)$c['reserve_seconds'], $sub, $ship, $total, $cust['name'], $cust['email'], $cust['street'], $cust['postcode'], $cust['city'], $cust['country'], $cust['note'], $lang]);
     $oid = (int)$shop->lastInsertId();
     $ins = $shop->prepare('INSERT INTO order_lines (order_id, book_id, qty, title, author, isbn, price_cents, ship_cents) VALUES (?,?,?,?,?,?,?,?)');
     foreach ($lines as $l) { $ins->execute([$oid, $l['book_id'], $l['qty'], $l['title'], $l['author'], $l['isbn'], $l['price_cents'], $l['ship_cents']]); }
@@ -91,10 +93,10 @@ try {
     // Betaling aanmaken bij Mollie
     $body = [
         'amount' => ['currency' => 'EUR', 'value' => number_format($total / 100, 2, '.', '')],
-        'description' => 'Bestelling #' . $oid . ' bij ' . $c['name'],
-        'redirectUrl' => $c['base_url'] . '/bedankt/?o=' . $token,
+        'description' => tr('php_desc', $lang, ['id' => $oid, 'shop' => $c['name']]),
+        'redirectUrl' => $c['base_url'] . (i18n()['paths']['thanks'][$lang] ?? '/bedankt/') . '?o=' . $token,
         'webhookUrl' => $c['webhook_base'] . '/webhook.php',
-        'locale' => 'nl_NL',
+        'locale' => i18n()['locale'][$lang] ?? 'nl_NL',
         'metadata' => ['order_id' => $oid],
     ];
     [$code, $pay, $err] = mollie_request('POST', '/payments', $body);
@@ -102,12 +104,12 @@ try {
     if ($code !== 201 || !$url || empty($pay['id'])) {
         $shop->prepare("UPDATE orders SET status = 'failed' WHERE id = ? AND status = 'open'")->execute([$oid]);
         error_log('Mollie-betaling aanmaken mislukt: HTTP ' . $code . ' ' . $err);
-        json_out(['ok' => false, 'error' => 'Betalen is nu niet mogelijk. Probeer het later opnieuw.'], 502);
+        json_out(['ok' => false, 'error' => tr('php_pay_fail', $lang)], 502);
     }
     $shop->prepare('UPDATE orders SET mollie_id = ? WHERE id = ?')->execute([$pay['id'], $oid]);
     json_out(['ok' => true, 'url' => $url]);
 } catch (Throwable $e) {
     try { if (isset($shop) && $shop->inTransaction()) { $shop->exec('ROLLBACK'); } } catch (Throwable $e2) {}
     error_log('checkout.php: ' . $e->getMessage());
-    json_out(['ok' => false, 'error' => 'Er ging iets mis. Probeer het later opnieuw.'], 500);
+    json_out(['ok' => false, 'error' => tr('php_error', $lang)], 500);
 }

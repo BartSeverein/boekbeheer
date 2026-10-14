@@ -8,6 +8,25 @@ function cfg() {
     return $c;
 }
 
+// Teksten per taal (gegenereerd uit webshop/i18n.py). Onbekende taal of ontbrekende tekst -> Nederlands.
+function i18n() {
+    static $i = null;
+    if ($i === null) { $i = require __DIR__ . '/i18n.php'; }
+    return $i;
+}
+
+function pick_lang($l) {
+    $l = strtolower(substr((string)$l, 0, 2));
+    return in_array($l, i18n()['langs'], true) ? $l : 'nl';
+}
+
+function tr($key, $lang = 'nl', $vars = []) {
+    $m = i18n()['msgs'];
+    $s = $m[$lang][$key] ?? ($m['nl'][$key] ?? $key);
+    foreach ($vars as $k => $v) { $s = str_replace('{' . $k . '}', (string)$v, $s); }
+    return $s;
+}
+
 function json_out($data, $code = 200, $cache = 'no-store') {
     http_response_code($code);
     header('Content-Type: application/json; charset=utf-8');
@@ -49,6 +68,12 @@ function db_shop() {
         $db->exec('CREATE INDEX IF NOT EXISTS ol_order ON order_lines(order_id)');
         $db->exec('CREATE TABLE IF NOT EXISTS ratelimit (ip TEXT NOT NULL, ts INTEGER NOT NULL)');
         $db->exec('CREATE INDEX IF NOT EXISTS rl_ip ON ratelimit(ip, ts)');
+        // Oudere shop.sqlite zonder taalkolom: bijwerken (twee gelijktijdige verzoeken: de tweede krijgt een fout die we negeren).
+        $cols = [];
+        foreach ($db->query('PRAGMA table_info(orders)')->fetchAll() as $r) { $cols[] = $r['name']; }
+        if (!in_array('lang', $cols, true)) {
+            try { $db->exec("ALTER TABLE orders ADD COLUMN lang TEXT NOT NULL DEFAULT 'nl'"); } catch (Throwable $e) {}
+        }
     }
     return $db;
 }
@@ -62,13 +87,15 @@ function clean_text($s, $max) {
 
 // Verzendkosten: hoogste verzendprijs in de wagen + toeslag per extra boek; eventueel gratis vanaf een bedrag.
 // Dezelfde regel staat in c.js (totals) — wijzig je er één, wijzig dan ook de ander.
-function shipping_for($lines, $subtotal) {
+// Buiten Nederland komt er een toeslag per bestelling bij; gratis verzenden vanaf een bedrag geldt alleen voor Nederland.
+function shipping_for($lines, $subtotal, $country = 'NL') {
     $c = cfg();
     $max = 0; $n = 0;
     foreach ($lines as $l) { $n += $l['qty']; if ($l['ship_cents'] > $max) { $max = $l['ship_cents']; } }
     if ($n < 1) { return 0; }
     $ship = $max + $c['extra_cents'] * ($n - 1);
-    if ($c['free_from_cents'] > 0 && $subtotal >= $c['free_from_cents']) { $ship = 0; }
+    if ($country !== 'NL') { $ship += (int)(($c['country_surcharge'] ?? [])[$country] ?? 0); }
+    if ($c['free_from_cents'] > 0 && $subtotal >= $c['free_from_cents'] && $country === 'NL') { $ship = 0; }
     return $ship;
 }
 
@@ -125,13 +152,16 @@ function send_mail($to, $subject, $text) {
     return @mail($to, '=?UTF-8?B?' . base64_encode($subject) . '?=', $text, $headers);
 }
 
-function eur_text($cents) { return 'EUR ' . number_format($cents / 100, 2, ',', '.'); }
+function eur_text($cents, $lang = 'nl') {
+    $en = $lang === 'en';
+    return 'EUR ' . number_format($cents / 100, 2, $en ? '.' : ',', $en ? ',' : '.');
+}
 
-function order_mail_text($order, $lines) {
-    $t = "Bedankt voor je bestelling #" . $order['id'] . ".\n\n";
-    foreach ($lines as $l) { $t .= $l['qty'] . " x " . $l['title'] . " — " . eur_text($l['price_cents']) . "\n"; }
-    $t .= "\nVerzendkosten: " . eur_text($order['ship_cents']) . "\nTotaal: " . eur_text($order['total_cents']) . "\n\n";
-    $t .= "Verzendadres:\n" . $order['name'] . "\n" . $order['street'] . "\n" . $order['postcode'] . " " . $order['city'] . "\n" . $order['country'] . "\n";
+function order_mail_text($order, $lines, $lang = 'nl') {
+    $t = tr('mail_thanks', $lang, ['id' => $order['id']]) . "\n\n";
+    foreach ($lines as $l) { $t .= $l['qty'] . " x " . $l['title'] . " — " . eur_text($l['price_cents'], $lang) . "\n"; }
+    $t .= "\n" . tr('mail_ship', $lang) . ": " . eur_text($order['ship_cents'], $lang) . "\n" . tr('mail_total', $lang) . ": " . eur_text($order['total_cents'], $lang) . "\n\n";
+    $t .= tr('mail_addr', $lang) . ":\n" . $order['name'] . "\n" . $order['street'] . "\n" . $order['postcode'] . " " . $order['city'] . "\n" . $order['country'] . "\n";
     return $t;
 }
 
@@ -173,10 +203,13 @@ function sync_payment($order) {
             $fresh = $fresh->fetch();
             if ($fresh && !$fresh['mailed']) {
                 $db->prepare('UPDATE orders SET mailed = 1 WHERE id = ?')->execute([$order['id']]);
-                $text = order_mail_text($fresh, $lines);
-                send_mail($fresh['email'], 'Bevestiging bestelling #' . $order['id'], $text);
+                $olang = pick_lang($fresh['lang'] ?? 'nl');
+                $text = order_mail_text($fresh, $lines, $olang) . "\n" . tr('mail_reply', $olang) . "\n";
+                send_mail($fresh['email'], tr('mail_subject', $olang, ['id' => $order['id']]), $text);
+                // De eigenaar krijgt de bestelling altijd in het Nederlands, met de taal van de klant erbij.
                 send_mail(cfg()['email'], 'Nieuwe bestelling #' . $order['id'] . ($attention ? ' — LET OP' : ''),
-                    $text . "\nE-mail klant: " . $fresh['email'] . "\n" . ($attention ? "\nLET OP: " . implode('; ', $attention) . "\n" : ''));
+                    order_mail_text($fresh, $lines, 'nl') . "\nE-mail klant: " . $fresh['email'] . "\nTaal klant: " . strtoupper($olang) . "\n"
+                    . ($attention ? "\nLET OP: " . implode('; ', $attention) . "\n" : ''));
             }
         }
         return 'paid';
