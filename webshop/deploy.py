@@ -22,7 +22,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 MANIFEST = ".shop-manifest.json"
-WORKERS = 4
+WORKERS = max(1, int(os.environ.get("WEBSHOP_SFTP_WORKERS") or 4))
 
 
 class DeployError(Exception):
@@ -125,12 +125,31 @@ def connect_from_env():
                 continue
         if pkey is None:
             raise DeployError("WEBSHOP_SFTP_KEY is geen geldige privésleutel.")
-    transport = paramiko.Transport((host, port))
-    transport.set_keepalive(20)
-    transport.connect(username=user, password=password, pkey=pkey)
+    if pkey is None and not password:
+        raise DeployError(
+            "Geen inloggegevens: WEBSHOP_SFTP_KEY (privésleutel) of WEBSHOP_SFTP_PASS ontbreekt in de omgeving van deze run. "
+            "Controleer of het secret bestaat en of de workflow het doorgeeft.")
+    if os.environ.get("WEBSHOP_SFTP_DEBUG") == "1":
+        import logging
+        logging.basicConfig(level=logging.DEBUG)
+    try:
+        transport = paramiko.Transport((host, port))
+        transport.banner_timeout = 30
+        transport.connect(username=user, password=password, pkey=pkey)
+    except Exception as e:
+        raise DeployError(f"Verbinden met {host}:{port} als {user} mislukt: {type(e).__name__}: {e}")
+    if not transport.is_authenticated():
+        raise DeployError("Inloggen is niet gelukt (de server heeft de sleutel of het wachtwoord niet geaccepteerd).")
+    server_version = transport.remote_version
 
     def factory():
-        return paramiko.SFTPClient.from_transport(transport)
+        try:
+            return paramiko.SFTPClient.from_transport(transport)
+        except Exception as e:
+            raise DeployError(
+                f"Ingelogd, maar de server wil geen SFTP-sessie openen ({type(e).__name__}: {e}). Server: {server_version}. "
+                "Mogelijke oorzaken: SFTP staat niet aan voor deze gebruiker, of de server staat maar één sessie tegelijk toe "
+                "(zet dan WEBSHOP_SFTP_WORKERS=1).")
 
     return SftpRemote(factory, os.environ.get("WEBSHOP_SFTP_ROOT") or ".")
 
