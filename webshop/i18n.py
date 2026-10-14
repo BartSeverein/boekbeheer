@@ -9,6 +9,8 @@ Nederlands staat op de hoofdadres (/boek/...), de andere talen onder /en/, /de/ 
 De beschrijvingen van boeken en de categorienamen gaan via DeepL (translate.py).
 """
 
+import re
+
 LANGS = ("nl", "en", "de", "fr")
 IDX = {l: i for i, l in enumerate(LANGS)}
 LOCALE = {"nl": "nl_NL", "en": "en_GB", "de": "de_DE", "fr": "fr_FR"}
@@ -28,6 +30,10 @@ T = {
     "p_paging": ("Paginering", "Pagination", "Seitennavigation", "Pagination"),
     "p_lang": ("Taal", "Language", "Sprache", "Langue"),
     "p_home": ("Home", "Home", "Startseite", "Accueil"),
+    "p_more_cats": ("Overige categorieën", "Other categories", "Weitere Kategorien", "Autres catégories"),
+    "p_more_cats_intro": ("Alle andere categorieën, gesorteerd op aantal boeken.", "All other categories, sorted by number of books.",
+                          "Alle weiteren Kategorien, sortiert nach Anzahl der Bücher.", "Toutes les autres catégories, classées par nombre de livres."),
+    "p_none": ("geen", "none", "keine", "aucun"),
     "p_other": ("overig", "other", "sonstige", "autres"),
     "p_tagline": ("Prachtige boeken, zorgvuldig verpakt en snel verzonden.",
                   "Beautiful books, carefully packed and shipped fast.",
@@ -56,15 +62,15 @@ T = {
     "p_about": ("Over dit boek", "About this book", "Über dieses Buch", "À propos de ce livre"),
     "p_in_stock": ("Op voorraad", "In stock", "Auf Lager", "En stock"),
     "p_copies": (" ({n} exemplaren)", " ({n} copies)", " ({n} Exemplare)", " ({n} exemplaires)"),
-    "p_ship_line": ("Verzendkosten {ship} (bij meer boeken: hoogste tarief{plus}).",
-                    "Shipping {ship} (several books: highest rate{plus}).",
-                    "Versandkosten {ship} (bei mehreren Büchern: höchster Satz{plus}).",
-                    "Frais de port {ship} (plusieurs livres : tarif le plus élevé{plus})."),
+    "p_ship_line": ("Verzendkosten {ship} (bij meer boeken: tarief van het grootste pakje{plus}).",
+                    "Shipping {ship} (several books: rate of the largest parcel{plus}).",
+                    "Versandkosten {ship} (bei mehreren Büchern: Satz des größten Pakets{plus}).",
+                    "Frais de port {ship} (plusieurs livres : tarif du plus grand colis{plus})."),
     "p_plus": (" plus toeslag", " plus surcharge", " plus Zuschlag", " plus supplément"),
-    "p_abroad": ("Dit tarief geldt voor Nederland; naar andere landen komt er een toeslag (zie Voorwaarden en verzending).",
-                 "This rate is for the Netherlands; other countries have a surcharge (see Terms and shipping).",
-                 "Dieser Satz gilt für die Niederlande; für andere Länder fällt ein Aufschlag an (siehe Bedingungen und Versand).",
-                 "Ce tarif vaut pour les Pays-Bas ; un supplément s'applique pour les autres pays (voir Conditions et livraison)."),
+    "p_abroad": ("Dit tarief geldt voor Nederland; naar andere landen komt er een toeslag bij (zie Voorwaarden en verzending).",
+                 "This rate is for the Netherlands; other countries cost extra (see Terms and shipping).",
+                 "Dieser Satz gilt für die Niederlande; für andere Länder kommt ein Aufschlag hinzu (siehe Bedingungen und Versand).",
+                 "Ce tarif vaut pour les Pays-Bas ; un supplément s'ajoute pour les autres pays (voir Conditions et livraison)."),
     "p_add": ("In winkelwagen leggen", "Add to cart", "In den Warenkorb legen", "Ajouter au panier"),
     "p_view_cart": ("Bekijk winkelwagen", "View cart", "Warenkorb ansehen", "Voir le panier"),
     "p_by": (" van {author}", " by {author}", " von {author}", " de {author}"),
@@ -72,8 +78,8 @@ T = {
                     "{price}. Schneller Versand.", "{price}. Expédition rapide."),
     # --- zoeken, winkelwagen, afrekenen, bedankt, 404
     "p_search": ("Zoeken", "Search", "Suche", "Recherche"),
-    "p_search_desc": ("Zoek in ons aanbod van boeken.", "Search our range of books.",
-                      "Durchsuchen Sie unser Angebot an Büchern.", "Parcourez notre offre de livres."),
+    "p_search_desc": ("Zoek in mijn aanbod van boeken.", "Search my range of books.",
+                      "Durchsuchen Sie mein Angebot an Büchern.", "Parcourez mon offre de livres."),
     "p_more": ("Meer resultaten", "More results", "Weitere Ergebnisse", "Plus de résultats"),
     "p_cart": ("Winkelwagen", "Cart", "Warenkorb", "Panier"),
     "p_cart_desc": ("Je winkelwagen.", "Your cart.", "Ihr Warenkorb.", "Votre panier."),
@@ -121,17 +127,17 @@ T = {
                 "Etwas ist schiefgelaufen. Bitte versuchen Sie es erneut.", "Une erreur s'est produite. Veuillez réessayer."),
     "js_noconn": ("Geen verbinding. Probeer het opnieuw.", "No connection. Please try again.",
                   "Keine Verbindung. Bitte versuchen Sie es erneut.", "Pas de connexion. Veuillez réessayer."),
-    "js_abroad": ("Dit zijn de verzendkosten voor Nederland; naar andere landen komt er een toeslag (zie afrekenen).",
-                  "This is the shipping for the Netherlands; other countries have a surcharge (see checkout).",
-                  "Dies sind die Versandkosten für die Niederlande; für andere Länder fällt ein Aufschlag an (siehe Kasse).",
-                  "Ce sont les frais pour les Pays-Bas ; un supplément s'applique pour les autres pays (voir le paiement)."),
+    "js_abroad": ("Dit zijn de verzendkosten voor Nederland; naar andere landen komt er een toeslag bij (zie afrekenen).",
+                  "This is the shipping for the Netherlands; other countries cost extra (see checkout).",
+                  "Dies sind die Versandkosten für die Niederlande; für andere Länder kommt ein Aufschlag hinzu (siehe Kasse).",
+                  "Ce sont les frais pour les Pays-Bas ; un supplément s'ajoute pour les autres pays (voir le paiement)."),
     "js_t_none": ("Geen bestelling gevonden.", "No order found.", "Keine Bestellung gefunden.", "Aucune commande trouvée."),
     "js_t_paid": ("Bedankt! Je betaling is ontvangen. Je krijgt een bevestiging per e-mail.",
-                  "Thank you! We have received your payment. You will receive a confirmation by email.",
+                  "Thank you! I have received your payment. You will receive a confirmation by email.",
                   "Vielen Dank! Ihre Zahlung ist eingegangen. Sie erhalten eine Bestätigung per E-Mail.",
-                  "Merci ! Nous avons bien reçu votre paiement. Vous recevrez une confirmation par e-mail."),
-    "js_t_wait": ("We wachten op de bevestiging van je betaling...", "We are waiting for confirmation of your payment...",
-                  "Wir warten auf die Bestätigung Ihrer Zahlung...", "Nous attendons la confirmation de votre paiement..."),
+                  "Merci ! J'ai bien reçu votre paiement. Vous recevrez une confirmation par e-mail."),
+    "js_t_wait": ("Ik wacht op de bevestiging van je betaling...", "I am waiting for confirmation of your payment...",
+                  "Ich warte auf die Bestätigung Ihrer Zahlung...", "J'attends la confirmation de votre paiement..."),
     "js_t_open": ("De betaling is nog niet bevestigd. Zodra die binnen is, krijg je een e-mail. Je winkelwagen blijft bewaard.",
                   "The payment has not been confirmed yet. Once it is, you will receive an email. Your cart is kept.",
                   "Die Zahlung ist noch nicht bestätigt. Sobald sie eingeht, erhalten Sie eine E-Mail. Ihr Warenkorb bleibt gespeichert.",
@@ -163,14 +169,14 @@ T = {
                      "Bitte füllen Sie alle Pflichtfelder aus.", "Veuillez remplir tous les champs obligatoires."),
     "php_email": ("Dit e-mailadres lijkt niet te kloppen.", "This email address doesn't look right.",
                   "Diese E-Mail-Adresse scheint nicht zu stimmen.", "Cette adresse e-mail semble incorrecte."),
-    "php_country": ("We verzenden helaas niet naar dit land.", "Unfortunately we do not ship to this country.",
-                    "Leider versenden wir nicht in dieses Land.", "Nous n'expédions malheureusement pas vers ce pays."),
+    "php_country": ("Ik verzend helaas niet naar dit land.", "Unfortunately I do not ship to this country.",
+                    "Leider versende ich nicht in dieses Land.", "Je n'expédie malheureusement pas vers ce pays."),
     "php_cart_bad": ("Je winkelwagen is leeg of te groot.", "Your cart is empty or too large.",
                      "Ihr Warenkorb ist leer oder zu groß.", "Votre panier est vide ou trop volumineux."),
-    "php_sold": ("Helaas, een of meer boeken zijn net verkocht. We hebben ze uit je winkelwagen gehaald.",
-                 "Sorry, one or more books have just been sold. We have removed them from your cart.",
-                 "Leider wurden ein oder mehrere Bücher gerade verkauft. Wir haben sie aus Ihrem Warenkorb entfernt.",
-                 "Désolé, un ou plusieurs livres viennent d'être vendus. Nous les avons retirés de votre panier."),
+    "php_sold": ("Helaas, een of meer boeken zijn net verkocht. Ik heb ze uit je winkelwagen gehaald.",
+                 "Sorry, one or more books have just been sold. I have removed them from your cart.",
+                 "Leider wurden ein oder mehrere Bücher gerade verkauft. Ich habe sie aus Ihrem Warenkorb entfernt.",
+                 "Désolé, un ou plusieurs livres viennent d'être vendus. Je les ai retirés de votre panier."),
     "php_prices": ("De prijzen zijn gewijzigd. Controleer je winkelwagen en probeer het opnieuw.",
                    "The prices have changed. Please check your cart and try again.",
                    "Die Preise haben sich geändert. Bitte prüfen Sie Ihren Warenkorb und versuchen Sie es erneut.",
@@ -209,6 +215,7 @@ SEG = {
     "thanks": ("bedankt", "thanks", "danke", "merci"),
     "terms": ("voorwaarden", "terms", "bedingungen", "conditions"),
     "privacy": ("privacy", "privacy", "datenschutz", "confidentialite"),
+    "morecats": ("overige-categorieen", "other-categories", "weitere-kategorien", "autres-categories"),
 }
 _NL_SEG = {v[0]: k for k, v in SEG.items()}
 
@@ -219,22 +226,56 @@ COUNTRY_NAMES = {
     "FR": ("Frankrijk", "France", "Frankreich", "France"),
     "LU": ("Luxemburg", "Luxembourg", "Luxemburg", "Luxembourg"),
     "AT": ("Oostenrijk", "Austria", "Österreich", "Autriche"),
+    "IE": ("Ierland", "Ireland", "Irland", "Irlande"),
+    "ES": ("Spanje", "Spain", "Spanien", "Espagne"),
+    "IT": ("Italië", "Italy", "Italien", "Italie"),
+    "DK": ("Denemarken", "Denmark", "Dänemark", "Danemark"),
+    "SE": ("Zweden", "Sweden", "Schweden", "Suède"),
+    "PL": ("Polen", "Poland", "Polen", "Pologne"),
+    "PT": ("Portugal", "Portugal", "Portugal", "Portugal"),
+    "GB": ("Verenigd Koninkrijk", "United Kingdom", "Vereinigtes Königreich", "Royaume-Uni"),
+    "CH": ("Zwitserland", "Switzerland", "Schweiz", "Suisse"),
 }
 
-BOOK_LANGUAGES = {  # taalnaam zoals in de database (Nederlands) -> (nl, en, de, fr)
-    "nederlands": ("Nederlands", "Dutch", "Niederländisch", "Néerlandais"),
-    "engels": ("Engels", "English", "Englisch", "Anglais"),
-    "duits": ("Duits", "German", "Deutsch", "Allemand"),
-    "frans": ("Frans", "French", "Französisch", "Français"),
-    "spaans": ("Spaans", "Spanish", "Spanisch", "Espagnol"),
-    "italiaans": ("Italiaans", "Italian", "Italienisch", "Italien"),
-    "latijn": ("Latijn", "Latin", "Latein", "Latin"),
-    "fries": ("Fries", "Frisian", "Friesisch", "Frison"),
-    "portugees": ("Portugees", "Portuguese", "Portugiesisch", "Portugais"),
-    "zweeds": ("Zweeds", "Swedish", "Schwedisch", "Suédois"),
-    "deens": ("Deens", "Danish", "Dänisch", "Danois"),
-    "noors": ("Noors", "Norwegian", "Norwegisch", "Norvégien"),
+BOOK_LANGUAGES = {  # taalcode (zoals in de database, bijv. NL, de) -> (nl, en, de, fr)
+    "nl": ("Nederlands", "Dutch", "Niederländisch", "Néerlandais"),
+    "en": ("Engels", "English", "Englisch", "Anglais"),
+    "de": ("Duits", "German", "Deutsch", "Allemand"),
+    "fr": ("Frans", "French", "Französisch", "Français"),
+    "es": ("Spaans", "Spanish", "Spanisch", "Espagnol"),
+    "it": ("Italiaans", "Italian", "Italienisch", "Italien"),
+    "la": ("Latijn", "Latin", "Latein", "Latin"),
+    "fy": ("Fries", "Frisian", "Friesisch", "Frison"),
+    "pt": ("Portugees", "Portuguese", "Portugiesisch", "Portugais"),
+    "sv": ("Zweeds", "Swedish", "Schwedisch", "Suédois"),
+    "da": ("Deens", "Danish", "Dänisch", "Danois"),
+    "no": ("Noors", "Norwegian", "Norwegisch", "Norvégien"),
+    "ru": ("Russisch", "Russian", "Russisch", "Russe"),
+    "pl": ("Pools", "Polish", "Polnisch", "Polonais"),
+    "cs": ("Tsjechisch", "Czech", "Tschechisch", "Tchèque"),
+    "hu": ("Hongaars", "Hungarian", "Ungarisch", "Hongrois"),
+    "el": ("Grieks", "Greek", "Griechisch", "Grec"),
+    "tr": ("Turks", "Turkish", "Türkisch", "Turc"),
+    "af": ("Afrikaans", "Afrikaans", "Afrikaans", "Afrikaans"),
+    "id": ("Indonesisch", "Indonesian", "Indonesisch", "Indonésien"),
+    "ja": ("Japans", "Japanese", "Japanisch", "Japonais"),
+    "zh": ("Chinees", "Chinese", "Chinesisch", "Chinois"),
+    "he": ("Hebreeuws", "Hebrew", "Hebräisch", "Hébreu"),
+    "ar": ("Arabisch", "Arabic", "Arabisch", "Arabe"),
 }
+# Alternatieve schrijfwijzen in de database: Nederlandse namen, Engelse namen en 3-lettercodes.
+_LANG_ALIAS = {}
+for _code, _row in BOOK_LANGUAGES.items():
+    _LANG_ALIAS[_code] = _code
+    for _name in _row:
+        _LANG_ALIAS[_name.lower()] = _code
+_LANG_ALIAS.update({
+    "dut": "nl", "nld": "nl", "vlaams": "nl", "flemish": "nl", "eng": "en", "ger": "de", "deu": "de", "fre": "fr", "fra": "fr",
+    "spa": "es", "ita": "it", "lat": "la", "fry": "fy", "por": "pt", "swe": "sv", "dan": "da", "dk": "da", "nor": "no",
+    "nb": "no", "nn": "no", "rus": "ru", "pol": "pl", "ces": "cs", "cze": "cs", "hun": "hu", "gre": "el", "ell": "el",
+    "tur": "tr", "afr": "af", "ind": "id", "jpn": "ja", "jp": "ja", "chi": "zh", "zho": "zh", "heb": "he", "ara": "ar",
+    "gb": "en", "us": "en", "uk": "en", "be": "nl",
+})
 
 
 def t(key, lang="nl", **kw):
@@ -268,8 +309,20 @@ def country_name(code, lang):
 
 
 def book_language(value, lang):
-    row = BOOK_LANGUAGES.get((value or "").strip().lower())
-    return row[IDX[lang]] if row else value
+    """Volledige taalnaam in `lang` (NL -> Nederlands / Dutch / Niederländisch / Néerlandais). Onbekend: waarde ongewijzigd."""
+    raw = (value or "").strip()
+    if not raw:
+        return raw
+    parts = [p.strip() for p in re.split(r"[/,;&+]", raw) if p.strip()]
+    names = []
+    for p in parts:
+        code = _LANG_ALIAS.get(p.lower().rstrip("."))
+        if not code:
+            return raw
+        name = BOOK_LANGUAGES[code][IDX[lang]]
+        if name not in names:
+            names.append(name)
+    return ", ".join(names)
 
 
 def js_strings(lang):

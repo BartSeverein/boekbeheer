@@ -235,7 +235,9 @@ def _prepare_books(raw_books, cfg, c1_labels, c2_labels):
     books = []
     for r in raw_books:
         price = int(round(r["price"] * 100))
-        ship = int(round(r["shipping"] * 100)) if r.get("shipping") and r["shipping"] > 0 else cfg["default_shipping_cents"]
+        own = int(round(r["shipping"] * 100)) if r.get("shipping") and r["shipping"] > 0 else cfg["default_shipping_cents"]
+        big = 1 if own > cfg["small_max_cents"] else 0   # groot pakje als de eigen verzendprijs van het boek boven de grens ligt
+        ship = cfg["shipping_rates"]["NL"][big]           # getoonde prijs = tarief voor Nederland
         title = " ".join((r.get("title") or "").split())
         if not title or price <= 0 or r["amount"] <= 0:
             continue
@@ -247,7 +249,7 @@ def _prepare_books(raw_books, cfg, c1_labels, c2_labels):
         lang = (r.get("language") or "").strip()
         b = dict(r)
         b.update({
-            "title": title, "author": " ".join((r.get("author") or "").split()), "price_cents": price, "ship_cents": ship,
+            "title": title, "author": " ".join((r.get("author") or "").split()), "price_cents": price, "ship_cents": ship, "big": big,
             "isbn": isbn, "language": lang, "lang_code": LANG_CODES.get(lang.lower()) or (lang.lower() if len(lang) in (2, 3) and lang.isalpha() else None),
             "path": f"/boek/{slugify(title)}-{r['id']}/",
             "c1": c1, "c1_label": c1_label, "c1_slug": slugify(c1_label), "c2": c2, "c2_label": c2_label,
@@ -275,27 +277,34 @@ def _page_dir(path):
     return path.strip("/") + "/index.html" if path != "/" else "index.html"
 
 
-_FILL_TEXT = {  # per taal: (KvK, btw, telefoon, gratis, extra per boek, buitenland)
-    "nl": ("KvK: {}", "btw-nummer: {}", "Telefoon: {}", " en vanaf {} bestelwaarde is de verzending binnen Nederland gratis",
-           ", plus {} per extra boek", "Voor verzending buiten Nederland komt er een toeslag per bestelling bij: {}. "),
-    "en": ("Chamber of Commerce (KvK): {}", "VAT no.: {}", "Phone: {}", " and from {} order value shipping within the Netherlands is free",
-           ", plus {} per additional book", "For shipping outside the Netherlands a surcharge per order applies: {}. "),
-    "de": ("Handelsregister (KvK): {}", "USt-IdNr.: {}", "Telefon: {}", " und ab {} Bestellwert ist der Versand innerhalb der Niederlande kostenlos",
-           ", zuzüglich {} je weiterem Buch", "Für den Versand außerhalb der Niederlande fällt pro Bestellung ein Aufschlag an: {}. "),
-    "fr": ("Chambre de commerce (KvK) : {}", "N° de TVA : {}", "Téléphone : {}", " et à partir de {} d'achats l'envoi aux Pays-Bas est gratuit",
-           ", plus {} par livre supplémentaire", "Pour une expédition hors des Pays-Bas, un supplément par commande s'applique : {}. "),
+_FILL_TEXT = {  # per taal: (KvK, btw, telefoon, gratis, extra per boek, tarieven-zin, klein, groot, overige landen)
+    "nl": ("KvK: {}", "btw-nummer: {}", "Telefoon: {}", "Vanaf {} bestelwaarde is de verzending binnen Nederland gratis. ",
+           ", plus {} per extra boek", "Verzendkosten per bestelling ({klein} / {groot}): {lijst}. ", "klein pakje", "groot pakje", "overige landen"),
+    "en": ("Chamber of Commerce (KvK): {}", "VAT no.: {}", "Phone: {}", "From {} order value, shipping within the Netherlands is free. ",
+           ", plus {} per additional book", "Shipping costs per order ({klein} / {groot}): {lijst}. ", "small parcel", "large parcel", "other countries"),
+    "de": ("Handelsregister (KvK): {}", "USt-IdNr.: {}", "Telefon: {}", "Ab {} Bestellwert ist der Versand innerhalb der Niederlande kostenlos. ",
+           ", zuzüglich {} je weiterem Buch", "Versandkosten pro Bestellung ({klein} / {groot}): {lijst}. ", "kleines Paket", "großes Paket", "übrige Länder"),
+    "fr": ("Chambre de commerce (KvK) : {}", "N° de TVA : {}", "Téléphone : {}", "À partir de {} d'achats, l'envoi aux Pays-Bas est gratuit. ",
+           ", plus {} par livre supplémentaire", "Frais de port par commande ({klein} / {groot}) : {lijst}. ", "petit colis", "grand colis", "autres pays"),
 }
 
 
 def _fill(template, cfg, lang="nl"):
-    kvk_t, vat_t, tel_t, free_t, extra_t, abroad_t = _FILL_TEXT[lang]
+    kvk_t, vat_t, tel_t, free_t, extra_t, abroad_t, small_t, large_t, other_t = _FILL_TEXT[lang]
 
     def line(text):
         return text + "<br>" if text else ""
     free = free_t.format(eur(cfg["free_shipping_from_cents"], lang)) if cfg["free_shipping_from_cents"] else ""
     extra = extra_t.format(eur(cfg["extra_per_additional_book_cents"], lang)) if cfg["extra_per_additional_book_cents"] else ""
-    sur = cfg["country_surcharge_cents"]
-    abroad = abroad_t.format("; ".join(f"{i18n.country_name(c, lang)}: {eur(v, lang)}" for c, v in sur.items())) if sur else ""
+    rates = cfg["shipping_rates"]
+    items = []
+    for c in cfg["countries"]:
+        if c in rates:
+            items.append(f"{i18n.country_name(c, lang)}: {eur(rates[c][0], lang)} / {eur(rates[c][1], lang)}")
+    if "OTHER" in rates and any(c not in rates for c in cfg["countries"]):
+        others = ", ".join(i18n.country_name(c, lang) for c in cfg["countries"] if c not in rates)
+        items.append(f"{other_t} ({others}): {eur(rates['OTHER'][0], lang)} / {eur(rates['OTHER'][1], lang)}")
+    abroad = abroad_t.replace("{klein}", small_t).replace("{groot}", large_t).replace("{lijst}", "; ".join(items)) if items else ""
     values = {
         "naam": cfg["name"] + "<br>", "eigenaar": line(cfg["owner_name"]), "adres": line(cfg["address"]),
         "kvk": line(kvk_t.format(cfg["kvk"])) if cfg["kvk"] else "", "btw": line(vat_t.format(cfg["vat"])) if cfg["vat"] else "",
@@ -320,7 +329,7 @@ def _book_loc(b, lang, tr, cat_label):
     """De teksten van een boek in `lang`; ontbreekt de vertaling, dan blijft het Nederlands (fb = terugval)."""
     if lang == "nl":
         return {"short": b.get("short"), "long": b.get("long"), "short_fb": False, "long_fb": False,
-                "category_label": b["category_label"], "language": b.get("language")}
+                "category_label": b["category_label"], "language": i18n.book_language(b.get("language"), "nl")}
     out = {"short_fb": False, "long_fb": False}
     for key in ("short", "long"):
         src = b.get(key) or ""
@@ -349,7 +358,7 @@ def config_php(cfg):
         "data_dir": "d-" + cfg["data_key"], "mollie_key": cfg["mollie_key"], "mollie_api_base": cfg["mollie_api_base"],
         "default_shipping_cents": cfg["default_shipping_cents"], "extra_cents": cfg["extra_per_additional_book_cents"],
         "free_from_cents": cfg["free_shipping_from_cents"], "countries": cfg["countries"], "reserve_seconds": 1800,
-        "country_surcharge": cfg["country_surcharge_cents"],
+        "rates": cfg["shipping_rates"],
     }
     text = json.dumps(data, ensure_ascii=False)
     return "<?php\n// Gegenereerd door build.py (bevat geheimen: niet delen).\nreturn json_decode(<<<'JSON'\n" + text + "\nJSON\n, true);\n"
@@ -409,7 +418,7 @@ def write_catalog(path, books, imported_ids, cfg, built_at):
         con.executescript(
             """
             CREATE TABLE books (id INTEGER PRIMARY KEY, title TEXT, author TEXT, isbn TEXT, price_cents INTEGER,
-                ship_cents INTEGER, amount INTEGER, path TEXT, img TEXT, iw INTEGER, ih INTEGER, hay TEXT, tnorm TEXT, seq INTEGER);
+                ship_cents INTEGER, big INTEGER, amount INTEGER, path TEXT, img TEXT, iw INTEGER, ih INTEGER, hay TEXT, tnorm TEXT, seq INTEGER);
             CREATE INDEX books_seq ON books(seq);
             CREATE TABLE imported_orders (id INTEGER PRIMARY KEY);
             CREATE TABLE meta (k TEXT PRIMARY KEY, v TEXT);
@@ -419,9 +428,9 @@ def write_catalog(path, books, imported_ids, cfg, built_at):
         for b in books:
             th = b.get("thumb")
             hay = " " + norm(" ".join(filter(None, [b["title"], b["author"], b.get("publisher")]))) + " " + (b["isbn"] or "").lower() + " "
-            rows.append((b["id"], b["title"], b["author"], b["isbn"], b["price_cents"], b["ship_cents"], b["amount"], b["path"],
+            rows.append((b["id"], b["title"], b["author"], b["isbn"], b["price_cents"], b["ship_cents"], b["big"], b["amount"], b["path"],
                          th[0] if th else None, th[1] if th else None, th[2] if th else None, hay, norm(b["title"]), b["seq"]))
-        con.executemany("INSERT INTO books VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
+        con.executemany("INSERT INTO books VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
         con.executemany("INSERT INTO imported_orders VALUES (?)", [(int(i),) for i in sorted(imported_ids)])
         con.executemany("INSERT INTO meta VALUES (?,?)", [("built_at", built_at), ("count", str(len(rows)))])
         con.commit()
@@ -539,14 +548,15 @@ def build_site(raw_books, out_dir, cfg=None, *, mode="full", imported_order_ids=
                                 "href": f"/categorie/{c['slug']}/{s['slug']}/"})
             rest = sum(1 for b in c["books"] if not b["c2_slug"])
             if rest:
-                buttons.append({"label": f"{cat_label(c['label'], lang)} ({i18n.t('p_other', lang)})", "slug": c["slug"], "count": rest})
+                buttons.append({"label": cat_label(c['label'], lang), "slug": c["slug"], "count": rest})
         # Alleen de 25 grootste (naar aantal boeken), grootste eerst.
         buttons.sort(key=lambda x: (-x["count"], x["label"].lower()))
+        rest_buttons = buttons[25:]
         buttons = buttons[:25]
         tagline = None
         if cfg["tagline_custom"]:
             tagline = cfg["tagline"] if lang == "nl" else ((tr.get(cfg["tagline"], lang) if tr else None) or cfg["tagline"])
-        site = Site(cfg, css_name, js_name, buttons, logo, lang, tagline)
+        site = Site(cfg, css_name, js_name, buttons, logo, lang, tagline, more_cats=len(rest_buttons))
 
         def emit(path, html, site=site):
             nonlocal count_pages
@@ -578,6 +588,9 @@ def build_site(raw_books, out_dir, cfg=None, *, mode="full", imported_order_ids=
             emit(b["path"], site.book(b, _book_loc(b, lang, book_tr, cat_label), chain))
             urls.append(site.L(b["path"]))
 
+        if rest_buttons:
+            emit("/overige-categorieen/", site.more_categories_page(rest_buttons))
+            urls.append(site.L("/overige-categorieen/"))
         emit("/zoeken/", site.search_page())
         emit("/winkelwagen/", site.cart_page())
         emit("/afrekenen/", site.checkout_page())

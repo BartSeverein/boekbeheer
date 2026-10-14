@@ -67,18 +67,43 @@ def shop_config():
     Niets hiervan is geheim behalve WEBSHOP_MOLLIE_API_KEY en WEBSHOP_DATA_KEY; die komen alleen in config.php op de server.
     """
     base = (os.environ.get("WEBSHOP_BASE_URL") or "https://severein.nl").rstrip("/")
-    countries = [c.strip().upper() for c in (os.environ.get("WEBSHOP_COUNTRIES") or "NL").split(",") if c.strip()]
-    surcharge = {}
+    default_ship = int(os.environ.get("WEBSHOP_DEFAULT_SHIPPING_CENTS") or 395)
+
+    def money(text):
+        return int(round(float(text.strip().replace(",", ".").replace("€", "")) * 100))
+    # Verzendtarieven per land: WEBSHOP_SHIPPING_RATES="NL=3.95/6.95,DE=7.50/12.00,FR=8.00/13.00,OTHER=10.00/16.00"
+    # (klein/groot pakje). OTHER geldt voor elk ander land uit WEBSHOP_COUNTRIES.
+    rates = {}
+    for part in (os.environ.get("WEBSHOP_SHIPPING_RATES") or "").replace(";", ",").split(","):
+        if "=" not in part:
+            continue
+        code, value = part.split("=", 1)
+        code = code.strip().upper()
+        code = "OTHER" if code in ("OTHER", "OVERIG", "*") else code
+        try:
+            small, _, large = value.partition("/")
+            rates[code] = (money(small), money(large or small))
+        except ValueError:
+            pass
+    # Oude instelling WEBSHOP_COUNTRY_SURCHARGE (toeslag op het NL-tarief) blijft werken als er geen eigen tarief is.
+    if "NL" not in rates:
+        rates["NL"] = (default_ship, max(default_ship, 695))
     for part in (os.environ.get("WEBSHOP_COUNTRY_SURCHARGE") or "").replace(";", ",").split(","):
         if "=" in part:
             code, value = part.split("=", 1)
+            code = code.strip().upper()
             try:
-                surcharge[code.strip().upper()] = int(round(float(value.strip().replace(",", ".")) * 100))
+                add = money(value)
             except ValueError:
-                pass
-    # Een land buiten Nederland doen we alleen aan als er een toeslag voor is ingesteld (ook 0 is een bewuste keuze: BE=0).
-    skipped = [c for c in countries if c != "NL" and c not in surcharge]
-    countries = [c for c in countries if c == "NL" or c in surcharge]
+                continue
+            if code not in rates:
+                rates[code] = (rates["NL"][0] + add, rates["NL"][1] + add)
+    countries = [c.strip().upper() for c in (os.environ.get("WEBSHOP_COUNTRIES") or "NL").split(",") if c.strip()]
+    # Een land zonder eigen tarief en zonder OTHER doen we niet aan.
+    skipped = [c for c in countries if c != "NL" and c not in rates and "OTHER" not in rates]
+    countries = [c for c in countries if c == "NL" or c in rates or "OTHER" in rates]
+    if "NL" not in countries:
+        countries.insert(0, "NL")
     from .i18n import LANGS
     langs = [l.strip().lower() for l in (os.environ.get("WEBSHOP_LANGS") or "nl,en,de,fr").split(",") if l.strip().lower() in LANGS]
     if "nl" not in langs:
@@ -87,14 +112,18 @@ def shop_config():
         "base_url": base,
         "name": os.environ.get("WEBSHOP_NAME") or "Severein",
         "tagline": os.environ.get("WEBSHOP_TAGLINE") or "Prachtige boeken, zorgvuldig verpakt en snel verzonden.",
+        "year": __import__("datetime").date.today().year,
+        "copyright_name": os.environ.get("WEBSHOP_COPYRIGHT_NAME") or "Severein Services",
         "tagline_custom": bool(os.environ.get("WEBSHOP_TAGLINE")),
         "contact_email": os.environ.get("WEBSHOP_CONTACT_EMAIL") or "",
-        "default_shipping_cents": int(os.environ.get("WEBSHOP_DEFAULT_SHIPPING_CENTS") or 395),
+        "default_shipping_cents": default_ship,
+        # Een boek geldt als klein pakje als zijn eigen verzendprijs (uit de database) hierop of eronder zit, anders groot.
+        "small_max_cents": int(os.environ.get("WEBSHOP_SMALL_MAX_CENTS") or 400),
+        "shipping_rates": {c: list(v) for c, v in rates.items()},
         "extra_per_additional_book_cents": int(os.environ.get("WEBSHOP_EXTRA_PER_BOOK_CENTS") or 0),
         "free_shipping_from_cents": int(os.environ.get("WEBSHOP_FREE_SHIPPING_FROM_CENTS") or 0),
         "countries": countries or ["NL"],
         "countries_skipped": skipped,
-        "country_surcharge_cents": {c: surcharge[c] for c in countries if c in surcharge and c != "NL"},
         "langs": langs,
         "deepl_key": os.environ.get("WEBSHOP_DEEPL_KEY") or "",
         "deepl_max_chars": int(os.environ.get("WEBSHOP_DEEPL_MAX_CHARS") or 100000),

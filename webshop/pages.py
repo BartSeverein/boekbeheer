@@ -32,7 +32,7 @@ def jsonld(data):
 
 
 class Site:
-    def __init__(self, cfg, css_name, js_name, categories, logo=None, lang="nl", tagline=None):
+    def __init__(self, cfg, css_name, js_name, categories, logo=None, lang="nl", tagline=None, more_cats=0):
         self.cfg = cfg
         self.logo = logo  # (bestandsnaam, breedte, hoogte) of None
         self.css = css_name
@@ -41,6 +41,7 @@ class Site:
         self.lang = lang
         self.langs = cfg["langs"]
         self.tagline = tagline or i18n.t("p_tagline", lang)
+        self.more_cats = more_cats  # aantal categorieën buiten de wolk (0 = geen knop "Overige categorieën")
 
     # ---- hulp
     def t(self, key, **kw):
@@ -91,15 +92,16 @@ class Site:
             head.append(f'<script type="application/ld+json">{jsonld(block)}</script>')
         head.append("</head>")
         paths = json.dumps({"book": self.L("/boek/"), "checkout": self.L("/afrekenen/"), "home": self.L("/")}, separators=(",", ":"))
-        cs = json.dumps(cfg["country_surcharge_cents"], separators=(",", ":"))
+        cs = json.dumps(cfg["shipping_rates"], separators=(",", ":"))
         data = (f'data-extra="{cfg["extra_per_additional_book_cents"]}" data-free="{cfg["free_shipping_from_cents"]}" '
-                f'data-def="{cfg["default_shipping_cents"]}" data-p="{esc(paths)}" data-cs="{esc(cs)}"')
+                f'data-def="{cfg["default_shipping_cents"]}" data-p="{esc(paths)}" data-rt="{esc(cs)}"')
         cats = ""
         if show_cats and self.categories:
             cats = f'<nav class="cats" aria-label="{esc(self.t("p_cats"))}"><ul class="cats" style="display:contents;list-style:none;padding:0;margin:0">' + "".join(
                 f'<li><a href="{self.L(c.get("href") or "/categorie/" + c["slug"] + "/")}">{esc(c["label"])} ({c["count"]})</a></li>'
                 for c in self.categories
-            ) + "</ul></nav>"
+            ) + (f'<li><a class="more il" href="{self.L("/overige-categorieen/")}">{icon("list")}{esc(self.t("p_more_cats"))} ({self.more_cats})</a></li>'
+                 if self.more_cats else "") + "</ul></nav>"
         if self.logo:
             brand = f'<img src="/{self.logo[0]}" width="{self.logo[1]}" height="{self.logo[2]}" alt="{esc(cfg["name"])}">'
         else:
@@ -120,9 +122,10 @@ class Site:
             f'<a href="{self.L("/winkelwagen/")}" id="cartlink" class="il" rel="nofollow">{icon("cart")}<span id="cartlabel">{esc(self.t("p_cart"))}</span></a></header><main>'
         )
         footer = (
-            f'</main><footer><a href="{self.L("/voorwaarden/")}">{esc(self.t("p_terms"))}</a>'
-            f'<a href="{self.L("/privacy/")}">{esc(self.t("p_privacy"))}</a>'
+            f'</main><footer><a href="{self.L("/voorwaarden/")}" class="il">{icon("info")}{esc(self.t("p_terms"))}</a>'
+            f'<a href="{self.L("/privacy/")}" class="il">{icon("privacy")}{esc(self.t("p_privacy"))}</a>'
             + (f'<a href="mailto:{esc(cfg["contact_email"])}" class="il">{icon("mail")}{esc(cfg["contact_email"])}</a>' if cfg["contact_email"] else "")
+            + f'<span class="il">{icon("copyright")}2001-{cfg["year"]}, {esc(cfg["copyright_name"])}</span>'
             + "</footer>"
         )
         script = f'<script src="/{self.js}" defer></script>' if scripts else ""
@@ -172,6 +175,15 @@ class Site:
         return self.layout(title=f"{cfg['name']} - {self.t('p_title_suffix')}", desc=self.tagline, path="/", body=body, ld=ld,
                            show_cats=True, scripts=False)
 
+    def more_categories_page(self, rest):
+        """Alle categorieën die niet in de wolk op de beginpagina staan (de kleinste), gesorteerd op aantal boeken."""
+        title = self.t("p_more_cats")
+        nav = self._crumbs([(self.t("p_home"), "/"), (title, "/overige-categorieen/")])
+        items = "".join(
+            f'<li><a href="{self.L(c.get("href") or "/categorie/" + c["slug"] + "/")}">{esc(c["label"])} ({c["count"]})</a></li>' for c in rest)
+        body = nav + f'<h1>{esc(title)}</h1><p>{esc(self.t("p_more_cats_intro"))}</p><nav class="cats" aria-label="{esc(title)}"><ul class="cats" style="display:contents;list-style:none;padding:0;margin:0">{items}</ul></nav>'
+        return self.layout(title=title, desc=self.t("p_more_cats_intro"), path="/overige-categorieen/", body=body, scripts=False)
+
     def category(self, *, label, parent, base, books, page, pages, total):
         crumbs = [(self.t("p_home"), "/")]
         if parent:
@@ -210,8 +222,11 @@ class Site:
                     for i in imgs[1:]) + "</div>"
         nl_attr = ' lang="nl"'
         rows = []
+        isbn = b.get("isbn")
+        if isbn and not isbn.strip("0"):   # "0" (of alleen nullen) betekent: geen ISBN
+            isbn = self.t("p_none")
         for key, value, fb in (("l_author", b.get("author"), False), ("l_publisher", b.get("publisher"), False),
-                               ("l_isbn", b.get("isbn"), False), ("l_lang", loc.get("language"), False),
+                               ("l_isbn", isbn, False), ("l_lang", loc.get("language"), False),
                                ("l_notes", loc.get("short"), loc.get("short_fb")), ("l_cat", loc.get("category_label"), False)):
             if value:
                 rows.append(f"<dt>{esc(self.t(key))}</dt><dd{nl_attr if fb and self.lang != 'nl' else ''}>{esc(value)}</dd>")
@@ -221,12 +236,12 @@ class Site:
         ship = self.eur(b["ship_cents"])
         stock_note = self.t("p_copies", n=b["amount"]) if b["amount"] > 1 else ""
         plus = self.t("p_plus") if cfg["extra_per_additional_book_cents"] else ""
-        abroad = f' {esc(self.t("p_abroad"))}' if cfg["country_surcharge_cents"] else ""
+        abroad = f' {esc(self.t("p_abroad"))}' if len(cfg["countries"]) > 1 else ""
         buy = (
             f'<p class="price">{self.eur(b["price_cents"])}</p><p class="ship il">{icon("truck")}<span>{esc(self.t("p_in_stock"))}{esc(stock_note)}. '
             f'{esc(self.t("p_ship_line", ship=ship, plus=plus))}{abroad}</span></p>'
             f'<p><button type="button" class="add" data-id="{b["id"]}" data-title="{esc(b["title"])}" data-price="{b["price_cents"]}" '
-            f'data-ship="{b["ship_cents"]}" data-max="{b["amount"]}" data-url="{path}">{icon("cart_plus")}<span>{esc(self.t("p_add"))}</span></button></p>'
+            f'data-ship="{b["ship_cents"]}" data-big="{b["big"]}" data-max="{b["amount"]}" data-url="{path}">{icon("cart_plus")}<span>{esc(self.t("p_add"))}</span></button></p>'
             f'<p id="added" hidden><a href="{self.L("/winkelwagen/")}" class="il">{icon("cart")}{esc(self.t("p_view_cart"))}</a></p>'
         )
         body = nav + f"<article class=\"book\"><div>{gallery}</div><div><h1>{esc(b['title'])}</h1>" + \
