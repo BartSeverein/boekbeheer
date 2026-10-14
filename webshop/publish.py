@@ -70,9 +70,17 @@ def publish(mode="full", execute=False, max_minutes=120, allow_overwrite=False, 
         # 2. bouwen
         books, imported, fetch_image = load_from_postgres(conn)
         image_deadline = time.time() + max_minutes * 60 * 0.4
+        translator = None
+        if mode == "full" and len(cfg["langs"]) > 1:
+            from .translate import PgStore, Translator
+            # Zonder sleutel of in een proefrun wordt er niets naar DeepL gestuurd; bewaarde vertalingen worden wel gebruikt.
+            translator = Translator(cfg["deepl_key"], PgStore(conn), cfg["deepl_max_chars"], readonly=not execute, log=log,
+                                    total_cap=cfg["deepl_total_chars"])
+            if not cfg["deepl_key"]:
+                log("Geen WEBSHOP_DEEPL_KEY: beschrijvingen blijven Nederlands op de andere talen.")
         stats = build_site(books, out_dir, cfg, mode=mode, imported_order_ids=imported, known_images=images,
                            known_pages=pages, fetch_image=fetch_image, process_images=execute,
-                           image_deadline=image_deadline, log=log)
+                           image_deadline=image_deadline, translator=translator, log=log)
         log(f"Gebouwd: {stats.get('books')} boeken, {stats.get('pages', 0)} pagina's in {stats.get('seconds')} s.")
 
         # 3. uploaden

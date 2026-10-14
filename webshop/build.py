@@ -25,6 +25,7 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+from . import i18n
 from .common import NORM_MAP, eur, norm, shop_config, slugify
 from .pages import Site
 
@@ -274,21 +275,64 @@ def _page_dir(path):
     return path.strip("/") + "/index.html" if path != "/" else "index.html"
 
 
-def _fill(template, cfg):
+_FILL_TEXT = {  # per taal: (KvK, btw, telefoon, gratis, extra per boek, buitenland)
+    "nl": ("KvK: {}", "btw-nummer: {}", "Telefoon: {}", " en vanaf {} bestelwaarde is de verzending binnen Nederland gratis",
+           ", plus {} per extra boek", "Voor verzending buiten Nederland komt er een toeslag per bestelling bij: {}. "),
+    "en": ("Chamber of Commerce (KvK): {}", "VAT no.: {}", "Phone: {}", " and from {} order value shipping within the Netherlands is free",
+           ", plus {} per additional book", "For shipping outside the Netherlands a surcharge per order applies: {}. "),
+    "de": ("Handelsregister (KvK): {}", "USt-IdNr.: {}", "Telefon: {}", " und ab {} Bestellwert ist der Versand innerhalb der Niederlande kostenlos",
+           ", zuzüglich {} je weiterem Buch", "Für den Versand außerhalb der Niederlande fällt pro Bestellung ein Aufschlag an: {}. "),
+    "fr": ("Chambre de commerce (KvK) : {}", "N° de TVA : {}", "Téléphone : {}", " et à partir de {} d'achats l'envoi aux Pays-Bas est gratuit",
+           ", plus {} par livre supplémentaire", "Pour une expédition hors des Pays-Bas, un supplément par commande s'applique : {}. "),
+}
+
+
+def _fill(template, cfg, lang="nl"):
+    kvk_t, vat_t, tel_t, free_t, extra_t, abroad_t = _FILL_TEXT[lang]
+
     def line(text):
         return text + "<br>" if text else ""
-    free = f" en vanaf {eur(cfg['free_shipping_from_cents'])} bestelwaarde is de verzending gratis" if cfg["free_shipping_from_cents"] else ""
-    extra = f", plus {eur(cfg['extra_per_additional_book_cents'])} per extra boek" if cfg["extra_per_additional_book_cents"] else ""
-    names = {"NL": "Nederland", "BE": "België", "DE": "Duitsland"}
+    free = free_t.format(eur(cfg["free_shipping_from_cents"], lang)) if cfg["free_shipping_from_cents"] else ""
+    extra = extra_t.format(eur(cfg["extra_per_additional_book_cents"], lang)) if cfg["extra_per_additional_book_cents"] else ""
+    sur = cfg["country_surcharge_cents"]
+    abroad = abroad_t.format("; ".join(f"{i18n.country_name(c, lang)}: {eur(v, lang)}" for c, v in sur.items())) if sur else ""
     values = {
         "naam": cfg["name"] + "<br>", "eigenaar": line(cfg["owner_name"]), "adres": line(cfg["address"]),
-        "kvk": line(f"KvK: {cfg['kvk']}") if cfg["kvk"] else "", "btw": line(f"btw-nummer: {cfg['vat']}") if cfg["vat"] else "",
-        "telefoon": line(f"Telefoon: {cfg['phone']}") if cfg["phone"] else "", "email": cfg["contact_email"] or "info@example.invalid",
-        "landen": ", ".join(names.get(c, c) for c in cfg["countries"]), "toeslag": extra, "gratis": free,
+        "kvk": line(kvk_t.format(cfg["kvk"])) if cfg["kvk"] else "", "btw": line(vat_t.format(cfg["vat"])) if cfg["vat"] else "",
+        "telefoon": line(tel_t.format(cfg["phone"])) if cfg["phone"] else "", "email": cfg["contact_email"] or "info@example.invalid",
+        "landen": ", ".join(i18n.country_name(c, lang) for c in cfg["countries"]), "toeslag": extra, "gratis": free,
+        "buitenland": abroad,
     }
     for k, v in values.items():
         template = template.replace("{{" + k + "}}", v)
     return template
+
+
+def _content_template(slug, lang):
+    name = f"{slug}.html" if lang == "nl" else f"{slug}.{lang}.html"
+    path = HERE / "content" / name
+    if not path.exists():
+        path = HERE / "content" / f"{slug}.html"
+    return path.read_text(encoding="utf-8")
+
+
+def _book_loc(b, lang, tr, cat_label):
+    """De teksten van een boek in `lang`; ontbreekt de vertaling, dan blijft het Nederlands (fb = terugval)."""
+    if lang == "nl":
+        return {"short": b.get("short"), "long": b.get("long"), "short_fb": False, "long_fb": False,
+                "category_label": b["category_label"], "language": b.get("language")}
+    out = {"short_fb": False, "long_fb": False}
+    for key in ("short", "long"):
+        src = b.get(key) or ""
+        got = tr.get(src, lang) if (tr and src.strip()) else None
+        out[key] = got or src
+        out[key + "_fb"] = bool(src.strip()) and got is None
+    cat = cat_label(b["c1_label"], lang)
+    if b["c2_label"]:
+        cat += " › " + cat_label(b["c2_label"], lang)
+    out["category_label"] = cat
+    out["language"] = i18n.book_language(b.get("language"), lang)
+    return out
 
 
 def norm_php():
@@ -305,9 +349,15 @@ def config_php(cfg):
         "data_dir": "d-" + cfg["data_key"], "mollie_key": cfg["mollie_key"], "mollie_api_base": cfg["mollie_api_base"],
         "default_shipping_cents": cfg["default_shipping_cents"], "extra_cents": cfg["extra_per_additional_book_cents"],
         "free_from_cents": cfg["free_shipping_from_cents"], "countries": cfg["countries"], "reserve_seconds": 1800,
+        "country_surcharge": cfg["country_surcharge_cents"],
     }
     text = json.dumps(data, ensure_ascii=False)
     return "<?php\n// Gegenereerd door build.py (bevat geheimen: niet delen).\nreturn json_decode(<<<'JSON'\n" + text + "\nJSON\n, true);\n"
+
+
+def i18n_php(cfg):
+    text = json.dumps(i18n.php_data(cfg["langs"], cfg), ensure_ascii=False)
+    return "<?php\n// Gegenereerd door build.py uit webshop/i18n.py — niet handmatig wijzigen.\nreturn json_decode(<<<'JSON'\n" + text + "\nJSON\n, true);\n"
 
 
 HTACCESS = """\
@@ -319,7 +369,7 @@ AddDefaultCharset UTF-8
 <FilesMatch "^\\.">
   Require all denied
 </FilesMatch>
-<FilesMatch "^(config|lib|norm)\\.php$">
+<FilesMatch "^(config|lib|norm|i18n)\\.php$">
   Require all denied
 </FilesMatch>
 <IfModule mod_deflate.c>
@@ -380,7 +430,7 @@ def write_catalog(path, books, imported_ids, cfg, built_at):
 
 
 def build_site(raw_books, out_dir, cfg=None, *, mode="full", imported_order_ids=(), known_images=(), known_pages=None,
-               fetch_image=None, process_images=True, image_deadline=None, log=print):
+               fetch_image=None, process_images=True, image_deadline=None, translator=None, log=print):
     cfg = cfg or shop_config()
     if not cfg["data_key"] or len(cfg["data_key"]) < 12 or not all(c.isalnum() for c in cfg["data_key"]):
         raise RuntimeError("WEBSHOP_DATA_KEY ontbreekt of is te kort (minimaal 12 letters/cijfers, geen andere tekens).")
@@ -394,6 +444,9 @@ def build_site(raw_books, out_dir, cfg=None, *, mode="full", imported_order_ids=
     built_at = time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())
     data_dir = "d-" + cfg["data_key"]
     stats = {"mode": mode, "books": len(books)}
+    if cfg.get("countries_skipped"):
+        log("Let op: geen verzending naar " + ", ".join(cfg["countries_skipped"]) +
+            " (zet in WEBSHOP_COUNTRY_SURCHARGE een toeslag per land, bijvoorbeeld BE=3.00,DE=4.00,FR=5.00).")
 
     if mode == "catalog":
         pages = set(known_pages or [])
@@ -415,7 +468,14 @@ def build_site(raw_books, out_dir, cfg=None, *, mode="full", imported_order_ids=
     log(f"Afbeeldingen: {new_imgs} nieuw gemaakt, {failed_imgs} mislukt, {len(used_images)} in gebruik.")
 
     # ---- statische bestanden
-    css_src, js_src = (HERE / "assets" / "s.css").read_bytes(), (HERE / "assets" / "c.js").read_bytes()
+    css_src = (HERE / "assets" / "s.css").read_bytes()
+    langs = cfg["langs"]
+    foreign = [l for l in langs if l != "nl"]
+    js_text = (HERE / "assets" / "c.js").read_text(encoding="utf-8")
+    if "/*I18N*/{}" not in js_text:
+        raise RuntimeError("c.js mist de plaats voor de teksten (/*I18N*/{}).")
+    js_src = js_text.replace("/*I18N*/{}", json.dumps({l: i18n.js_strings(l) for l in langs}, ensure_ascii=False,
+                                                       separators=(",", ":"))).encode("utf-8")
     css_name = f"s.{hashlib.sha1(css_src).hexdigest()[:8]}.css"
     js_name = f"c.{hashlib.sha1(js_src).hexdigest()[:8]}.js"
     _write(out_dir, css_name, css_src)
@@ -430,6 +490,30 @@ def build_site(raw_books, out_dir, cfg=None, *, mode="full", imported_order_ids=
         with Image.open(logo_file) as im:
             logo = (lname, im.size[0], im.size[1])
 
+    # ---- vertalen (DeepL, met geheugen); nieuwste boeken eerst, zodat een beperkt budget daar het meest oplevert
+    tr = translator
+    if tr and foreign:
+        labels = sorted({b["c1_label"] for b in books} | {b["c2_label"] for b in books if b["c2_label"]})
+        tr.ensure(labels + ([cfg["tagline"]] if cfg["tagline_custom"] else []), foreign)
+        if cfg["translate_books"]:
+            for i in range(0, len(books), 40):
+                if tr.stopped:
+                    rest = [b.get(k) for b in books[i:] for k in ("short", "long") if (b.get(k) or "").strip()]
+                    tr.missing += len(rest) * len(foreign)
+                    tr.missing_chars += sum(len(x) for x in rest) * len(foreign)
+                    break
+                tr.ensure([x for b in books[i:i + 40] for x in (b.get("short"), b.get("long")) if x and x.strip()], foreign)
+        else:
+            log("Boekbeschrijvingen worden niet vertaald (WEBSHOP_TRANSLATE_BOOKS staat niet aan); alleen de categorienamen gaan via DeepL.")
+        log(tr.summary())
+        stats["translation"] = tr.summary()
+    book_tr = tr if cfg["translate_books"] else None
+
+    def cat_label(label, lang):
+        if lang == "nl" or not tr:
+            return label
+        return tr.get(label, lang) or label
+
     # ---- categorieën
     tree = {}
     for b in books:
@@ -439,63 +523,71 @@ def build_site(raw_books, out_dir, cfg=None, *, mode="full", imported_order_ids=
             s = c["subs"].setdefault(b["c2_slug"], {"label": b["c2_label"], "slug": b["c2_slug"], "books": []})
             s["books"].append(b)
     top = sorted(tree.values(), key=lambda c: c["label"].lower())
-    # Knoppen onder de zoekbalk: als een hoofdcategorie subcategorieën heeft, tonen we die (bijv. Fotografie) en niet
-    # de hoofdcategorie zelf (Hobby). Boeken zonder subcategorie houden een knop met de hoofdcategorie.
-    buttons = []
-    for c in top:
-        if not c["subs"]:
-            buttons.append({"label": c["label"], "slug": c["slug"], "count": len(c["books"])})
-            continue
-        for s in c["subs"].values():
-            buttons.append({"label": s["label"], "slug": s["slug"], "count": len(s["books"]),
-                            "href": f"/categorie/{c['slug']}/{s['slug']}/"})
-        rest = sum(1 for b in c["books"] if not b["c2_slug"])
-        if rest:
-            buttons.append({"label": f"{c['label']} (overig)", "slug": c["slug"], "count": rest})
-    buttons.sort(key=lambda x: x["label"].lower())
-    site = Site(cfg, css_name, js_name, buttons, logo)
 
-    urls = ["/"]
+    urls = []
     count_pages = 0
+    for lang in langs:
+        # Knoppen onder de zoekbalk: heeft een hoofdcategorie subcategorieën, dan tonen we die (bijv. Fotografie) en niet
+        # de hoofdcategorie zelf (Hobby). Boeken zonder subcategorie houden een knop met de hoofdcategorie.
+        buttons = []
+        for c in top:
+            if not c["subs"]:
+                buttons.append({"label": cat_label(c["label"], lang), "slug": c["slug"], "count": len(c["books"])})
+                continue
+            for s in c["subs"].values():
+                buttons.append({"label": cat_label(s["label"], lang), "slug": s["slug"], "count": len(s["books"]),
+                                "href": f"/categorie/{c['slug']}/{s['slug']}/"})
+            rest = sum(1 for b in c["books"] if not b["c2_slug"])
+            if rest:
+                buttons.append({"label": f"{cat_label(c['label'], lang)} ({i18n.t('p_other', lang)})", "slug": c["slug"], "count": rest})
+        # Alleen de 25 grootste (naar aantal boeken), grootste eerst.
+        buttons.sort(key=lambda x: (-x["count"], x["label"].lower()))
+        buttons = buttons[:25]
+        tagline = None
+        if cfg["tagline_custom"]:
+            tagline = cfg["tagline"] if lang == "nl" else ((tr.get(cfg["tagline"], lang) if tr else None) or cfg["tagline"])
+        site = Site(cfg, css_name, js_name, buttons, logo, lang, tagline)
 
-    def emit(path, html):
-        nonlocal count_pages
-        _write(out_dir, _page_dir(path), html)
-        count_pages += 1
+        def emit(path, html, site=site):
+            nonlocal count_pages
+            _write(out_dir, _page_dir(site.L(path)), html)
+            count_pages += 1
 
-    emit("/", site.home(books[:24]))
+        emit("/", site.home(books[:24]))
+        urls.append(site.L("/"))
 
-    def listing(label, parent, base, items):
-        pages = max(1, -(-len(items) // PER_PAGE))
-        for page in range(1, pages + 1):
-            chunk = items[(page - 1) * PER_PAGE: page * PER_PAGE]
-            html = site.category(label=label, parent=parent, base=base, books=chunk, page=page, pages=pages, total=len(items))
-            emit(base if page == 1 else f"{base}pagina/{page}/", html)
-        urls.append(base)
+        def listing(label, parent, base, items, site=site):
+            pages = max(1, -(-len(items) // PER_PAGE))
+            for page in range(1, pages + 1):
+                chunk = items[(page - 1) * PER_PAGE: page * PER_PAGE]
+                html = site.category(label=label, parent=parent, base=base, books=chunk, page=page, pages=pages, total=len(items))
+                emit(base if page == 1 else f"{base}pagina/{page}/", html)
+            urls.append(site.L(base))
 
-    for c in top:
-        base = f"/categorie/{c['slug']}/"
-        listing(c["label"], None, base, c["books"])
-        for s in sorted(c["subs"].values(), key=lambda s: s["label"].lower()):
-            listing(s["label"], {"label": c["label"], "slug": c["slug"]}, f"{base}{s['slug']}/", s["books"])
+        for c in top:
+            base = f"/categorie/{c['slug']}/"
+            listing(cat_label(c["label"], lang), None, base, c["books"])
+            for s in sorted(c["subs"].values(), key=lambda s: s["label"].lower()):
+                listing(cat_label(s["label"], lang), {"label": cat_label(c["label"], lang), "slug": c["slug"]},
+                        f"{base}{s['slug']}/", s["books"])
 
-    # sub-categorie krijgt bij het boek ook een kruimelpad
-    for b in books:
-        chain = [(b["c1_label"], f"/categorie/{b['c1_slug']}/")]
-        if b["c2_slug"]:
-            chain.append((b["c2_label"], f"/categorie/{b['c1_slug']}/{b['c2_slug']}/"))
-        emit(b["path"], site.book(b, chain))
-        urls.append(b["path"])
+        for b in books:
+            chain = [(cat_label(b["c1_label"], lang), f"/categorie/{b['c1_slug']}/")]
+            if b["c2_slug"]:
+                chain.append((cat_label(b["c2_label"], lang), f"/categorie/{b['c1_slug']}/{b['c2_slug']}/"))
+            emit(b["path"], site.book(b, _book_loc(b, lang, book_tr, cat_label), chain))
+            urls.append(site.L(b["path"]))
 
-    emit("/zoeken/", site.search_page())
-    emit("/winkelwagen/", site.cart_page())
-    emit("/afrekenen/", site.checkout_page())
-    emit("/bedankt/", site.thanks_page())
-    for slug, title in (("voorwaarden", "Voorwaarden en verzending"), ("privacy", "Privacy")):
-        tpl = (HERE / "content" / f"{slug}.html").read_text(encoding="utf-8")
-        emit(f"/{slug}/", site.content_page(title, f"/{slug}/", _fill(tpl, cfg)))
-        urls.append(f"/{slug}/")
-    _write(out_dir, "404.html", site.not_found())
+        emit("/zoeken/", site.search_page())
+        emit("/winkelwagen/", site.cart_page())
+        emit("/afrekenen/", site.checkout_page())
+        emit("/bedankt/", site.thanks_page())
+        for slug, key in (("voorwaarden", "p_terms"), ("privacy", "p_privacy")):
+            tpl = _content_template(slug, lang)
+            emit(f"/{slug}/", site.content_page(i18n.t(key, lang), f"/{slug}/", _fill(tpl, cfg, lang)))
+            urls.append(site.L(f"/{slug}/"))
+        if lang == "nl":
+            _write(out_dir, "404.html", site.not_found())
 
     # ---- sitemap, robots, htaccess
     base_url = cfg["base_url"]
@@ -503,9 +595,8 @@ def build_site(raw_books, out_dir, cfg=None, *, mode="full", imported_order_ids=
     sm += [f"<url><loc>{base_url}{u}</loc></url>" for u in urls]
     sm.append("</urlset>")
     _write(out_dir, "sitemap.xml", "".join(sm))
-    _write(out_dir, "robots.txt", "User-agent: *\nDisallow: /zoeken/\nDisallow: /winkelwagen/\nDisallow: /afrekenen/\nDisallow: /bedankt/\n"
-                                  "Disallow: /*.php\n"
-                                  f"Sitemap: {base_url}/sitemap.xml\n")
+    disallow = "".join(f"Disallow: {i18n.localize(p, l)}\n" for l in langs for p in ("/zoeken/", "/winkelwagen/", "/afrekenen/", "/bedankt/"))
+    _write(out_dir, "robots.txt", "User-agent: *\n" + disallow + "Disallow: /*.php\n" + f"Sitemap: {base_url}/sitemap.xml\n")
     _write(out_dir, ".htaccess", HTACCESS)
 
     # ---- PHP en data
@@ -515,6 +606,7 @@ def build_site(raw_books, out_dir, cfg=None, *, mode="full", imported_order_ids=
             raise RuntimeError(f"PHP-bestand ontbreekt: {src}")
         _write(out_dir, name, src.read_bytes())
     _write(out_dir, "norm.php", norm_php())
+    _write(out_dir, "i18n.php", i18n_php(cfg))
     _write(out_dir, "config.php", config_php(cfg))
     _write(out_dir, f"{data_dir}/.htaccess", DATA_HTACCESS)
     write_catalog(out_dir / data_dir / "catalog.sqlite", books, imported_order_ids, cfg, built_at)
