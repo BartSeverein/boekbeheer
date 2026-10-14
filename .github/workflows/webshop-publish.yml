@@ -1,0 +1,80 @@
+name: Webshop bouwen en uploaden
+
+# Neemt betaalde webshop-bestellingen over in de voorraad, bouwt de statische site en zet wat veranderd is via SFTP online.
+#   modus "catalog": alleen de boekenlijst (voorraad, prijzen) bijwerken — snel, bedoeld voor elke 15-30 minuten via cron-job.org.
+#   modus "full"   : alles (nieuwe boekpagina's, categorieën, afbeeldingen) — bijvoorbeeld 1x per dag, of na grote wijzigingen.
+# Zonder echt_uitvoeren = "ja" is het een proefrun die niets verandert.
+# Voorbeeld voor cron-job.org (POST naar .../actions/workflows/webshop-publish.yml/dispatches):
+#   {"ref":"main","inputs":{"modus":"catalog","echt_uitvoeren":"ja","trigger_source":"cron-job.org"}}
+on:
+  workflow_dispatch:
+    inputs:
+      modus:
+        description: "catalog (snel, alleen voorraad/prijzen) of full (alles)"
+        required: false
+        type: string
+        default: "catalog"
+      echt_uitvoeren:
+        description: "Typ 'ja' om echt te bouwen en te uploaden; anders een proefrun"
+        required: false
+        type: string
+        default: "nee"
+      max_minuten:
+        description: "Maximale looptijd voor afbeeldingen en upload (de volgende run gaat verder)"
+        required: false
+        type: string
+        default: "120"
+      trigger_source:
+        description: "Wordt door cron-job.org meegestuurd om een geplande run te herkennen"
+        required: false
+        type: string
+        default: ""
+
+concurrency:
+  group: webshop-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Webshop publiceren
+        run: python main.py webshop-publish "${{ github.event.inputs.modus }}" "${{ github.event.inputs.echt_uitvoeren }}" "${{ github.event.inputs.max_minuten }}"
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          BOEKWINKELTJES_ENV: ${{ secrets.BOEKWINKELTJES_ENV }}
+          BOEKWINKELTJES_API_KEY_SANDBOX: ${{ secrets.BOEKWINKELTJES_API_KEY_SANDBOX }}
+          BOEKWINKELTJES_API_KEY_LIVE: ${{ secrets.BOEKWINKELTJES_API_KEY_LIVE }}
+          WEBSHOP_SFTP_HOST: ${{ secrets.WEBSHOP_SFTP_HOST }}
+          WEBSHOP_SFTP_PORT: ${{ secrets.WEBSHOP_SFTP_PORT }}
+          WEBSHOP_SFTP_USER: ${{ secrets.WEBSHOP_SFTP_USER }}
+          WEBSHOP_SFTP_PASS: ${{ secrets.WEBSHOP_SFTP_PASS }}
+          WEBSHOP_SFTP_ROOT: ${{ secrets.WEBSHOP_SFTP_ROOT }}
+          WEBSHOP_ALLOW_OVERWRITE: ${{ secrets.WEBSHOP_ALLOW_OVERWRITE }}
+          WEBSHOP_DATA_KEY: ${{ secrets.WEBSHOP_DATA_KEY }}
+          WEBSHOP_MOLLIE_API_KEY: ${{ secrets.WEBSHOP_MOLLIE_API_KEY }}
+          WEBSHOP_BASE_URL: ${{ secrets.WEBSHOP_BASE_URL }}
+          WEBSHOP_NAME: ${{ secrets.WEBSHOP_NAME }}
+          WEBSHOP_TAGLINE: ${{ secrets.WEBSHOP_TAGLINE }}
+          WEBSHOP_CONTACT_EMAIL: ${{ secrets.WEBSHOP_CONTACT_EMAIL }}
+          WEBSHOP_OWNER_NAME: ${{ secrets.WEBSHOP_OWNER_NAME }}
+          WEBSHOP_ADDRESS: ${{ secrets.WEBSHOP_ADDRESS }}
+          WEBSHOP_KVK: ${{ secrets.WEBSHOP_KVK }}
+          WEBSHOP_VAT: ${{ secrets.WEBSHOP_VAT }}
+          WEBSHOP_PHONE: ${{ secrets.WEBSHOP_PHONE }}
+          WEBSHOP_DEFAULT_SHIPPING_CENTS: ${{ secrets.WEBSHOP_DEFAULT_SHIPPING_CENTS }}
+          WEBSHOP_EXTRA_PER_BOOK_CENTS: ${{ secrets.WEBSHOP_EXTRA_PER_BOOK_CENTS }}
+          WEBSHOP_FREE_SHIPPING_FROM_CENTS: ${{ secrets.WEBSHOP_FREE_SHIPPING_FROM_CENTS }}
+          WEBSHOP_COUNTRIES: ${{ secrets.WEBSHOP_COUNTRIES }}
+          TRIGGER_SOURCE: ${{ github.event.inputs.trigger_source }}
+          PYTHONUNBUFFERED: "1"
