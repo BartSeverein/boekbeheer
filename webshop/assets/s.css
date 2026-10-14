@@ -6,7 +6,8 @@ a{color:var(--acc)}
 img{max-width:100%;height:auto;display:block}
 header,main,footer{max-width:62rem;margin:0 auto;padding:.75rem 1rem}
 header{display:flex;flex-wrap:wrap;gap:.5rem 1rem;align-items:center;border-bottom:1px solid var(--line)}
-.brand{font-weight:700;font-size:1.15rem;text-decoration:none;color:var(--fg)}
+.brand{font-weight:700;font-size:1.15rem;text-decoration:none;color:var(--fg);display:flex;align-items:center}
+.brand img{display:block;height:2.4rem;width:auto;border-radius:.3rem}
 header form{flex:1 1 14rem;display:flex;gap:.4rem}
 input,select,textarea,button{font:inherit;color:inherit}
 input,select,textarea{width:100%;padding:.5rem;border:1px solid var(--line);border-radius:.4rem;background:var(--bg)}
