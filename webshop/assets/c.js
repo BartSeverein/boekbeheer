@@ -5,8 +5,8 @@
   var LANG = document.documentElement.lang || 'nl', T = I18N[LANG] || I18N.nl || {};
   var KEY = 'cart1', body = document.body;
   var D = body.dataset, EXTRA = +D.extra || 0, FREE = +D.free || 0, DEF = +D.def || 395;
-  var P = {}, CS = {};
-  try { P = JSON.parse(D.p || '{}'); CS = JSON.parse(D.cs || '{}'); } catch (e) {}
+  var P = {}, RT = {};
+  try { P = JSON.parse(D.p || '{}'); RT = JSON.parse(D.rt || '{}'); } catch (e) {}
 
   var ICON_DEL = '<svg class="i" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false"><path d="M9 3v1H4v2h1v13a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V6h1V4h-5V3zM7 6h10v13H7zm2 2v9h2V8zm4 0v9h2V8z"/></svg>';
   function fmt(s, o) { return String(s || '').replace(/\{(\w+)\}/g, function (m, k) { return o && o[k] != null ? o[k] : m; }); }
@@ -29,15 +29,15 @@
       return neg + (big ? String(e).replace(/\B(?=(\d{3})+(?!\d))/g, LANG === 'fr' ? ' ' : '.') : e) + ',' + r + ' €';
     return neg + '€ ' + (big ? String(e).replace(/\B(?=(\d{3})+(?!\d))/g, '.') : e) + ',' + r;
   }
-  // Zelfde regel als in lib.php (shipping_for): hoogste verzendprijs + toeslag per extra boek + toeslag per land;
-  // gratis verzenden vanaf een bedrag geldt alleen voor Nederland.
+  // Zelfde regel als in lib.php (shipping_for): tarief van het land (klein pakje, of groot als één boek groot is)
+  // + toeslag per extra boek; OTHER geldt voor landen zonder eigen tarief. Gratis verzenden geldt alleen voor Nederland.
   function totals(c, country) {
     country = country || 'NL';
-    var sub = 0, ship = 0, n = 0;
-    c.forEach(function (i) { sub += i.p * i.q; n += i.q; if (i.s > ship) ship = i.s; });
+    var sub = 0, big = 0, n = 0;
+    c.forEach(function (i) { sub += i.p * i.q; n += i.q; if (i.g) big = 1; });
     if (!n) return { sub: 0, ship: 0, total: 0 };
-    ship += EXTRA * (n - 1);
-    if (country !== 'NL') ship += CS[country] || 0;
+    var rate = RT[country] || RT.OTHER || RT.NL || [DEF, DEF];
+    var ship = rate[big] + EXTRA * (n - 1);
     if (FREE && sub >= FREE && country === 'NL') ship = 0;
     return { sub: sub, ship: ship, total: sub + ship };
   }
@@ -62,7 +62,7 @@
     add.addEventListener('click', function () {
       var c = load(), it = c.filter(function (x) { return x.id === +d.id; })[0];
       if (it) { if (it.q < +d.max) it.q++; }
-      else c.push({ id: +d.id, t: d.title, p: +d.price, s: +d.ship, u: d.url, m: +d.max, q: 1 });
+      else c.push({ id: +d.id, t: d.title, p: +d.price, s: +d.ship, g: +d.big || 0, u: d.url, m: +d.max, q: 1 });
       save(c); refresh();
       var m = $('added'); if (m) m.hidden = false;
     });
@@ -90,7 +90,7 @@
       var t = totals(c);
       cartEl.appendChild(h('table', {}, tb));
       cartEl.appendChild(h('p', { text: T.books + ': ' + eur(t.sub) + ' · ' + T.shipping + ': ' + (t.ship ? eur(t.ship) : T.free) }));
-      if (Object.keys(CS).length) cartEl.appendChild(h('p', { class: 'small', text: T.abroad }));
+      if (Object.keys(RT).length > 1) cartEl.appendChild(h('p', { class: 'small', text: T.abroad }));
       cartEl.appendChild(h('p', { class: 'price', text: T.total + ': ' + eur(t.total) }));
       cartEl.appendChild(h('a', { class: 'btn', href: P.checkout || '/afrekenen/', text: T.checkout }));
     };
@@ -126,7 +126,7 @@
             save(load().filter(function (x) { return r.unavailable.indexOf(x.id) < 0; })); paint();
           }
           if (r.prices) {
-            var cc = load(); cc.forEach(function (i) { if (r.prices[i.id]) { i.p = r.prices[i.id].p; i.s = r.prices[i.id].s; } }); save(cc); paint();
+            var cc = load(); cc.forEach(function (i) { if (r.prices[i.id]) { i.p = r.prices[i.id].p; i.s = r.prices[i.id].s; i.g = r.prices[i.id].g; } }); save(cc); paint();
           }
           msg.textContent = r.error || T.oops; btn.disabled = !load().length;
         }).catch(function () { msg.textContent = T.noconn; btn.disabled = false; });
