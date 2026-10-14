@@ -23,6 +23,7 @@ Gebruik:
     python main.py backfill-shipping-format [real] [briefpost pakketpost]   # eenmalig: verzendformaat bij Boekwinkeltjes vullen (zonder 'real' een proefrun)
     python main.py update-legacy-shipping-cost [real] [briefpost]   # eenmalig: oude briefpost-verzendkosten (3,75/1,40) naar de huidige briefpost (zonder 'real' een proefrun)
     python main.py compare-main-images [aantal]   # alleen lezen: vergelijkt eerdere en huidige foto's per boek, schrijft hoofdafbeelding_controle.csv
+    python main.py webshop-publish <full|catalog> [ja] [max_minuten]   # webshop: orders overnemen, site bouwen, via SFTP uploaden (zonder 'ja' een proefrun)
     python main.py send-daily-csv-export  # stuurt een e-mail met boeken.csv en orders.csv als back-up
 """
 
@@ -182,6 +183,22 @@ def main():
         limit = int(sys.argv[3]) if len(sys.argv) > 3 and sys.argv[3].strip() else None
         for line in sync.fix_main_images(execute=execute, limit=limit, skip_ids=_ids(4), only_ids=_ids(5)):
             print(line)
+    elif command == "webshop-publish":
+        # Webshop: betaalde webshop-bestellingen overnemen, site bouwen en via SFTP uploaden.
+        # Gebruik: python main.py webshop-publish <full|catalog> <ja|nee> [max_minuten]
+        # Zonder 'ja' is het een proefrun: er wordt niets verwerkt of geüpload.
+        from webshop.publish import publish
+        mode = sys.argv[2] if len(sys.argv) > 2 else "full"
+        if mode not in ("full", "catalog"):
+            print("Eerste argument moet 'full' of 'catalog' zijn.")
+            sys.exit(2)
+        execute = len(sys.argv) > 3 and sys.argv[3].lower() in ("ja", "yes", "true", "1")
+        minutes = int(sys.argv[4]) if len(sys.argv) > 4 else 120
+        print("PROEFRUN: er wordt niets gewijzigd." if not execute else f"ECHTE RUN ({mode}).")
+        result = publish(mode=mode, execute=execute, max_minutes=minutes)
+        print(result)
+        if execute and result.get("failed"):
+            sys.exit(1)
     elif command == "weekly-stock-snapshot":
         # Legt het aantal actieve titels/exemplaren (totaal en op Bol) vast voor de weekgrafieken op Home.
         for line in sync.take_weekly_stock_snapshot():
