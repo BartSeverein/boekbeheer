@@ -22,84 +22,136 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 MANIFEST = ".shop-manifest.json"
-WORKERS = max(1, int(os.environ.get("WEBSHOP_SFTP_WORKERS") or 4))
+WORKERS = max(1, int(os.environ.get("WEBSHOP_SFTP_WORKERS") or 2))
 
 
 class DeployError(Exception):
     pass
 
 
-class SftpRemote:
-    """Dunne laag om een paramiko-SFTP-verbinding. 'factory' levert per thread een eigen SFTP-client."""
+def _is_conn_error(e):
+    """Verbindingsproblemen (herstelbaar door opnieuw te verbinden) versus gewone bestandsfouten (bestaat niet, geen rechten)."""
+    import socket
+    try:
+        import paramiko
+        ssh_errors = (paramiko.SSHException,)
+    except ImportError:  # in tests zonder paramiko
+        ssh_errors = ()
+    if isinstance(e, (EOFError, socket.timeout) + ssh_errors):
+        return True
+    if isinstance(e, OSError):
+        return e.errno in (None, 32, 54, 104, 110)   # geen errno / broken pipe / reset by peer / timeout
+    return False
 
-    def __init__(self, factory, root="."):
+
+class SftpRemote:
+    """
+    Dunne laag om een paramiko-SFTP-verbinding. 'factory' levert een SFTP-client voor de huidige verbinding, 'reset' bouwt
+    de verbinding opnieuw op (een verbinding die lang stil staat, bijvoorbeeld tijdens het bouwen, wordt door veel
+    servers verbroken). Elke bewerking wordt bij een verbindingsfout na opnieuw verbinden herhaald.
+    """
+
+    def __init__(self, factory, root=".", reset=None):
         self._factory = factory
+        self._reset_fn = reset
         self._local = threading.local()
+        self._lock = threading.Lock()
+        self._gen = 0
         self.root = root.rstrip("/") or "."
         self._dirs = set()
 
     @property
     def sftp(self):
-        if not hasattr(self._local, "c"):
+        if getattr(self._local, "gen", None) != self._gen or not hasattr(self._local, "c"):
+            self._local.gen = self._gen
             self._local.c = self._factory()
         return self._local.c
+
+    def _run(self, fn, attempts=4):
+        last = None
+        for i in range(attempts):
+            gen = self._gen
+            try:
+                return fn(self.sftp)
+            except Exception as e:
+                if not _is_conn_error(e):
+                    raise
+                last = e
+                time.sleep(min(2 * i, 6))
+                with self._lock:
+                    if self._gen == gen and self._reset_fn:   # de eerste thread die het merkt verbindt opnieuw
+                        try:
+                            self._reset_fn()
+                        except Exception as e2:
+                            last = e2
+                        self._gen += 1
+        raise last
 
     def _p(self, rel):
         return posixpath.join(self.root, rel) if self.root not in ("", ".") else rel
 
     def exists(self, rel):
-        try:
-            self.sftp.stat(self._p(rel))
-            return True
-        except IOError:
-            return False
+        def fn(c):
+            try:
+                c.stat(self._p(rel))
+                return True
+            except IOError as e:
+                if e.errno == 2:
+                    return False
+                raise
+        return self._run(fn)
 
     def read_bytes(self, rel):
-        try:
-            with self.sftp.open(self._p(rel), "rb") as fh:
-                return fh.read()
-        except IOError:
-            return None
+        def fn(c):
+            try:
+                with c.open(self._p(rel), "rb") as fh:
+                    return fh.read()
+            except IOError as e:
+                if e.errno == 2:
+                    return None
+                raise
+        return self._run(fn)
 
-    def _mkdirs(self, rel_dir):
-        if rel_dir in ("", "."):
+    def _mkdirs(self, c, rel_dir):
+        if rel_dir in ("", ".") or rel_dir in self._dirs:
             return
-        cache = self._dirs
-        if rel_dir in cache:
-            return
-        parent = posixpath.dirname(rel_dir)
-        self._mkdirs(parent)
+        self._mkdirs(c, posixpath.dirname(rel_dir))
         try:
-            self.sftp.stat(self._p(rel_dir))
+            c.stat(self._p(rel_dir))
         except IOError:
             try:
-                self.sftp.mkdir(self._p(rel_dir))
+                c.mkdir(self._p(rel_dir))
             except IOError:
-                self.sftp.stat(self._p(rel_dir))   # bestond intussen (andere thread); anders echte fout
-        cache.add(rel_dir)
+                c.stat(self._p(rel_dir))   # bestond intussen (andere thread); anders echte fout
+        self._dirs.add(rel_dir)
 
     def put(self, rel, data=None, local_path=None):
-        self._mkdirs(posixpath.dirname(rel))
-        tmp = self._p(rel) + ".part"
-        if local_path is not None:
-            self.sftp.put(str(local_path), tmp)
-        else:
-            with self.sftp.open(tmp, "wb") as fh:
-                fh.write(data)
-        try:
-            self.sftp.posix_rename(tmp, self._p(rel))
-        except (IOError, AttributeError):
+        def fn(c):
+            self._mkdirs(c, posixpath.dirname(rel))
+            tmp = self._p(rel) + ".part"
+            if local_path is not None:
+                c.put(str(local_path), tmp)
+            else:
+                with c.open(tmp, "wb") as fh:
+                    fh.write(data)
             try:
-                self.sftp.remove(self._p(rel))
-            except IOError:
-                pass
-            self.sftp.rename(tmp, self._p(rel))
+                c.posix_rename(tmp, self._p(rel))
+            except (IOError, AttributeError):
+                try:
+                    c.remove(self._p(rel))
+                except IOError:
+                    pass
+                c.rename(tmp, self._p(rel))
+        return self._run(fn)
 
     def delete(self, rel):
-        try:
-            self.sftp.remove(self._p(rel))
-        except IOError:
-            pass
+        def fn(c):
+            try:
+                c.remove(self._p(rel))
+            except IOError as e:
+                if e.errno != 2:
+                    raise
+        return self._run(fn)
 
     def close(self):
         pass
@@ -132,26 +184,43 @@ def connect_from_env():
     if os.environ.get("WEBSHOP_SFTP_DEBUG") == "1":
         import logging
         logging.basicConfig(level=logging.DEBUG)
-    try:
-        transport = paramiko.Transport((host, port))
-        transport.banner_timeout = 30
-        transport.connect(username=user, password=password, pkey=pkey)
-    except Exception as e:
-        raise DeployError(f"Verbinden met {host}:{port} als {user} mislukt: {type(e).__name__}: {e}")
-    if not transport.is_authenticated():
-        raise DeployError("Inloggen is niet gelukt (de server heeft de sleutel of het wachtwoord niet geaccepteerd).")
-    server_version = transport.remote_version
+    state = {}
+
+    def open_transport():
+        try:
+            transport = paramiko.Transport((host, port))
+            transport.banner_timeout = 30
+            transport.connect(username=user, password=password, pkey=pkey)
+        except Exception as e:
+            raise DeployError(f"Verbinden met {host}:{port} als {user} mislukt: {type(e).__name__}: {e}")
+        if not transport.is_authenticated():
+            raise DeployError("Inloggen is niet gelukt (de server heeft de sleutel of het wachtwoord niet geaccepteerd).")
+        state["transport"] = transport
+        state["version"] = transport.remote_version
+
+    def reset():
+        old = state.get("transport")
+        try:
+            if old:
+                old.close()
+        except Exception:
+            pass
+        open_transport()
+
+    open_transport()
 
     def factory():
         try:
-            return paramiko.SFTPClient.from_transport(transport)
+            return paramiko.SFTPClient.from_transport(state["transport"])
         except Exception as e:
+            if _is_conn_error(e):
+                raise   # verbinding weg: SftpRemote verbindt opnieuw
             raise DeployError(
-                f"Ingelogd, maar de server wil geen SFTP-sessie openen ({type(e).__name__}: {e}). Server: {server_version}. "
+                f"Ingelogd, maar de server wil geen SFTP-sessie openen ({type(e).__name__}: {e}). Server: {state.get('version')}. "
                 "Mogelijke oorzaken: SFTP staat niet aan voor deze gebruiker, of de server staat maar één sessie tegelijk toe "
                 "(zet dan WEBSHOP_SFTP_WORKERS=1).")
 
-    return SftpRemote(factory, os.environ.get("WEBSHOP_SFTP_ROOT") or ".")
+    return SftpRemote(factory, os.environ.get("WEBSHOP_SFTP_ROOT") or ".", reset=reset)
 
 
 def sha1_file(path):
@@ -174,6 +243,16 @@ def read_manifest(remote):
 
 def write_manifest(remote, files):
     remote.put(MANIFEST, data=json.dumps({"files": files, "saved": int(time.time())}, separators=(",", ":")).encode())
+
+
+def save_manifest(remote, files, log=print):
+    """Schrijft het manifest weg; een mislukte poging stopt de deploy niet (de voortgang wordt bij de volgende batch bewaard)."""
+    try:
+        write_manifest(remote, files)
+        return True
+    except Exception as e:
+        log(f"  waarschuwing: manifest opslaan mislukt ({type(e).__name__}: {e})")
+        return False
 
 
 def _priority(rel):
@@ -239,20 +318,27 @@ def deploy(remote, dist_dir, *, mode="full", execute=False, keep=(), time_budget
     failed, uploaded, lock = [], [0], threading.Lock()
     stopped = [False]
 
+    consecutive = [0]
+
     def work(item):
         rel, path, h = item
         if stopped[0] or (deadline and time.time() > deadline):
             stopped[0] = True
             return None
-        for attempt in range(3):
+        err = None
+        for attempt in range(2):
             try:
                 remote.put(rel, local_path=path)
+                consecutive[0] = 0
                 return (rel, h)
-            except Exception as e:  # netwerkhik: opnieuw proberen
+            except Exception as e:
                 err = e
                 time.sleep(1 + attempt)
         with lock:
-            failed.append(f"{rel}: {err}")
+            failed.append(f"{rel}: {type(err).__name__}: {err}")
+            consecutive[0] += 1
+            if consecutive[0] >= 10:   # de server is er niet meer: niet de hele lijst nutteloos afwerken
+                stopped[0] = True
         return None
 
     # Batches, zodat het manifest regelmatig wordt weggeschreven (een afgebroken run kan dan verder).
@@ -266,7 +352,7 @@ def deploy(remote, dist_dir, *, mode="full", execute=False, keep=(), time_budget
                 if res:
                     files_state[res[0]] = res[1]
                     uploaded[0] += 1
-            write_manifest(remote, files_state)
+            save_manifest(remote, files_state, log)
             if stopped[0]:
                 break
             if start and start % 2000 == 0:
@@ -290,7 +376,7 @@ def deploy(remote, dist_dir, *, mode="full", execute=False, keep=(), time_budget
                 remote.delete(rel)
                 files_state.pop(rel, None)
                 deleted += 1
-    write_manifest(remote, files_state)
+    save_manifest(remote, files_state, log)
     log(f"Klaar: {uploaded[0]} geüpload, {deleted} verwijderd, {len(failed)} mislukt" + ("" if complete else " — NIET compleet, volgende run gaat verder."))
     for f in failed[:10]:
         log("  mislukt: " + f)
