@@ -4001,7 +4001,7 @@ def send_daily_csv_export():
         size_mb = len(zip_bytes) / 1024 / 1024
         summary = f"{len(books_rows)} boeken, {len(orders_rows)} orders, {size_mb:.1f} MB"
         can_attach = len(zip_bytes) <= EMAIL_MAX_ATTACHMENT_BYTES
-        subject = f"📚 Boekbeheersysteem: dagelijkse back-up ({today_str})"
+        subject = f"Dagelijkse back-up ({today_str})"
 
         dropbox_error = None
         stored_in_dropbox = False
@@ -4020,13 +4020,21 @@ def send_daily_csv_export():
                 dropbox_error = str(e)
 
         if stored_in_dropbox:
+            today_date = dt.date.fromisoformat(today_str)
+            if today_date.day in dropbox_backup.KEEP_DAYS_OF_MONTH:
+                retention = "Dit is een tweewekelijkse back-up die daar zal blijven staan en niet zal worden verwijderd."
+            else:
+                # Het opruimen verwijdert een back-up bij de eerste run waarop hij ouder is dan KEEP_DAYS dagen.
+                remove_on = today_date + dt.timedelta(days=dropbox_backup.KEEP_DAYS + 1)
+                retention = (f"Deze back-up blijft daar {dropbox_backup.KEEP_DAYS} dagen staan en zal dus op "
+                             f"{remove_on.strftime('%d-%m-%Y')} weer worden verwijderd.")
             body = (
-                f"De back-up van vandaag ({summary}) is opgeslagen in je Dropbox, in de map 'back-ups' van de app-map.\n"
-                f"Bestand: {filename}\n\n"
+                f"De back-up van vandaag ({summary}) is opgeslagen in je Dropbox, in de map 'back-ups' van de app-map. "
+                f"{retention}"
+                + (f" Vandaag {_n(pruned, 'is 1 oudere back-up', f'zijn {pruned} oudere back-ups')} opgeruimd." if pruned else "")
+                + f"\n\nBestand: {filename}\n"
                 f"Open Dropbox (inloggen vereist): {dropbox_backup.DROPBOX_FOLDER_URL}\n\n"
-                f"Er is bewust geen openbare link gemaakt, omdat de back-up persoonsgegevens van kopers bevat. "
-                f"De laatste {dropbox_backup.KEEP_DAYS} dagen blijven alle back-ups bewaard, daarna alleen die van de 1e en de 15e"
-                + (f"; {pruned} oudere {_n(pruned, 'back-up is', 'back-ups zijn')} vandaag opgeruimd." if pruned else ".")
+                f"Er is bewust geen openbare link gemaakt, omdat de back-up persoonsgegevens van kopers bevat."
             )
             if prune_error:
                 body += f"\n\nLet op: oude back-ups opruimen lukte niet ({prune_error}). Dit is geen probleem voor de back-up van vandaag."
