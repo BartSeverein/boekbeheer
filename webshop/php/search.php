@@ -8,6 +8,8 @@ $q = norm(substr((string)($_GET['q'] ?? ''), 0, 100));
 $page = max(1, min(200, (int)($_GET['page'] ?? 1)));
 if (strlen($q) < 2) { json_out(['ok' => false, 'error' => 'Vul minstens twee tekens in.'], 400); }
 $tokens = array_slice(array_unique(explode(' ', $q)), 0, 6);
+if (!extension_loaded('pdo_sqlite')) { json_out(['ok' => false, 'code' => 'no_pdo_sqlite', 'error' => 'Zoeken is nu niet mogelijk.'], 500); }
+if (!is_file(data_path('catalog.sqlite'))) { json_out(['ok' => false, 'code' => 'no_catalog', 'error' => 'Zoeken is nu niet mogelijk.'], 500); }
 try {
     $where = []; $args = [];
     foreach ($tokens as $t) { $where[] = 'instr(hay, ?) > 0'; $args[] = $t; }
@@ -28,5 +30,5 @@ try {
     json_out(['ok' => true, 'items' => $items, 'total' => $total, 'per_page' => $per], 200, 'public, max-age=60');
 } catch (Throwable $e) {
     error_log('search.php: ' . $e->getMessage());
-    json_out(['ok' => false, 'error' => 'Zoeken is nu niet mogelijk.'], 500);
+    json_out(['ok' => false, 'code' => 'exception', 'error' => 'Zoeken is nu niet mogelijk.'], 500);
 }
