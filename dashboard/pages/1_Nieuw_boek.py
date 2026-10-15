@@ -414,7 +414,7 @@ with col_a:
     else:
         publisher = chosen_publisher_option
 
-    price = st.number_input("Prijs Boekwinkeltjes (€) *", min_value=0.0, step=0.5, key=k("price"))
+    price = st.number_input("Prijs webshop en Boekwinkeltjes (€) *", min_value=0.0, step=0.5, key=k("price"))
 
     busstuk_length_cm = st.session_state.get(k("length_cm"))
     busstuk_thickness_cm = st.session_state.get(k("thickness_cm"))
@@ -433,11 +433,11 @@ with col_a:
     shipping_bw_default = st.session_state.get(k("shipping_bw_choice"), shipping_bw_fallback)
     shipping_bw_index = SHIPPING_BW_OPTIONS.index(shipping_bw_default)
     shipping_bw_choice = st.selectbox(
-        "Verzendkosten Boekwinkeltjes (€)", SHIPPING_BW_OPTIONS, index=shipping_bw_index, key=k("shipping_bw_choice")
+        "Verzendkosten webshop en Boekwinkeltjes (€)", SHIPPING_BW_OPTIONS, index=shipping_bw_index, key=k("shipping_bw_choice")
     )
     if shipping_bw_choice == "Vrije invoer":
         shipping_cost = st.number_input(
-            "Verzendkosten Boekwinkeltjes - vrij bedrag (€)",
+            "Verzendkosten webshop en Boekwinkeltjes - vrij bedrag (€)",
             min_value=0.0,
             step=0.25,
             key=k("shipping_bw_free"),
@@ -510,7 +510,7 @@ with col_b:
     )
     push_enabled_choice = st.selectbox(
         "Synchronisatie",
-        options=["Push naar Boekwinkeltjes en eventueel Bol", "Geen push (alleen lokaal bewaren)"],
+        options=["Push naar de webshop, Boekwinkeltjes en eventueel Bol", "Geen push (alleen lokaal bewaren)"],
         key=k("push_enabled"),
     )
 
@@ -609,7 +609,7 @@ if st.button(button_label, key="new_book_submit"):
                 "language": language,
                 "short_description": short_description,
                 "long_description": long_description,
-                "push_enabled": push_enabled_choice == "Push naar Boekwinkeltjes en eventueel Bol",
+                "push_enabled": push_enabled_choice == "Push naar de webshop, Boekwinkeltjes en eventueel Bol",
                 "length_cm": st.session_state.get(k("length_cm")),
                 "width_cm": st.session_state.get(k("width_cm")),
                 "thickness_cm": st.session_state.get(k("thickness_cm")),
@@ -632,7 +632,7 @@ if st.button(button_label, key="new_book_submit"):
         st.session_state.pop("new_book_prefilled_isbn", None)
         st.session_state["new_book_form_version"] = v + 1
 
-        if push_enabled_choice == "Push naar Boekwinkeltjes en eventueel Bol":
+        if push_enabled_choice == "Push naar de webshop, Boekwinkeltjes en eventueel Bol":
             st.session_state["new_book_success_msg"] = (
                 f"Boek klaargezet (tijdelijk id {temp_id}). Wordt bij de eerstvolgende "
                 "sync-runs echt aangemaakt bij Boekwinkeltjes en eventueel Bol."

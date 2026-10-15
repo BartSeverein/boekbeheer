@@ -94,11 +94,19 @@ else:
             else:
                 st.caption("Geen afbeelding beschikbaar (boek mogelijk verkocht/verwijderd vóór sync, of nog niet gesynchroniseerd).")
         with info_col1:
-            st.markdown(f"**Auteur:** {na(o['book_author'])}")
+            # Bol-orders bevatten geen auteur: dan halen we die uit het boek zelf (via boek-id, anders via ISBN).
+            _author = o["book_author"]
+            if (_author is None or pd.isna(_author) or not str(_author).strip()) and "author" in books.columns:
+                _m = books[books["id"] == o["book_id"]] if pd.notna(o["book_id"]) else books.iloc[0:0]
+                if _m.empty and pd.notna(o["book_ean"]) and str(o["book_ean"]).strip():
+                    _m = books[books["ean"].astype(str) == str(o["book_ean"]).strip()]
+                if not _m.empty and pd.notna(_m.iloc[0]["author"]):
+                    _author = _m.iloc[0]["author"]
+            st.markdown(f"**Auteur:** {na(_author)}")
             st.markdown(f"**ISBN:** {format_isbn(o['book_ean'])}")
             _loc = books.loc[books["id"] == o["book_id"], "location"] if pd.notna(o["book_id"]) and "location" in books.columns else []
             _loc = _s(_loc.iloc[0]) if len(_loc) else ""
-            st.markdown(f"**📍 Locatie:** {_loc or '–'}")
+            st.markdown(f"**Locatie:** {_loc or '–'}")
             st.markdown(f"**Prijs boek:** €{format_price(o['book_price'])}")
             st.markdown(f"**Verzendkosten:** €{format_price(o['book_shipping_cost'])}")
             st.markdown(f"**Totaal (omzet):** €{format_price(o['revenue'])}")

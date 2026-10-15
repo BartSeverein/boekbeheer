@@ -124,7 +124,7 @@ view_label = st.radio(
 )
 mode = VIEW_OPTIONS[view_label]
 show_logistics = mode != "niet_voorradig"  # locatie en verzendkosten
-price_label = "Laatste prijs Boekwinkeltjes" if mode == "niet_voorradig" else "Prijs Boekwinkeltjes"
+price_label = "Laatste prijs webshop en BW" if mode == "niet_voorradig" else "Prijs webshop en BW"
 
 if books_all.empty or mode == "alles":
     books = books_all
@@ -256,7 +256,7 @@ else:
             else:
                 st.markdown("**Prijs Bol:** niet op Bol")
             if show_logistics:
-                st.markdown(f"**Verzendkosten Boekwinkeltjes:** €{format_price(b['shipping_cost'])}")
+                st.markdown(f"**Verzendkosten webshop en BW:** €{format_price(b['shipping_cost'])}")
                 st.markdown(f"**Verzendformaat:** {shipping_format_label(b.get('shipping_format'))}")
         with info_col2:
             categories = [
@@ -549,13 +549,13 @@ else:
                             # intussen gewijzigd): terug naar de standaard voor dit boek.
                             st.session_state[shipping_bw_key] = SHIPPING_BW_OPTIONS[default_shipping_index]
                         shipping_bw_choice = st.selectbox(
-                            "Verzendkosten Boekwinkeltjes (€)",
+                            "Verzendkosten webshop en BW (€)",
                             SHIPPING_BW_OPTIONS,
                             index=default_shipping_index,
                             key=shipping_bw_key,
                         )
                         edit_shipping_cost_free = st.number_input(
-                            "Verzendkosten Boekwinkeltjes - vrij bedrag (alleen gebruikt als je hierboven 'Vrije invoer' kiest)",
+                            "Verzendkosten webshop en BW - vrij bedrag (alleen gebruikt als je hierboven 'Vrije invoer' kiest)",
                             value=current_shipping_cost,
                             step=0.25,
                             key=f"{edit_prefix}_shipping_bw_free",
