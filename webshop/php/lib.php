@@ -158,19 +158,74 @@ function mail_log($msg) {
     error_log('webshop mail: ' . $msg);
 }
 
+// Verstuurt via SMTP (als WEBSHOP_SMTP_* is ingesteld), anders via PHP mail(). Geeft true/false terug en schrijft altijd een regel in mail.log.
+function smtp_send($to, $subject, $text, $from, $fromname, $reply) {
+    $c = cfg()['smtp'] ?? [];
+    $host = $c['host'] ?? ''; $port = (int)($c['port'] ?? 587);
+    $user = $c['user'] ?? ''; $pass = $c['pass'] ?? '';
+    $fp = @stream_socket_client(($port === 465 ? 'ssl://' : 'tcp://') . $host . ':' . $port, $en, $es, 12);
+    if (!$fp) { return 'geen verbinding met ' . $host . ':' . $port . ' (' . $es . ')'; }
+    stream_set_timeout($fp, 12);
+    $read = function () use ($fp) {
+        $out = '';
+        while (($line = fgets($fp, 1024)) !== false) { $out .= $line; if (strlen($line) < 4 || $line[3] === ' ') { break; } }
+        return $out;
+    };
+    $cmd = function ($line, $ok) use ($fp, $read) {
+        if ($line !== null) { fwrite($fp, $line . "\r\n"); }
+        $r = $read();
+        $okl = array_map('strval', (array)$ok);
+        return [in_array(substr($r, 0, 3), $okl, true), trim($r)];
+    };
+    $fail = function ($msg) use ($fp) { @fwrite($fp, "QUIT\r\n"); @fclose($fp); return $msg; };
+    $r = $cmd(null, 220); if (!$r[0]) { return $fail('begroeting: ' . $r[1]); }
+    $ehlo = preg_replace('/[^a-z0-9.-]/i', '', (string)parse_url(cfg()['base_url'], PHP_URL_HOST)) ?: 'localhost';
+    $r = $cmd('EHLO ' . $ehlo, 250); if (!$r[0]) { return $fail('EHLO: ' . $r[1]); }
+    if ($port !== 465 && stripos($r[1], 'STARTTLS') !== false) {
+        $r = $cmd('STARTTLS', 220); if (!$r[0]) { return $fail('STARTTLS: ' . $r[1]); }
+        if (!@stream_socket_enable_crypto($fp, true, STREAM_CRYPTO_METHOD_TLS_CLIENT)) { return $fail('TLS mislukt'); }
+        $r = $cmd('EHLO ' . $ehlo, 250); if (!$r[0]) { return $fail('EHLO na TLS: ' . $r[1]); }
+    }
+    if ($user !== '') {
+        $r = $cmd('AUTH LOGIN', 334); if (!$r[0]) { return $fail('AUTH: ' . $r[1]); }
+        $r = $cmd(base64_encode($user), 334); if (!$r[0]) { return $fail('gebruikersnaam: ' . $r[1]); }
+        $r = $cmd(base64_encode($pass), 235); if (!$r[0]) { return $fail('inloggen mislukt: ' . $r[1]); }
+    }
+    $r = $cmd('MAIL FROM:<' . $from . '>', 250); if (!$r[0]) { return $fail('MAIL FROM: ' . $r[1]); }
+    $r = $cmd('RCPT TO:<' . $to . '>', [250, 251]); if (!$r[0]) { return $fail('RCPT TO: ' . $r[1]); }
+    $r = $cmd('DATA', 354); if (!$r[0]) { return $fail('DATA: ' . $r[1]); }
+    $msgid = bin2hex(random_bytes(8)) . '@' . $ehlo;
+    $head = "Date: " . date('r') . "\r\nMessage-ID: <" . $msgid . ">\r\nFrom: =?UTF-8?B?" . base64_encode($fromname) . "?= <" . $from . ">\r\n"
+        . "To: <" . $to . ">\r\nReply-To: " . $reply . "\r\nSubject: =?UTF-8?B?" . base64_encode($subject) . "?=\r\nMIME-Version: 1.0\r\n"
+        . "Content-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n";
+    $body = chunk_split(base64_encode($text), 76, "\r\n");
+    fwrite($fp, $head . $body . ".\r\n");
+    $r = $read();
+    if (substr($r, 0, 3) !== '250') { return $fail('verzenden: ' . trim($r)); }
+    @fwrite($fp, "QUIT\r\n"); @fclose($fp);
+    return true;
+}
+
 function send_mail($to, $subject, $text) {
     $c = cfg();
     if (!$to || !filter_var($to, FILTER_VALIDATE_EMAIL)) { mail_log('ongeldig adres: ' . $to); return false; }
     $host = preg_replace('/^www\./', '', (string)parse_url($c['base_url'], PHP_URL_HOST));
+    $reply = $c['email'] ?: ('webshop@' . $host);
+    $smtp = $c['smtp'] ?? [];
+    if (!empty($smtp['host'])) {
+        $from = $smtp['from'] ?: (strpos($smtp['user'] ?? '', '@') !== false ? $smtp['user'] : 'webshop@' . $host);
+        $res = smtp_send($to, $subject, $text, $from, $c['name'], $reply);
+        mail_log(($res === true ? 'verzonden (SMTP)' : 'MISLUKT (SMTP: ' . $res . ')') . ' aan ' . $to . ': ' . $subject);
+        return $res === true;
+    }
     // Afzender op het eigen domein: veel hosters weigeren (of markeren als spam) mail met een @gmail.com-afzender.
     $from = 'webshop@' . $host;
-    $reply = $c['email'] ?: $from;
     $name = '=?UTF-8?B?' . base64_encode($c['name']) . '?=';
     $headers = "From: " . $name . " <" . $from . ">\r\nReply-To: " . $reply . "\r\nMIME-Version: 1.0\r\n"
         . "Content-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: 8bit\r\n";
     $ok = @mail($to, '=?UTF-8?B?' . base64_encode($subject) . '?=', $text, $headers, '-f' . $from);
     if (!$ok) { $ok = @mail($to, '=?UTF-8?B?' . base64_encode($subject) . '?=', $text, $headers); }
-    mail_log(($ok ? 'verzonden' : 'MISLUKT') . ' aan ' . $to . ': ' . $subject);
+    mail_log(($ok ? 'verzonden' : 'MISLUKT') . ' (mail()) aan ' . $to . ': ' . $subject);
     return $ok;
 }
 
@@ -240,7 +295,7 @@ function deliver_order_mails($order, $lines, $attention) {
     $mailed = (int)$order['mailed'];
     $olang = pick_lang($order['lang'] ?? 'nl');
     if (!($mailed & 1)) {
-        $text = order_mail_text($order, $lines, $olang) . "\n" . tr('mail_reply', $olang) . "\n";
+        $text = order_mail_text($order, $lines, $olang) . "\n" . tr('mail_reply', $olang) . "\n\n" . tr('mail_regards', $olang) . "\n\n" . (cfg()['owner'] ?? '' ?: cfg()['name']) . "\n";
         if (send_mail($order['email'], tr('mail_subject', $olang, ['id' => $order['id']]), $text)) { $mailed |= 1; }
     }
     if (!($mailed & 2)) {

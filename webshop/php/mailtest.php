@@ -9,6 +9,7 @@ if (!hash_equals($key, (string)($_GET['k'] ?? ''))) { http_response_code(404); e
 echo "mail() beschikbaar: " . (function_exists('mail') ? 'ja' : 'NEE (uitgeschakeld door de hoster)') . "\n";
 echo "disable_functions: " . (ini_get('disable_functions') ?: '(leeg)') . "\n";
 echo "sendmail_path: " . (ini_get('sendmail_path') ?: '(leeg)') . "\n";
+echo "SMTP ingesteld: " . (!empty(cfg()['smtp']['host']) ? cfg()['smtp']['host'] . ':' . cfg()['smtp']['port'] . ' als ' . cfg()['smtp']['user'] : 'nee (alleen mail())') . "\n";
 echo "contactadres (WEBSHOP_CONTACT_EMAIL): " . (cfg()['email'] ?: '(LEEG)') . "\n";
 $to = (string)($_GET['to'] ?? '');
 if ($to !== '') {
