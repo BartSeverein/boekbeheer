@@ -74,6 +74,7 @@ jobs:
           WEBSHOP_ADDRESS: ${{ secrets.WEBSHOP_ADDRESS }}
           WEBSHOP_KVK: ${{ secrets.WEBSHOP_KVK }}
           WEBSHOP_VAT: ${{ secrets.WEBSHOP_VAT }}
+          WEBSHOP_IBAN: ${{ secrets.WEBSHOP_IBAN }}
           WEBSHOP_PHONE: ${{ secrets.WEBSHOP_PHONE }}
           WEBSHOP_DEFAULT_SHIPPING_CENTS: ${{ secrets.WEBSHOP_DEFAULT_SHIPPING_CENTS }}
           WEBSHOP_EXTRA_PER_BOOK_CENTS: ${{ secrets.WEBSHOP_EXTRA_PER_BOOK_CENTS }}
