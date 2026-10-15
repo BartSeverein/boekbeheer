@@ -75,6 +75,11 @@ jobs:
           WEBSHOP_KVK: ${{ secrets.WEBSHOP_KVK }}
           WEBSHOP_VAT: ${{ secrets.WEBSHOP_VAT }}
           WEBSHOP_IBAN: ${{ secrets.WEBSHOP_IBAN }}
+          WEBSHOP_SMTP_HOST: ${{ secrets.WEBSHOP_SMTP_HOST || secrets.SMTP_HOST }}
+          WEBSHOP_SMTP_PORT: ${{ secrets.WEBSHOP_SMTP_PORT || secrets.SMTP_PORT }}
+          WEBSHOP_SMTP_USER: ${{ secrets.WEBSHOP_SMTP_USER || secrets.SMTP_USERNAME }}
+          WEBSHOP_SMTP_PASS: ${{ secrets.WEBSHOP_SMTP_PASS || secrets.SMTP_PASSWORD }}
+          WEBSHOP_SMTP_FROM: ${{ secrets.WEBSHOP_SMTP_FROM }}
           WEBSHOP_PHONE: ${{ secrets.WEBSHOP_PHONE }}
           WEBSHOP_DEFAULT_SHIPPING_CENTS: ${{ secrets.WEBSHOP_DEFAULT_SHIPPING_CENTS }}
           WEBSHOP_EXTRA_PER_BOOK_CENTS: ${{ secrets.WEBSHOP_EXTRA_PER_BOOK_CENTS }}
