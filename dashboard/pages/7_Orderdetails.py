@@ -46,11 +46,11 @@ else:
     if search:
         s = search.strip().lower()
         mask = (
-            orders["book_title"].str.lower().str.contains(s, na=False)
-            | orders["book_ean"].fillna("").astype(str).str.lower().str.contains(s, na=False)
-            | orders["buyer_name"].fillna("").str.lower().str.contains(s, na=False)
-            | orders["buyer_last_name"].fillna("").str.lower().str.contains(s, na=False)
-            | orders["buyer_city"].fillna("").str.lower().str.contains(s, na=False)
+            orders["book_title"].str.lower().str.contains(s, na=False, regex=False)
+            | orders["book_ean"].fillna("").astype(str).str.lower().str.contains(s, na=False, regex=False)
+            | orders["buyer_name"].fillna("").str.lower().str.contains(s, na=False, regex=False)
+            | orders["buyer_last_name"].fillna("").str.lower().str.contains(s, na=False, regex=False)
+            | orders["buyer_city"].fillna("").str.lower().str.contains(s, na=False, regex=False)
         )
         filtered = orders[mask]
     else:
@@ -96,6 +96,9 @@ else:
         with info_col1:
             st.markdown(f"**Auteur:** {na(o['book_author'])}")
             st.markdown(f"**ISBN:** {format_isbn(o['book_ean'])}")
+            _loc = books.loc[books["id"] == o["book_id"], "location"] if pd.notna(o["book_id"]) and "location" in books.columns else []
+            _loc = _s(_loc.iloc[0]) if len(_loc) else ""
+            st.markdown(f"**📍 Locatie:** {_loc or '–'}")
             st.markdown(f"**Prijs boek:** €{format_price(o['book_price'])}")
             st.markdown(f"**Verzendkosten:** €{format_price(o['book_shipping_cost'])}")
             st.markdown(f"**Totaal (omzet):** €{format_price(o['revenue'])}")
