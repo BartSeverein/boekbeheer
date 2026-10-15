@@ -1,5 +1,4 @@
-:root{--bg:#fff;--fg:#1d1d1f;--mut:#5f6368;--line:#e3e3e6;--acc:#9d8df1;--acch:#8a78ee;--onacc:#fff;--acct:#5a47c8;--card:#f7f7f9}
-@media(prefers-color-scheme:dark){:root{--bg:#16181c;--fg:#ececee;--mut:#a0a4ab;--line:#2c3037;--acc:#9d8df1;--acch:#b0a3f5;--onacc:#fff;--acct:#b4a8f5;--card:#1e2126}}
+:root{color-scheme:light;--bg:#fff;--fg:#1d1d1f;--mut:#5f6368;--line:#e3e3e6;--acc:#9d8df1;--acch:#8a78ee;--onacc:#fff;--acct:#5a47c8;--card:#f7f7f9}
 *{box-sizing:border-box}
 body{margin:0;font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--fg)}
 a{color:var(--acct)}
@@ -27,14 +26,17 @@ header button{flex:none}
 nav.cats{display:flex;flex-wrap:wrap;gap:.4rem;margin:.5rem 0 1rem;padding:0;list-style:none}
 nav.cats a{display:block;padding:.2rem .7rem;border:1px solid var(--line);border-radius:1rem;text-decoration:none;color:var(--fg)}
 nav.cats a:hover{border-color:var(--acc);background:var(--card)}
-nav.crumb{font-size:.9rem;color:var(--mut);margin-bottom:.5rem}
+nav.crumb{font-size:.9rem;color:var(--mut);margin-bottom:.5rem;display:flex;flex-wrap:wrap;align-items:center;gap:.15rem .5rem;line-height:1.4}
+nav.crumb .sep{color:var(--mut)}
+nav.crumb a.il{gap:.25rem}
+nav.crumb .i{width:1.1rem;height:1.1rem}
 h1{font-size:1.6rem;line-height:1.25;margin:.5rem 0}
 h2{font-size:1.2rem;margin:1.5rem 0 .5rem}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(9.5rem,1fr));gap:1rem;list-style:none;padding:0;margin:1rem 0}
 .card a{display:block;text-decoration:none;color:inherit}
 .card .ph{aspect-ratio:2/3;display:flex;align-items:center;justify-content:center;background:var(--card);border-radius:.3rem;overflow:hidden}
 .card img{max-height:100%;width:auto;margin:0 auto}
-.card h3{font-size:.9rem;margin:.4rem 0 0;line-height:1.3;font-weight:600}
+.card h3{font-size:.9rem;margin:.4rem 0 0;line-height:1.3;font-weight:600;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;line-clamp:3;overflow:hidden;overflow-wrap:anywhere}
 .card p{margin:.1rem 0;font-size:.85rem;color:var(--mut)}
 .card .pr,.price{font-weight:700;color:var(--fg)}
 .book{display:grid;gap:1.25rem;grid-template-columns:minmax(0,1fr)}
@@ -66,3 +68,28 @@ nav.lang a{padding:.1rem .4rem;text-decoration:none;color:var(--mut)}
 nav.lang a+a{border-left:1px solid var(--line)}
 nav.lang a[aria-current]{font-weight:700;color:var(--fg)}
 .small{font-size:.875rem;opacity:.8}
+
+.share{color:var(--acct);margin-top:1.5rem;line-height:1.9}.share .i{vertical-align:-.3rem}.share a{margin-right:.25rem}
+
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.aboutme{margin-top:2rem;max-width:46rem}
+.sbtn,.sclose{display:none}
+header .cn{color:var(--mut);font-weight:600}
+@media(max-width:640px){
+header{flex-wrap:nowrap}
+header form{display:none}
+.sbtn{display:inline-flex;margin-left:auto;padding:.4rem .6rem;border-radius:.4rem;color:var(--fg)}
+.sbtn:hover{background:var(--card)}
+header #cartlabel{display:none}
+body.so::after{content:"";position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:40}
+body.so header form{display:flex;position:fixed;top:0;left:0;right:0;z-index:50;background:var(--bg);padding:.75rem 1rem;box-shadow:0 4px 16px rgba(0,0,0,.2);align-items:center}
+body.so .sclose{display:inline-flex}
+}
+
+.catbox{margin:.5rem 0 1rem}
+.catbox>label{display:none;cursor:pointer;padding:.5rem .9rem;border:1px solid var(--line);border-radius:.4rem;font-weight:600;color:var(--acct)}
+#catt:focus-visible+label{outline:2px solid var(--acct);outline-offset:2px}
+@media(max-width:640px){.catbox>label{display:inline-flex}.catbox>nav.cats{display:none;margin-top:.6rem}#catt:checked~nav.cats{display:flex}}
+input[type=search]{-webkit-appearance:none;appearance:none}
+input[type=search]::-webkit-search-decoration,input[type=search]::-webkit-search-cancel-button,input[type=search]::-webkit-search-results-button,input[type=search]::-webkit-search-results-decoration{display:none;-webkit-appearance:none}
+@media(max-width:640px){.hc{display:flex;flex-direction:column}.hc>.catbox{order:-1}}

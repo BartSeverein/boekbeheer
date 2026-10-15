@@ -17,8 +17,9 @@
   function save(c) { try { localStorage.setItem(KEY, JSON.stringify(c)); } catch (e) {} badge(); }
   function count(c) { return c.reduce(function (a, b) { return a + b.q; }, 0); }
   function badge() {
-    var el = document.getElementById('cartlabel'), n = count(load());
-    if (el) el.textContent = T.cart + (n ? ' (' + n + ')' : '');
+    var el = document.getElementById('cartlabel'), cn = document.getElementById('cartn'), n = count(load());
+    if (el) el.textContent = T.cart;
+    if (cn) cn.textContent = n ? '(' + n + ')' : '';
   }
   // Zelfde schrijfwijze als eur() in common.py: nl € 9,45 · en € 9.45 · de/fr 9,45 €
   function eur(c) {
@@ -197,5 +198,30 @@
     var links = document.querySelectorAll('nav.lang a');
     for (var li = 0; li < links.length; li++) links[li].href += location.search;
   }
+  // Zoeken op mobiel: de knop met het vergrootglas opent het zoekveld als venster (zonder JavaScript gaat de knop naar de zoekpagina).
+  var sb = document.getElementById('sbtn'), sf = document.getElementById('sform');
+  if (sb && sf) {
+    var setSearch = function (open) {
+      document.body.classList.toggle('so', open);
+      sb.setAttribute('aria-expanded', open ? 'true' : 'false');
+      if (open) { var inp = sf.querySelector('input'); if (inp) inp.focus(); } else sb.focus();
+    };
+    sb.addEventListener('click', function (e) { e.preventDefault(); setSearch(!document.body.classList.contains('so')); });
+    var sc = sf.querySelector('.sclose'); if (sc) sc.addEventListener('click', function () { setSearch(false); });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && document.body.classList.contains('so')) setSearch(false); });
+    document.addEventListener('click', function (e) {
+      if (document.body.classList.contains('so') && !sf.contains(e.target) && !sb.contains(e.target)) setSearch(false);
+    });
+  }
+
+  // Deel-knop "link": kopieert de tekst met de link; zonder JavaScript opent de link gewoon de pagina.
+  var cp = document.querySelector('.share a[data-copy]');
+  if (cp) cp.addEventListener('click', function (e) {
+    e.preventDefault();
+    var txt = cp.getAttribute('data-copy'), span = cp.querySelector('span'), old = span.textContent;
+    var done = function () { span.textContent = T.js_copied || old; setTimeout(function () { span.textContent = old; }, 2500); };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(done, function () { window.prompt('', txt); });
+    else window.prompt('', txt);
+  });
   badge();
 })();
