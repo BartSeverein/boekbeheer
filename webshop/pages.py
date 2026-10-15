@@ -104,8 +104,9 @@ class Site:
                 for c in self.categories
             ) + (f'<li><a class="more il" href="{self.L("/overige-categorieen/")}">{icon("list")}{esc(self.t("p_more_cats"))} ({self.more_cats})</a></li>'
                  if self.more_cats else "") + "</ul></nav>"
-            # Op mobiel achter een knop (details/summary, werkt zonder JavaScript); op een computer staat de wolk open (c.js).
-            cats = f'<details class="catbox"><summary class="il">{icon("list")}{esc(self.t("p_browse_cats"))}</summary>{cats}</details>'
+            # Op mobiel achter een knop (alleen CSS: selectievakje + label, werkt zonder JavaScript); op een computer staat de wolk gewoon open.
+            cats = (f'<div class="catbox"><input type="checkbox" id="catt" class="sr"><label for="catt" class="il">{icon("list")}'
+                    f'{esc(self.t("p_browse_cats"))}</label>{cats}</div>')
         if self.logo:
             brand = f'<img src="/{self.logo[0]}" width="{self.logo[1]}" height="{self.logo[2]}" alt="{esc(cfg["name"])}">'
         else:

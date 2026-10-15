@@ -355,11 +355,12 @@ def norm_php():
 
 def config_php(cfg):
     data = {
-        "base_url": cfg["base_url"], "webhook_base": cfg["webhook_base"], "name": cfg["name"], "email": cfg["contact_email"],
+        "base_url": cfg["base_url"], "webhook_base": cfg["webhook_base"], "name": cfg["name"], "owner": cfg["owner_name"], "email": cfg["contact_email"],
         "data_dir": "d-" + cfg["data_key"], "mollie_key": cfg["mollie_key"], "mollie_api_base": cfg["mollie_api_base"],
         "default_shipping_cents": cfg["default_shipping_cents"], "extra_cents": cfg["extra_per_additional_book_cents"],
         "free_from_cents": cfg["free_shipping_from_cents"], "countries": cfg["countries"], "reserve_seconds": 1800,
         "rates": cfg["shipping_rates"],
+        "smtp": {"host": cfg["smtp_host"], "port": cfg["smtp_port"], "user": cfg["smtp_user"], "pass": cfg["smtp_pass"], "from": cfg["smtp_from"]},
     }
     text = json.dumps(data, ensure_ascii=False)
     return "<?php\n// Gegenereerd door build.py (bevat geheimen: niet delen).\nreturn json_decode(<<<'JSON'\n" + text + "\nJSON\n, true);\n"
@@ -553,7 +554,8 @@ def build_site(raw_books, out_dir, cfg=None, *, mode="full", imported_order_ids=
                                 "href": f"/categorie/{c['slug']}/{s['slug']}/"})
             rest = sum(1 for b in c["books"] if not b["c2_slug"])
             if rest:
-                buttons.append({"label": cat_label(c['label'], lang), "slug": c["slug"], "count": rest})
+                buttons.append({"label": cat_label(c['label'], lang), "slug": c["slug"], "count": rest,
+                                "other": c["label"].strip().lower() == "overig"})
         # Alleen de 25 grootste (naar aantal boeken), grootste eerst.
         buttons.sort(key=lambda x: (-x["count"], x["label"].lower()))
         # "Overig" krijgt geen eigen knop: het zit in de knop "Overige categorieën" (en op die pagina, bovenaan).

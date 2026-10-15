@@ -141,5 +141,10 @@ def shop_config():
         "kvk": os.environ.get("WEBSHOP_KVK") or "",
         "vat": os.environ.get("WEBSHOP_VAT") or "",
         "iban": os.environ.get("WEBSHOP_IBAN") or "",
+        "smtp_host": (os.environ.get("WEBSHOP_SMTP_HOST") or "").strip(),
+        "smtp_port": int(os.environ.get("WEBSHOP_SMTP_PORT") or 0) or 587,
+        "smtp_user": (os.environ.get("WEBSHOP_SMTP_USER") or "").strip(),
+        "smtp_pass": os.environ.get("WEBSHOP_SMTP_PASS") or "",
+        "smtp_from": (os.environ.get("WEBSHOP_SMTP_FROM") or "").strip(),
         "phone": os.environ.get("WEBSHOP_PHONE") or "",
     }

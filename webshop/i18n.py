@@ -216,10 +216,11 @@ T = {
     "mail_ship": ("Verzendkosten", "Shipping", "Versandkosten", "Frais de port"),
     "mail_total": ("Totaal", "Total", "Gesamt", "Total"),
     "mail_addr": ("Verzendadres", "Shipping address", "Lieferadresse", "Adresse de livraison"),
-    "mail_reply": ("Vragen over je bestelling? Antwoord gewoon op deze e-mail.",
-                   "Questions about your order? Simply reply to this email.",
-                   "Fragen zu Ihrer Bestellung? Antworten Sie einfach auf diese E-Mail.",
-                   "Des questions sur votre commande ? Répondez simplement à cet e-mail."),
+    "mail_reply": ("Vragen over je bestelling? Stuur die gewoon als antwoord op deze e-mail.",
+                   "Questions about your order? Just send them as a reply to this email.",
+                   "Fragen zu Ihrer Bestellung? Senden Sie diese einfach als Antwort auf diese E-Mail.",
+                   "Des questions sur votre commande ? Envoyez-les simplement en réponse à cet e-mail."),
+    "mail_regards": ("Met vriendelijke groet,", "Kind regards,", "Mit freundlichen Grüßen", "Cordialement,"),
 }
 
 # Padnamen: sleutel -> (nl, en, de, fr)
