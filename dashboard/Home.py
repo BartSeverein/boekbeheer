@@ -268,7 +268,9 @@ with orders_tab:
             lambda p: PLATFORM_EMOJI.get(p, "🔵") + p
         )
 
-        order_cols = ["order_date", "platform", "status", "book_title", "book_ean", "revenue", "koper"]
+        _locs = books.drop_duplicates("id").set_index("id")["location"] if "location" in books.columns else {}
+        orders_sorted["location"] = orders_sorted["book_id"].map(_locs).fillna("") if len(_locs) else ""
+        order_cols = ["order_date", "platform", "status", "book_title", "location", "book_ean", "revenue", "koper"]
         orders_display = orders_sorted[order_cols].copy()
         orders_display["order_date"] = orders_display["order_date"].apply(format_order_datetime)
         orders_display["revenue"] = orders_display["revenue"].apply(format_price)
@@ -280,6 +282,7 @@ with orders_tab:
                 "platform": "Met",
                 "status": "Status",
                 "book_title": "Titel",
+                "location": "Locatie",
                 "book_ean": "ISBN",
                 "revenue": "Prijs",
                 "koper": "Koper",
