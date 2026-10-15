@@ -68,6 +68,12 @@ function db_shop() {
         $db->exec('CREATE INDEX IF NOT EXISTS ol_order ON order_lines(order_id)');
         $db->exec('CREATE TABLE IF NOT EXISTS ratelimit (ip TEXT NOT NULL, ts INTEGER NOT NULL)');
         $db->exec('CREATE INDEX IF NOT EXISTS rl_ip ON ratelimit(ip, ts)');
+        // Bestelnummers beginnen bij 2048 (ziet er minder nieuw uit voor klanten); alleen omhoog, nooit omlaag.
+        try {
+            $seq = $db->query("SELECT seq FROM sqlite_sequence WHERE name = 'orders'")->fetchColumn();
+            if ($seq === false) { $db->exec("INSERT INTO sqlite_sequence(name, seq) VALUES ('orders', 2047)"); }
+            elseif ((int)$seq < 2047) { $db->exec("UPDATE sqlite_sequence SET seq = 2047 WHERE name = 'orders'"); }
+        } catch (Throwable $e) {}
         // Oudere shop.sqlite zonder taalkolom: bijwerken (twee gelijktijdige verzoeken: de tweede krijgt een fout die we negeren).
         $cols = [];
         foreach ($db->query('PRAGMA table_info(orders)')->fetchAll() as $r) { $cols[] = $r['name']; }
@@ -146,12 +152,26 @@ function mollie_request($method, $path, $body = null) {
     return [$code, json_decode($resp, true), $err];
 }
 
+function mail_log($msg) {
+    $line = date('Y-m-d H:i:s') . ' ' . $msg . "\n";
+    @file_put_contents(data_path('mail.log'), $line, FILE_APPEND | LOCK_EX);
+    error_log('webshop mail: ' . $msg);
+}
+
 function send_mail($to, $subject, $text) {
     $c = cfg();
-    if (!$to || !filter_var($to, FILTER_VALIDATE_EMAIL)) { return false; }
-    $from = $c['email'] ?: ('webshop@' . parse_url($c['base_url'], PHP_URL_HOST));
-    $headers = "From: " . $c['name'] . " <" . $from . ">\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\n";
-    return @mail($to, '=?UTF-8?B?' . base64_encode($subject) . '?=', $text, $headers);
+    if (!$to || !filter_var($to, FILTER_VALIDATE_EMAIL)) { mail_log('ongeldig adres: ' . $to); return false; }
+    $host = preg_replace('/^www\./', '', (string)parse_url($c['base_url'], PHP_URL_HOST));
+    // Afzender op het eigen domein: veel hosters weigeren (of markeren als spam) mail met een @gmail.com-afzender.
+    $from = 'webshop@' . $host;
+    $reply = $c['email'] ?: $from;
+    $name = '=?UTF-8?B?' . base64_encode($c['name']) . '?=';
+    $headers = "From: " . $name . " <" . $from . ">\r\nReply-To: " . $reply . "\r\nMIME-Version: 1.0\r\n"
+        . "Content-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: 8bit\r\n";
+    $ok = @mail($to, '=?UTF-8?B?' . base64_encode($subject) . '?=', $text, $headers, '-f' . $from);
+    if (!$ok) { $ok = @mail($to, '=?UTF-8?B?' . base64_encode($subject) . '?=', $text, $headers); }
+    mail_log(($ok ? 'verzonden' : 'MISLUKT') . ' aan ' . $to . ': ' . $subject);
+    return $ok;
 }
 
 function eur_text($cents, $lang = 'nl') {
@@ -180,7 +200,10 @@ function sync_payment($order) {
     $new = $order['status'];
     if ($mstatus === 'paid') { $new = 'paid'; }
     elseif (in_array($mstatus, ['failed', 'expired', 'canceled'], true) && $order['status'] === 'open') { $new = $mstatus; }
-    if ($new === $order['status']) { return $new; }
+    if ($new === $order['status']) {
+        if ($new === 'paid' && (int)$order['mailed'] < 3 && time() - (int)$order['paid_at'] < 3 * 86400) { retry_order_mails($order); }
+        return $new;
+    }
     if ($new === 'paid') {
         $paid_ok = (($pay['amount']['currency'] ?? '') === 'EUR') && (($pay['amount']['value'] ?? '') === number_format($order['total_cents'] / 100, 2, '.', ''));
         $db->beginTransaction();
@@ -203,19 +226,37 @@ function sync_payment($order) {
             $fresh = $db->prepare('SELECT * FROM orders WHERE id = ?');
             $fresh->execute([$order['id']]);
             $fresh = $fresh->fetch();
-            if ($fresh && !$fresh['mailed']) {
-                $db->prepare('UPDATE orders SET mailed = 1 WHERE id = ?')->execute([$order['id']]);
-                $olang = pick_lang($fresh['lang'] ?? 'nl');
-                $text = order_mail_text($fresh, $lines, $olang) . "\n" . tr('mail_reply', $olang) . "\n";
-                send_mail($fresh['email'], tr('mail_subject', $olang, ['id' => $order['id']]), $text);
-                // De eigenaar krijgt de bestelling altijd in het Nederlands, met de taal van de klant erbij.
-                send_mail(cfg()['email'], 'Nieuwe bestelling #' . $order['id'] . ($attention ? ' — LET OP' : ''),
-                    order_mail_text($fresh, $lines, 'nl') . "\nE-mail klant: " . $fresh['email'] . "\nTaal klant: " . strtoupper($olang) . "\n"
-                    . ($attention ? "\nLET OP: " . implode('; ', $attention) . "\n" : ''));
-            }
+            if ($fresh) { deliver_order_mails($fresh, $lines, $attention); }
         }
         return 'paid';
     }
     $db->prepare("UPDATE orders SET status = ? WHERE id = ? AND status = 'open'")->execute([$new, $order['id']]);
     return $new;
+}
+
+// mailed is een bitmasker: 1 = klantmail verzonden, 2 = eigenaarmail verzonden. Alleen een gelukte verzending telt.
+function deliver_order_mails($order, $lines, $attention) {
+    $db = db_shop();
+    $mailed = (int)$order['mailed'];
+    $olang = pick_lang($order['lang'] ?? 'nl');
+    if (!($mailed & 1)) {
+        $text = order_mail_text($order, $lines, $olang) . "\n" . tr('mail_reply', $olang) . "\n";
+        if (send_mail($order['email'], tr('mail_subject', $olang, ['id' => $order['id']]), $text)) { $mailed |= 1; }
+    }
+    if (!($mailed & 2)) {
+        // De eigenaar krijgt de bestelling altijd in het Nederlands, met de taal van de klant erbij.
+        $att = $attention ?: ($order['attention'] ? [$order['attention']] : []);
+        $ok = send_mail(cfg()['email'], 'Nieuwe bestelling #' . $order['id'] . ($att ? ' — LET OP' : ''),
+            order_mail_text($order, $lines, 'nl') . "\nE-mail klant: " . $order['email'] . "\nTaal klant: " . strtoupper($olang) . "\n"
+            . ($att ? "\nLET OP: " . implode('; ', $att) . "\n" : ''));
+        if ($ok) { $mailed |= 2; }
+    }
+    $db->prepare('UPDATE orders SET mailed = ? WHERE id = ?')->execute([$mailed, $order['id']]);
+}
+
+function retry_order_mails($order) {
+    $db = db_shop();
+    $lines = $db->prepare('SELECT * FROM order_lines WHERE order_id = ?');
+    $lines->execute([$order['id']]);
+    deliver_order_mails($order, $lines->fetchAll(), []);
 }
