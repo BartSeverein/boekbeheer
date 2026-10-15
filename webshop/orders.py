@@ -6,6 +6,14 @@ precies één keer omlaag (stock_adjusted) en de nieuwe voorraad gaat naar Boekw
 """
 import datetime as dt
 import sqlite3
+from zoneinfo import ZoneInfo
+
+AMS = ZoneInfo("Europe/Amsterdam")
+
+
+def local_time(ts):
+    """Unix-tijd -> Nederlandse kloktijd zonder tijdzone (zelfde formaat als Bol en Boekwinkeltjes)."""
+    return dt.datetime.fromtimestamp(ts, AMS).strftime("%Y-%m-%d %H:%M:%S")
 
 WEBSHOP_ID_BASE = 3_000_000_000   # orders.id = -(BASE + shop_order_id * 1000 + eenheid_nr)
 
@@ -57,8 +65,15 @@ def import_shop_orders(conn, shop_db_path, execute=True, update_book=None, log=p
     if not execute:
         return new_orders, 0, attention
 
+    # Eerder overgenomen bestellingen stonden in UTC (2 uur te vroeg): elke run opnieuw gelijk zetten met de echte betaaltijd.
+    for o, line, pid, first in rows:
+        if pid in have:
+            with conn.cursor() as cur:
+                cur.execute("UPDATE orders SET order_date = %(d)s WHERE id = %(id)s AND order_date IS DISTINCT FROM %(d)s",
+                            {"d": local_time(o["paid_at"] or o["created_at"]), "id": pid})
+
     for o, line, pid, first in todo:
-        paid = dt.datetime.fromtimestamp(o["paid_at"] or o["created_at"], dt.timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        paid = local_time(o["paid_at"] or o["created_at"])
         note = (o.get("note") or "").strip()
         with conn.cursor() as cur:
             cur.execute(

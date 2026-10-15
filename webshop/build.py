@@ -521,9 +521,10 @@ def build_site(raw_books, out_dir, cfg=None, *, mode="full", imported_order_ids=
     book_tr = tr if (cfg["translate_books"] or cfg["translate_short"]) else None
 
     def cat_label(label, lang):
-        if lang == "nl" or not tr:
-            return label
-        return tr.get(label, lang) or label
+        if lang != "nl" and tr:
+            label = tr.get(label, lang) or label
+        label = (label or "").strip()
+        return label[:1].upper() + label[1:]   # altijd met hoofdletter, ook als de bron dat niet heeft
 
     # ---- categorieën
     tree = {}
@@ -543,7 +544,8 @@ def build_site(raw_books, out_dir, cfg=None, *, mode="full", imported_order_ids=
         buttons = []
         for c in top:
             if not c["subs"]:
-                buttons.append({"label": cat_label(c["label"], lang), "slug": c["slug"], "count": len(c["books"])})
+                buttons.append({"label": cat_label(c["label"], lang), "slug": c["slug"], "count": len(c["books"]),
+                                "other": c["label"].strip().lower() == "overig"})
                 continue
             for s in c["subs"].values():
                 buttons.append({"label": cat_label(s["label"], lang), "slug": s["slug"], "count": len(s["books"]),
@@ -553,12 +555,15 @@ def build_site(raw_books, out_dir, cfg=None, *, mode="full", imported_order_ids=
                 buttons.append({"label": cat_label(c['label'], lang), "slug": c["slug"], "count": rest})
         # Alleen de 25 grootste (naar aantal boeken), grootste eerst.
         buttons.sort(key=lambda x: (-x["count"], x["label"].lower()))
-        rest_buttons = buttons[25:]
+        # "Overig" krijgt geen eigen knop: het zit in de knop "Overige categorieën" (en op die pagina, bovenaan).
+        others = [x for x in buttons if x.get("other")]
+        buttons = [x for x in buttons if not x.get("other")]
+        rest_buttons = others + buttons[25:]
         buttons = buttons[:25]
         tagline = None
         if cfg["tagline_custom"]:
             tagline = cfg["tagline"] if lang == "nl" else ((tr.get(cfg["tagline"], lang) if tr else None) or cfg["tagline"])
-        site = Site(cfg, css_name, js_name, buttons, logo, lang, tagline, more_cats=len(rest_buttons))
+        site = Site(cfg, css_name, js_name, buttons, logo, lang, tagline, more_cats=sum(x['count'] for x in rest_buttons))
 
         def emit(path, html, site=site):
             nonlocal count_pages
@@ -615,7 +620,7 @@ def build_site(raw_books, out_dir, cfg=None, *, mode="full", imported_order_ids=
     _write(out_dir, ".htaccess", HTACCESS)
 
     # ---- PHP en data
-    for name in ("lib.php", "checkout.php", "search.php", "webhook.php", "status.php"):
+    for name in ("lib.php", "checkout.php", "search.php", "webhook.php", "status.php", "mailtest.php"):
         src = HERE / "php" / name
         if not src.exists():
             raise RuntimeError(f"PHP-bestand ontbreekt: {src}")
