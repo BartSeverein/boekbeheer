@@ -306,7 +306,8 @@ def _fill(template, cfg, lang="nl"):
         items.append(f"{other_t} ({others}): {eur(rates['OTHER'][0], lang)} / {eur(rates['OTHER'][1], lang)}")
     abroad = abroad_t.replace("{klein}", small_t).replace("{groot}", large_t).replace("{lijst}", "; ".join(items)) if items else ""
     values = {
-        "naam": cfg["name"] + "<br>", "eigenaar": line(cfg["owner_name"]), "adres": line(cfg["address"]),
+        "naam": cfg["name"] + "<br>", "eigenaar": line(cfg["owner_name"] or cfg["name"]),   # eenmanszaak: alleen de naam van de eigenaar
+        "iban": line("IBAN: " + cfg["iban"]) if cfg["iban"] else "", "adres": line(cfg["address"]),
         "kvk": line(kvk_t.format(cfg["kvk"])) if cfg["kvk"] else "", "btw": line(vat_t.format(cfg["vat"])) if cfg["vat"] else "",
         "telefoon": line(tel_t.format(cfg["phone"])) if cfg["phone"] else "", "email": cfg["contact_email"] or "info@example.invalid",
         "landen": ", ".join(i18n.country_name(c, lang) for c in cfg["countries"]), "toeslag": extra, "gratis": free,

@@ -7,6 +7,7 @@ Alle paden die hier binnenkomen zijn Nederlandse paden (/boek/x-1/); `Site.L()` 
 import html
 import json
 import re
+from urllib.parse import quote
 
 from . import i18n
 from .common import eur
@@ -67,6 +68,7 @@ class Site:
         head = [
             f'<!doctype html><html lang="{lang}"><head><meta charset="utf-8">',
             '<meta name="viewport" content="width=device-width,initial-scale=1">',
+            '<meta name="color-scheme" content="light">',
             f"<title>{esc(full_title)}</title>",
             f'<meta name="description" content="{esc(trim(desc, 158))}">',
             f'<link rel="canonical" href="{esc(self.url(my_path))}">',
@@ -102,6 +104,8 @@ class Site:
                 for c in self.categories
             ) + (f'<li><a class="more il" href="{self.L("/overige-categorieen/")}">{icon("list")}{esc(self.t("p_more_cats"))} ({self.more_cats})</a></li>'
                  if self.more_cats else "") + "</ul></nav>"
+            # Op mobiel achter een knop (details/summary, werkt zonder JavaScript); op een computer staat de wolk open (c.js).
+            cats = f'<details class="catbox"><summary class="il">{icon("list")}{esc(self.t("p_browse_cats"))}</summary>{cats}</details>'
         if self.logo:
             brand = f'<img src="/{self.logo[0]}" width="{self.logo[1]}" height="{self.logo[2]}" alt="{esc(cfg["name"])}">'
         else:
@@ -116,10 +120,12 @@ class Site:
             switch = f'<nav class="lang" aria-label="{esc(self.t("p_lang"))}">{"".join(items)}</nav>'
         header = (
             f'<body {data}>{switch}<header><a class="brand" href="{self.L("/")}">{brand}</a>'
-            f'<form action="{self.L("/zoeken/")}" method="get" role="search">'
+            f'<a href="{self.L("/zoeken/")}" id="sbtn" class="sbtn" aria-label="{esc(self.t("p_search"))}" aria-controls="sform" aria-expanded="false">{icon("search")}</a>'
+            f'<form id="sform" action="{self.L("/zoeken/")}" method="get" role="search">'
             f'<input type="search" name="q" placeholder="{esc(self.t("p_search_ph"))}" aria-label="{esc(self.t("p_search"))}" minlength="2" required>'
-            f'<button type="submit" aria-label="{esc(self.t("p_search_btn"))}" title="{esc(self.t("p_search_btn"))}">{icon("search")}</button></form>'
-            f'<a href="{self.L("/winkelwagen/")}" id="cartlink" class="il" rel="nofollow">{icon("cart")}<span id="cartlabel">{esc(self.t("p_cart"))}</span></a></header><main>'
+            f'<button type="submit" aria-label="{esc(self.t("p_search_btn"))}" title="{esc(self.t("p_search_btn"))}">{icon("search")}</button>'
+            f'<button type="button" class="sclose ghost" aria-label="{esc(self.t("p_close"))}">{icon("close")}</button></form>'
+            f'<a href="{self.L("/winkelwagen/")}" id="cartlink" class="il" rel="nofollow">{icon("cart")}<span id="cartlabel">{esc(self.t("p_cart"))}</span><span id="cartn" class="cn"></span></a></header><main>'
         )
         footer = (
             f'</main><footer><a href="{self.L("/voorwaarden/")}" class="il">{icon("info")}{esc(self.t("p_terms"))}</a>'
@@ -129,6 +135,8 @@ class Site:
             + "</footer>"
         )
         script = f'<script src="/{self.js}" defer></script>' if scripts else ""
+        if "<!--CATS-->" in body:   # de beginpagina zet de categorieën tussen "Nieuw binnen" en "Over mij"
+            body, cats = body.replace("<!--CATS-->", cats), ""
         return "".join(head) + header + cats + body + footer + script + "</body></html>"
 
     # ---- kaartjes en paginering ----
@@ -156,14 +164,20 @@ class Site:
 
     def _crumbs(self, crumbs):
         last = len(crumbs) - 1
-        return f'<nav class="crumb" aria-label="{esc(self.t("p_crumb"))}">' + " › ".join(
-            (f'<a href="{self.L(u)}" class="il">{icon("home") if i == 0 else ""}{esc(t)}</a>' if i < last else esc(trim(t, 60)))
-            for i, (t, u) in enumerate(crumbs)) + "</nav>"
+        items = []
+        for i, (t, u) in enumerate(crumbs):
+            if i < last:
+                items.append(f'<a href="{self.L(u)}" class="il">{icon("home") if i == 0 else ""}{esc(t)}</a>')
+            else:
+                items.append(f'<span>{esc(trim(t, 60))}</span>')
+        sep = '<span class="sep" aria-hidden="true">›</span>'
+        return f'<nav class="crumb" aria-label="{esc(self.t("p_crumb"))}">' + sep.join(items) + "</nav>"
 
     # ---- pagina's ----
     def home(self, newest):
         cfg = self.cfg
-        body = (f"<h1>{esc(cfg['name'])}</h1><p>{esc(self.tagline)}</p><h2>{esc(self.t('p_newest'))}</h2>" + self.grid(newest))
+        body = (f'<div class="hc"><h1 class="sr">{esc(cfg["name"])}</h1><h2>{esc(self.t("p_newest"))}</h2>' + self.grid(newest)
+                + "<!--CATS-->" + f'<section class="aboutme"><h2>{esc(self.t("p_about_me"))}</h2><p>{esc(self.t("p_about_me_text"))}</p></section></div>')
         ld = [{
             "@context": "https://schema.org", "@type": "BookStore", "name": cfg["name"], "url": self.url(self.L("/")),
             "description": self.tagline,
@@ -173,7 +187,7 @@ class Site:
             "inLanguage": self.lang,
         }]
         return self.layout(title=f"{cfg['name']} - {self.t('p_title_suffix')}", desc=self.tagline, path="/", body=body, ld=ld,
-                           show_cats=True, scripts=False)
+                           show_cats=True)
 
     def more_categories_page(self, rest):
         """Alle categorieën die niet in de wolk op de beginpagina staan (de kleinste), gesorteerd op aantal boeken."""
@@ -182,7 +196,7 @@ class Site:
         items = "".join(
             f'<li><a href="{self.L(c.get("href") or "/categorie/" + c["slug"] + "/")}">{esc(c["label"])} ({c["count"]})</a></li>' for c in rest)
         body = nav + f'<h1>{esc(title)}</h1><p>{esc(self.t("p_more_cats_intro"))}</p><nav class="cats" aria-label="{esc(title)}"><ul class="cats" style="display:contents;list-style:none;padding:0;margin:0">{items}</ul></nav>'
-        return self.layout(title=title, desc=self.t("p_more_cats_intro"), path="/overige-categorieen/", body=body, scripts=False)
+        return self.layout(title=title, desc=self.t("p_more_cats_intro"), path="/overige-categorieen/", body=body)
 
     def category(self, *, label, parent, base, books, page, pages, total):
         crumbs = [(self.t("p_home"), "/")]
@@ -203,7 +217,7 @@ class Site:
             "isPartOf": {"@type": "WebSite", "name": self.cfg["name"], "url": self.url(self.L("/"))},
         }]
         desc = self.t("p_cat_desc", label=label, total=total, suffix=suffix, shop=self.cfg["name"])
-        return self.layout(title=f"{label}{suffix} - {self.t('p_title_suffix')}", desc=desc, path=path, body=body, ld=ld, scripts=False)
+        return self.layout(title=f"{label}{suffix} - {self.t('p_title_suffix')}", desc=desc, path=path, body=body, ld=ld)
 
     def book(self, b, loc, category_chain):
         """b: boek; loc: teksten in deze taal {short, long, short_fb, long_fb, category_label, language}; fb = Nederlandse terugval."""
@@ -246,11 +260,18 @@ class Site:
             f'data-ship="{b["ship_cents"]}" data-big="{b["big"]}" data-max="{b["amount"]}" data-url="{path}">{icon("cart_plus")}<span>{esc(self.t("p_add"))}</span></button></p>'
             f'<p id="added" hidden><a href="{self.L("/winkelwagen/")}" class="il">{icon("cart")}{esc(self.t("p_view_cart"))}</a></p>'
         )
+        my_url = self.url(self.L(path))
+        share_text = quote(self.t("p_share_msg") + my_url, safe="")
+        share = (
+            f'<p class="share">{icon("share")} {esc(self.t("p_share_lead"))} '
+            f'<a href="https://wa.me/?text={share_text}" target="_blank" rel="noopener">{icon("whatsapp")} {esc(self.t("p_share_wa"))}</a> '
+            f'<a href="mailto:?subject={quote(b["title"], safe="")}&amp;body={share_text}">{icon("mail_open")} {esc(self.t("p_share_mail"))}</a><br>'
+            f'<a href="{esc(my_url)}" data-copy="{esc(self.t("p_share_msg") + my_url)}">{icon("link")} <span>{esc(self.t("p_share_link"))}</span></a></p>'
+        )
         body = nav + f"<article class=\"book\"><div>{gallery}</div><div><h1>{esc(b['title'])}</h1>" + \
             (f"<p>{esc(b['author'])}</p>" if b.get("author") else "") + buy + (f"<dl>{''.join(rows)}</dl>" if rows else "") + \
-            (f"<h2>{esc(self.t('p_about_nl' if loc.get('long_fb') and self.lang != 'nl' else 'p_about'))}</h2>{desc_html}" if desc_html else "") + "</div></article>"
+            (f"<h2>{esc(self.t('p_about_nl' if loc.get('long_fb') and self.lang != 'nl' else 'p_about'))}</h2>{desc_html}" if desc_html else "") + share + "</div></article>"
 
-        my_url = self.url(self.L(path))
         image_urls = [self.url(i["detail"][0]) for i in imgs]
         product = {
             "@context": "https://schema.org", "@type": ["Product", "Book"], "@id": my_url + "#boek",

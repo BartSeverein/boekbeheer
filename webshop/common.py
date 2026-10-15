@@ -140,5 +140,6 @@ def shop_config():
         "address": os.environ.get("WEBSHOP_ADDRESS") or "",
         "kvk": os.environ.get("WEBSHOP_KVK") or "",
         "vat": os.environ.get("WEBSHOP_VAT") or "",
+        "iban": os.environ.get("WEBSHOP_IBAN") or "",
         "phone": os.environ.get("WEBSHOP_PHONE") or "",
     }
