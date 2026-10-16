@@ -3,10 +3,11 @@ pages/7_Orderdetails.py — Aparte pagina om één order in detail te bekijken, 
 """
 
 import pandas as pd
+import psycopg2
 import streamlit as st
 from pathlib import Path
 
-from common import load_books, load_orders, get_all_image_urls, format_price, format_order_status, format_payment_status, format_datetime_nl, format_order_datetime, format_isbn, render_logo, require_login, na
+from common import get_db_url, load_books, load_orders, get_all_image_urls, format_price, format_order_status, format_payment_status, format_datetime_nl, format_order_datetime, format_isbn, render_logo, require_login, na
 
 
 def _s(value):
@@ -116,8 +117,30 @@ else:
             st.markdown(f"**Datum:** {format_order_datetime(o['order_date'])}")
             st.markdown(f"**Notitie:** {_s(o['note']) or '–'}")
 
+        # Webshop-bestellingen krijgen hun status nergens anders: hier zet je ze op verstuurd (of weer terug).
+        if _s(o.get("platform")) == "Webshop":
+            _shop_nr = (-int(o["id"]) - 3_000_000_000) // 1000
+            _lo, _hi = -(3_000_000_000 + _shop_nr * 1000 + 999), -(3_000_000_000 + _shop_nr * 1000)
+            _shipped = o["status"] == "shipped_paid"
+            _label = "↩️ Zet terug op 'Wachten op verzending'" if _shipped else "📦 Markeer als verstuurd"
+            if st.button(_label, key=f"ship_{o['id']}"):
+                _new = "wait_for_shipping" if _shipped else "shipped_paid"
+                _conn = psycopg2.connect(get_db_url())
+                try:
+                    with _conn.cursor() as _cur:
+                        _cur.execute(
+                            "UPDATE orders SET status = %(s)s WHERE platform = 'Webshop' AND id BETWEEN %(lo)s AND %(hi)s",
+                            {"s": _new, "lo": _lo, "hi": _hi},
+                        )
+                    _conn.commit()
+                finally:
+                    _conn.close()
+                load_orders.clear()
+                st.session_state["preselect_order_id"] = o["id"]
+                st.rerun()
+
         st.markdown("**Koper:**")
-        buyer_name = _s(o["buyer_name"]) or f"{_s(o['buyer_first_name'])} {_s(o['buyer_last_name'])}".strip()
+        buyer_name =_s(o["buyer_name"]) or f"{_s(o['buyer_first_name'])} {_s(o['buyer_last_name'])}".strip()
         st.write(buyer_name or "—")
         st.write(_s(o["buyer_email"]) or "—")
         st.write(_s(o["buyer_phone"]) or "—")
