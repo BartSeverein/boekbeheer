@@ -27,7 +27,25 @@ render_logo(Path(__file__).parent.parent / "assets" / "logo_mail.png")
 require_login()
 st.title("🛒 Orderdetails")
 
+_PLATFORM_NAMES = {"Webshop": "Webshop", "Bol": "Bol", "BW": "Boekwinkeltjes", "": "Boekwinkeltjes"}
+
+
+def _set_webshop_status(lo, hi, new):
+    """Zet de status in de database en onthoudt hem in de sessie, zodat de pagina direct klopt zonder alles opnieuw te laden."""
+    conn = psycopg2.connect(get_db_url())
+    try:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE orders SET status = %(s)s WHERE platform = 'Webshop' AND id BETWEEN %(lo)s AND %(hi)s",
+                        {"s": new, "lo": lo, "hi": hi})
+        conn.commit()
+    finally:
+        conn.close()
+    st.session_state.setdefault("status_override", {})[(lo, hi)] = new
+
+
 books, orders = load_books(), load_orders()
+for (_lo_, _hi_), _new_ in st.session_state.get("status_override", {}).items():
+    orders.loc[(orders["platform"] == "Webshop") & orders["id"].between(_lo_, _hi_), "status"] = _new_
 
 preselect_id = st.session_state.pop("preselect_order_id", None)
 
@@ -113,6 +131,7 @@ else:
             st.markdown(f"**Totaal (omzet):** €{format_price(o['revenue'])}")
         with info_col2:
             st.markdown(f"**Status:** {format_order_status(o['status'])}")
+            st.markdown(f"**Waar:** {_PLATFORM_NAMES.get(_s(o.get('platform')), 'Boekwinkeltjes')}")
             st.markdown(f"**Betaalstatus:** {format_payment_status(o['online_payment_status'])}")
             st.markdown(f"**Datum:** {format_order_datetime(o['order_date'])}")
             st.markdown(f"**Notitie:** {_s(o['note']) or '–'}")
@@ -123,21 +142,9 @@ else:
             _lo, _hi = -(3_000_000_000 + _shop_nr * 1000 + 999), -(3_000_000_000 + _shop_nr * 1000)
             _shipped = o["status"] == "shipped_paid"
             _label = "↩️ Zet terug op 'Wachten op verzending'" if _shipped else "📦 Markeer als verstuurd"
-            if st.button(_label, key=f"ship_{o['id']}"):
-                _new = "wait_for_shipping" if _shipped else "shipped_paid"
-                _conn = psycopg2.connect(get_db_url())
-                try:
-                    with _conn.cursor() as _cur:
-                        _cur.execute(
-                            "UPDATE orders SET status = %(s)s WHERE platform = 'Webshop' AND id BETWEEN %(lo)s AND %(hi)s",
-                            {"s": _new, "lo": _lo, "hi": _hi},
-                        )
-                    _conn.commit()
-                finally:
-                    _conn.close()
-                load_orders.clear()
-                st.session_state["preselect_order_id"] = o["id"]
-                st.rerun()
+            st.write("")
+            st.button(_label, key=f"ship_{o['id']}", on_click=_set_webshop_status,
+                      args=(_lo, _hi, "wait_for_shipping" if _shipped else "shipped_paid"))
 
         st.markdown("**Koper:**")
         buyer_name =_s(o["buyer_name"]) or f"{_s(o['buyer_first_name'])} {_s(o['buyer_last_name'])}".strip()
