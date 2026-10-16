@@ -266,7 +266,7 @@ class Site:
         share = (
             f'<p class="share">{icon("share")} {esc(self.t("p_share_lead"))} '
             f'<a href="https://wa.me/?text={share_text}" target="_blank" rel="noopener">{icon("whatsapp")} {esc(self.t("p_share_wa"))}</a> '
-            f'<a href="mailto:?subject={quote(b["title"], safe="")}&amp;body={share_text}">{icon("mail_open")} {esc(self.t("p_share_mail"))}</a><br>'
+            f'<a href="mailto:?subject={quote(b["title"], safe="")}&amp;body={share_text}">{icon("mail_open")} {esc(self.t("p_share_mail"))}</a> '
             f'<a href="{esc(my_url)}" data-copy="{esc(self.t("p_share_msg") + my_url)}">{icon("link")} <span>{esc(self.t("p_share_link"))}</span></a></p>'
         )
         body = nav + f"<article class=\"book\"><div>{gallery}</div><div><h1>{esc(b['title'])}</h1>" + \

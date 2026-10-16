@@ -74,7 +74,7 @@ def load_from_postgres(conn):
         cur.execute(
             """
             SELECT id, title, author, COALESCE(NULLIF(publisher_name, ''), publisher) AS publisher, ean, language,
-                   short_description, long_description, price, shipping_cost, amount, category1, category2, listing_date
+                   short_description, long_description, price, shipping_cost, amount, category1, category2, listing_date, location
             FROM books
             WHERE COALESCE(amount, 0) > 0 AND COALESCE(pending_create, FALSE) = FALSE AND COALESCE(queued, FALSE) = FALSE
               AND price IS NOT NULL AND price > 0 AND COALESCE(title, '') <> ''
@@ -420,7 +420,7 @@ def write_catalog(path, books, imported_ids, cfg, built_at):
         con.executescript(
             """
             CREATE TABLE books (id INTEGER PRIMARY KEY, title TEXT, author TEXT, isbn TEXT, price_cents INTEGER,
-                ship_cents INTEGER, big INTEGER, amount INTEGER, path TEXT, img TEXT, iw INTEGER, ih INTEGER, hay TEXT, tnorm TEXT, seq INTEGER);
+                ship_cents INTEGER, big INTEGER, amount INTEGER, path TEXT, img TEXT, iw INTEGER, ih INTEGER, hay TEXT, tnorm TEXT, seq INTEGER, location TEXT);
             CREATE INDEX books_seq ON books(seq);
             CREATE TABLE imported_orders (id INTEGER PRIMARY KEY);
             CREATE TABLE meta (k TEXT PRIMARY KEY, v TEXT);
@@ -431,8 +431,8 @@ def write_catalog(path, books, imported_ids, cfg, built_at):
             th = b.get("thumb")
             hay = " " + norm(" ".join(filter(None, [b["title"], b["author"], b.get("publisher")]))) + " " + (b["isbn"] or "").lower() + " "
             rows.append((b["id"], b["title"], b["author"], b["isbn"], b["price_cents"], b["ship_cents"], b["big"], b["amount"], b["path"],
-                         th[0] if th else None, th[1] if th else None, th[2] if th else None, hay, norm(b["title"]), b["seq"]))
-        con.executemany("INSERT INTO books VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
+                         th[0] if th else None, th[1] if th else None, th[2] if th else None, hay, norm(b["title"]), b["seq"], b.get("location")))
+        con.executemany("INSERT INTO books VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
         con.executemany("INSERT INTO imported_orders VALUES (?)", [(int(i),) for i in sorted(imported_ids)])
         con.executemany("INSERT INTO meta VALUES (?,?)", [("built_at", built_at), ("count", str(len(rows)))])
         con.commit()
