@@ -14,7 +14,7 @@ from pathlib import Path
 from .build import build_site, load_from_postgres
 from .common import shop_config
 from .deploy import (DeployError, connect_from_env, deploy, manifest_views, read_manifest)
-from .orders import import_shop_orders
+from .orders import import_shop_orders, sync_intime_status
 
 
 def _download_shop_db(remote, cfg, log):
@@ -63,6 +63,12 @@ def publish(mode="full", execute=False, max_minutes=120, allow_overwrite=False, 
                 import sync
                 sync._log(conn, "pull", "orders", "error", "\n".join(attention), platform="Webshop")
                 conn.commit()
+            if cfg.get("intime_key"):
+                try:
+                    n_ship = sync_intime_status(conn, shop_db, cfg["intime_key"], execute=execute, log=log)
+                    log(f"Intime: {n_ship} webshop-bestelling(en) op 'verstuurd' gezet.")
+                except Exception as exc:  # een storing bij Intime mag het bijwerken van de webshop nooit tegenhouden
+                    log(f"Intime-terugkoppeling overgeslagen: {exc}")
             os.unlink(shop_db)
         else:
             log("Nog geen shop.sqlite op de server (nog geen bestellingen).")

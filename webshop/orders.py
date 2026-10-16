@@ -34,6 +34,56 @@ def read_paid_orders(shop_db_path):
     return orders
 
 
+def sync_intime_status(conn, shop_db_path, key, execute=True, log=print, get=None):
+    """
+    Terugkoppeling van Intime: zodra daar voor een webshop-bestelling een label is gemaakt (er is dan een track-and-trace-code),
+    gaat de bestelling in het dashboard van 'Wachten op verzending' naar 'Verstuurd en betaald' en komt de code in de notitie.
+    Alleen bestellingen die nog op 'Wachten op verzending' staan worden aangepast; een handmatige keuze blijft dus staan.
+    Geeft het aantal bijgewerkte bestellingen terug.
+    """
+    if not key:
+        return 0
+    if get is None:
+        import requests
+
+        def get(url):
+            r = requests.get(url, headers={"X-API-KEY": key, "Accept": "application/json"}, timeout=20)
+            return r.status_code, (r.json() if r.ok else None)
+    changed = 0
+    for o in read_paid_orders(shop_db_path):
+        sid = o.get("intime_id")
+        if not sid:
+            continue
+        units = [-(WEBSHOP_ID_BASE + o["id"] * 1000 + k) for k in range(sum(int(l["qty"]) for l in o["lines"]))]
+        if not units:
+            continue
+        with conn.cursor() as cur:
+            cur.execute("SELECT count(*) AS n FROM orders WHERE id = ANY(%(ids)s) AND status = 'wait_for_shipping'", {"ids": units})
+            if not cur.fetchone()["n"]:
+                continue
+        try:
+            code, data = get(f"https://api.intime.delivery/v1/shipping/shipments/{sid}")
+        except Exception as exc:
+            log(f"Intime: zending {sid} niet opgehaald ({exc}).")
+            continue
+        if code != 200 or not isinstance(data, dict):
+            log(f"Intime: zending {sid} gaf HTTP {code}.")
+            continue
+        track = ((data.get("tracking") or {}).get("code") or "").strip()
+        if not track:
+            continue
+        log(f"Intime: bestelling #{o['id']} heeft een label (code {track}), status status={data.get('status')}.")
+        if execute:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE orders SET status = 'shipped_paid', note = CASE WHEN COALESCE(note, '') = '' THEN %(t)s ELSE note || ' | ' || %(t)s END "
+                    "WHERE id = ANY(%(ids)s) AND status = 'wait_for_shipping'",
+                    {"t": f"Track & trace: {track}", "ids": units})
+            conn.commit()
+        changed += 1
+    return changed
+
+
 def import_shop_orders(conn, shop_db_path, execute=True, update_book=None, log=print):
     """
     Geeft (nieuwe_orders, voorraad_verwerkt, aandachtspunten) terug. Met execute=False wordt niets geschreven.

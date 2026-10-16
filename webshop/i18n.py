@@ -47,7 +47,7 @@ T = {
     "p_about_me": ("Over mij", "About me", "Über mich", "À propos de moi"),
     "p_about_me_text": (
         "Ik ben een boekenliefhebber met boeken voor andere boekenliefhebbers. Door scherp te zijn op mooie kansen en door mijn brede netwerk van mensen die ook van boeken houden kan ik vaak de parels vinden die jij zoekt. Zo is langzaam een prachtige voorraad aan boeken ontstaan, met zorg opgeborgen en wachtend op een nieuwe lezer. Een eindeloze variatie in buitengewone boeken: van de mooiste beelden tot de beste verhalen!",
-        "I'm a book lover with books for other book lovers. By staying alert to good opportunities and thanks to my wide network of people who love books too, I can often find the gems you're looking for. That's how a beautiful stock of books has slowly grown, stored with care and waiting for a new reader. Endless variety in extraordinary books: from the most beautiful images to the best stories!",
+        "I'm a book enthusiast with books for other book enthusiasts. By staying alert to good opportunities and thanks to my wide network of people who love books too, I can often find the gems you're looking for. That's how a beautiful stock of books has slowly grown, stored with care and waiting for a new reader. Endless variety in extraordinary books: from the most beautiful images to the best stories!",
         "Ich bin ein Bücherliebhaber mit Büchern für andere Bücherliebhaber. Dank eines wachen Blicks für schöne Gelegenheiten und dank meines breiten Netzwerks von Menschen, die ebenfalls Bücher lieben, finde ich oft die Perlen, nach denen Sie suchen. So ist nach und nach ein wunderbarer Bestand an Büchern entstanden, sorgfältig aufbewahrt und wartend auf einen neuen Leser. Eine endlose Vielfalt an außergewöhnlichen Büchern: von den schönsten Bildern bis zu den besten Geschichten!",
         "Je suis un amoureux des livres, avec des livres pour d'autres amoureux des livres. Grâce à un œil attentif aux belles occasions et grâce à mon vaste réseau de personnes qui aiment aussi les livres, je peux souvent dénicher les perles que vous cherchez. C'est ainsi qu'est né peu à peu un magnifique stock de livres, rangés avec soin et attendant un nouveau lecteur. Une variété infinie de livres extraordinaires : des plus belles images aux plus belles histoires !"),
     "p_close": ("Sluiten", "Close", "Schließen", "Fermer"),
@@ -56,6 +56,8 @@ T = {
     "p_page_n": ("(pagina {n})", "(page {n})", "(Seite {n})", "(page {n})"),
     "p_in_cat": ("{total} boeken in deze categorie.", "{total} books in this category.",
                  "{total} Bücher in dieser Kategorie.", "{total} livres dans cette catégorie."),
+    "p_in_cat_one": ("1 boek in deze categorie (maar wel een mooie!).", "1 book in this category (but a lovely one!).",
+                     "1 Buch in dieser Kategorie (aber ein schönes!).", "1 livre dans cette catégorie (mais un beau !)."),
     "p_cat_desc": ("{label}: {total} boeken{suffix}. Bekijk het aanbod van {shop}.",
                    "{label}: {total} books{suffix}. Browse the range at {shop}.",
                    "{label}: {total} Bücher{suffix}. Entdecken Sie das Angebot von {shop}.",

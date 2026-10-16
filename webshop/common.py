@@ -147,4 +147,5 @@ def shop_config():
         "smtp_pass": os.environ.get("WEBSHOP_SMTP_PASS") or "",
         "smtp_from": (os.environ.get("WEBSHOP_SMTP_FROM") or "").strip(),
         "phone": os.environ.get("WEBSHOP_PHONE") or "",
+        "intime_key": (os.environ.get("WEBSHOP_INTIME_KEY") or "").strip(),
     }

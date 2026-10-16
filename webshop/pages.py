@@ -207,7 +207,7 @@ class Site:
         nav = self._crumbs(crumbs)
         suffix = " " + self.t("p_page_n", n=page) if page > 1 else ""
         path = base if page == 1 else f"{base}pagina/{page}/"
-        body = nav + f"<h1>{esc(label)}{esc(suffix)}</h1><p>{esc(self.t('p_in_cat', total=total))}</p>" + \
+        body = nav + f"<h1>{esc(label)}{esc(suffix)}</h1><p>{esc(self.t('p_in_cat_one') if total == 1 else self.t('p_in_cat', total=total))}</p>" + \
             self.grid(books) + self.pager(base, page, pages)
         ld = [{
             "@context": "https://schema.org", "@type": "BreadcrumbList",

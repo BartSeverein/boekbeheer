@@ -361,6 +361,7 @@ def config_php(cfg):
         "free_from_cents": cfg["free_shipping_from_cents"], "countries": cfg["countries"], "reserve_seconds": 1800,
         "rates": cfg["shipping_rates"],
         "smtp": {"host": cfg["smtp_host"], "port": cfg["smtp_port"], "user": cfg["smtp_user"], "pass": cfg["smtp_pass"], "from": cfg["smtp_from"]},
+        "intime_key": cfg["intime_key"],
     }
     text = json.dumps(data, ensure_ascii=False)
     return "<?php\n// Gegenereerd door build.py (bevat geheimen: niet delen).\nreturn json_decode(<<<'JSON'\n" + text + "\nJSON\n, true);\n"
@@ -623,7 +624,7 @@ def build_site(raw_books, out_dir, cfg=None, *, mode="full", imported_order_ids=
     _write(out_dir, ".htaccess", HTACCESS)
 
     # ---- PHP en data
-    for name in ("lib.php", "checkout.php", "search.php", "webhook.php", "status.php", "mailtest.php"):
+    for name in ("lib.php", "checkout.php", "search.php", "webhook.php", "status.php", "mailtest.php", "intimetest.php"):
         src = HERE / "php" / name
         if not src.exists():
             raise RuntimeError(f"PHP-bestand ontbreekt: {src}")
