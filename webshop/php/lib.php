@@ -65,6 +65,7 @@ function db_shop() {
             order_id INTEGER NOT NULL, book_id INTEGER NOT NULL, qty INTEGER NOT NULL, title TEXT, author TEXT, isbn TEXT,
             price_cents INTEGER NOT NULL, ship_cents INTEGER NOT NULL)");
         try { $db->exec('ALTER TABLE order_lines ADD COLUMN location TEXT'); } catch (Throwable $e) { /* bestaat al */ }
+        try { $db->exec('ALTER TABLE orders ADD COLUMN intime_id TEXT'); } catch (Throwable $e) { /* bestaat al */ }
         $db->exec('CREATE INDEX IF NOT EXISTS ol_book ON order_lines(book_id)');
         $db->exec('CREATE INDEX IF NOT EXISTS ol_order ON order_lines(order_id)');
         $db->exec('CREATE TABLE IF NOT EXISTS ratelimit (ip TEXT NOT NULL, ts INTEGER NOT NULL)');
@@ -269,7 +270,8 @@ function sync_payment($order) {
     if ($mstatus === 'paid') { $new = 'paid'; }
     elseif (in_array($mstatus, ['failed', 'expired', 'canceled'], true) && $order['status'] === 'open') { $new = $mstatus; }
     if ($new === $order['status']) {
-        if ($new === 'paid' && (int)$order['mailed'] < 3 && time() - (int)$order['paid_at'] < 3 * 86400) { retry_order_mails($order); }
+        if ($new === 'paid' && time() - (int)$order['paid_at'] < 3 * 86400
+            && ((int)$order['mailed'] < 3 || (!empty(cfg()['intime_key']) && empty($order['intime_id'])))) { retry_order_mails($order); }
         return $new;
     }
     if ($new === 'paid') {
@@ -294,7 +296,7 @@ function sync_payment($order) {
             $fresh = $db->prepare('SELECT * FROM orders WHERE id = ?');
             $fresh->execute([$order['id']]);
             $fresh = $fresh->fetch();
-            if ($fresh) { deliver_order_mails($fresh, $lines, $attention); }
+            if ($fresh) { deliver_order_mails($fresh, $lines, $attention); deliver_intime($fresh, $lines); }
         }
         return 'paid';
     }
@@ -326,5 +328,59 @@ function retry_order_mails($order) {
     $db = db_shop();
     $lines = $db->prepare('SELECT * FROM order_lines WHERE order_id = ?');
     $lines->execute([$order['id']]);
-    deliver_order_mails($order, $lines->fetchAll(), []);
+    $lines = $lines->fetchAll();
+    if ((int)$order['mailed'] < 3) { deliver_order_mails($order, $lines, []); }
+    deliver_intime($order, $lines);
+}
+
+// Zet de betaalde bestelling klaar in Intime (onvolledige zending, validate=false): in Intime kies je daarna vervoerder, gewicht en maat
+// en print je het label. Lukt het niet, dan probeert de volgende statuscontrole het opnieuw (tot 3 dagen na betaling).
+function intime_request($method, $path, $body = null) {
+    $key = cfg()['intime_key'] ?? '';
+    $ch = curl_init('https://api.intime.delivery' . $path);
+    $h = ['X-API-KEY: ' . $key, 'Accept: application/json'];
+    $opt = [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 12, CURLOPT_CONNECTTIMEOUT => 6, CURLOPT_CUSTOMREQUEST => $method];
+    if ($body !== null) { $h[] = 'Content-Type: application/json'; $opt[CURLOPT_POSTFIELDS] = json_encode($body, JSON_UNESCAPED_UNICODE); }
+    $opt[CURLOPT_HTTPHEADER] = $h;
+    curl_setopt_array($ch, $opt);
+    $resp = curl_exec($ch);
+    $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $err = curl_error($ch);
+    curl_close($ch);
+    return [$code, $resp === false ? null : json_decode($resp, true), $resp === false ? $err : (string)$resp];
+}
+
+function intime_body($order, $lines) {
+    $b = [
+        'validate' => false,
+        'customReference' => 'Webshop #' . $order['id'],
+        'recipientName' => (string)$order['name'],
+        'recipientFirstAddressLine' => (string)$order['street'],
+        'recipientZipCode' => (string)$order['postcode'],
+        'recipientPlace' => (string)$order['city'],
+        'recipientCountryCode' => (string)$order['country'],
+        'recipientEmailAddress' => (string)$order['email'],
+        'contentType' => 5,
+    ];
+    $n = 0;
+    foreach ($lines as $l) {
+        if (++$n > 5) { break; }
+        $b["contentLine{$n}Count"] = (int)$l['qty'];
+        $b["contentLine{$n}Description"] = (string)$l['title'];
+        $b["contentLine{$n}PieceValue"] = round((int)$l['price_cents'] / 100, 2);
+        $b["contentLine{$n}HsCode"] = '4901';
+    }
+    return $b;
+}
+
+function deliver_intime($order, $lines) {
+    if (empty(cfg()['intime_key']) || !empty($order['intime_id'])) { return; }
+    [$code, $data, $raw] = intime_request('POST', '/v1/shipping/shipments/create-flat?validate=false', intime_body($order, $lines));
+    $id = is_array($data) ? ($data['shipmentId'] ?? '') : '';
+    if ($code === 200 && $id !== '') {
+        db_shop()->prepare('UPDATE orders SET intime_id = ? WHERE id = ?')->execute([$id, $order['id']]);
+        mail_log('intime: zending ' . $id . ' aangemaakt voor bestelling #' . $order['id']);
+    } else {
+        mail_log('intime: MISLUKT voor bestelling #' . $order['id'] . ' (HTTP ' . $code . '): ' . substr($raw, 0, 300));
+    }
 }
