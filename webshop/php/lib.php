@@ -64,6 +64,7 @@ function db_shop() {
         $db->exec("CREATE TABLE IF NOT EXISTS order_lines (
             order_id INTEGER NOT NULL, book_id INTEGER NOT NULL, qty INTEGER NOT NULL, title TEXT, author TEXT, isbn TEXT,
             price_cents INTEGER NOT NULL, ship_cents INTEGER NOT NULL)");
+        try { $db->exec('ALTER TABLE order_lines ADD COLUMN location TEXT'); } catch (Throwable $e) { /* bestaat al */ }
         $db->exec('CREATE INDEX IF NOT EXISTS ol_book ON order_lines(book_id)');
         $db->exec('CREATE INDEX IF NOT EXISTS ol_order ON order_lines(order_id)');
         $db->exec('CREATE TABLE IF NOT EXISTS ratelimit (ip TEXT NOT NULL, ts INTEGER NOT NULL)');
@@ -242,6 +243,18 @@ function order_mail_text($order, $lines, $lang = 'nl') {
     return $t;
 }
 
+// Mail aan de eigenaar (altijd Nederlands): met de locatie van elk boek, zodat het zo uit de kast gepakt kan worden.
+function owner_mail_text($order, $lines) {
+    $t = "Er is een nieuwe bestelling via de webshop, #" . $order['id'] . ".\n\n";
+    foreach ($lines as $l) {
+        $loc = trim((string)($l['location'] ?? ''));
+        $t .= $l['qty'] . " x " . $l['title'] . ($loc !== '' ? " — locatie " . $loc : '') . "  —  " . eur_text($l['price_cents'], 'nl') . "\n";
+    }
+    $t .= "\nVerzendkosten: " . eur_text($order['ship_cents'], 'nl') . "\nTotaal: " . eur_text($order['total_cents'], 'nl') . "\n\n";
+    $t .= "Verzendadres:\n" . $order['name'] . "\n" . $order['street'] . "\n" . $order['postcode'] . " " . $order['city'] . "\n" . $order['country'] . "\n";
+    return $t;
+}
+
 // Haalt de betaalstatus bij Mollie en werkt de bestelling bij. Idempotent. Geeft de nieuwe status terug,
 // of null als Mollie niet bereikbaar was (dan moet de webhook een 500 geven zodat Mollie het later opnieuw probeert).
 function sync_payment($order) {
@@ -295,14 +308,14 @@ function deliver_order_mails($order, $lines, $attention) {
     $mailed = (int)$order['mailed'];
     $olang = pick_lang($order['lang'] ?? 'nl');
     if (!($mailed & 1)) {
-        $text = order_mail_text($order, $lines, $olang) . "\n" . tr('mail_reply', $olang) . "\n\n" . tr('mail_regards', $olang) . "\n\n" . (cfg()['owner'] ?? '' ?: cfg()['name']) . "\n";
+        $text = tr('mail_greeting', $olang) . "\n\n" . order_mail_text($order, $lines, $olang) . "\n" . tr('mail_reply', $olang) . "\n\n" . tr('mail_regards', $olang) . "\n\n" . (cfg()['owner'] ?? '' ?: cfg()['name']) . "\n";
         if (send_mail($order['email'], tr('mail_subject', $olang, ['id' => $order['id']]), $text)) { $mailed |= 1; }
     }
     if (!($mailed & 2)) {
         // De eigenaar krijgt de bestelling altijd in het Nederlands, met de taal van de klant erbij.
         $att = $attention ?: ($order['attention'] ? [$order['attention']] : []);
         $ok = send_mail(cfg()['email'], 'Nieuwe bestelling #' . $order['id'] . ($att ? ' — LET OP' : ''),
-            order_mail_text($order, $lines, 'nl') . "\nE-mail klant: " . $order['email'] . "\nTaal klant: " . strtoupper($olang) . "\n"
+            owner_mail_text($order, $lines) . "\nE-mail klant: " . $order['email'] . "\nTaal klant: " . strtoupper($olang) . "\n"
             . ($att ? "\nLET OP: " . implode('; ', $att) . "\n" : ''));
         if ($ok) { $mailed |= 2; }
     }

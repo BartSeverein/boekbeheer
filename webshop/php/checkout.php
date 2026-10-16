@@ -55,7 +55,9 @@ try {
     $cat = db_catalog();
     $ids = array_keys($want);
     $ph = implode(',', array_fill(0, count($ids), '?'));
-    $st = $cat->prepare("SELECT id, title, author, isbn, price_cents, ship_cents, big FROM books WHERE id IN ($ph)");
+    $hasLoc = false;
+    foreach ($cat->query('PRAGMA table_info(books)')->fetchAll() as $col) { if ($col['name'] === 'location') { $hasLoc = true; } }
+    $st = $cat->prepare("SELECT id, title, author, isbn, price_cents, ship_cents, big" . ($hasLoc ? ', location' : '') . " FROM books WHERE id IN ($ph)");
     $st->execute($ids);
     $books = [];
     foreach ($st->fetchAll() as $r) { $books[(int)$r['id']] = $r; }
@@ -70,7 +72,7 @@ try {
     foreach ($want as $id => $q) {
         $b = $books[$id];
         $lines[] = ['book_id' => $id, 'qty' => $q, 'title' => $b['title'], 'author' => $b['author'], 'isbn' => $b['isbn'],
-                    'price_cents' => (int)$b['price_cents'], 'ship_cents' => (int)$b['ship_cents'], 'big' => (int)$b['big']];
+                    'price_cents' => (int)$b['price_cents'], 'ship_cents' => (int)$b['ship_cents'], 'big' => (int)$b['big'], 'location' => $b['location'] ?? ''];
         $sub += (int)$b['price_cents'] * $q;
         $prices[$id] = ['p' => (int)$b['price_cents'], 's' => (int)$b['ship_cents'], 'g' => (int)$b['big']];
     }
@@ -86,8 +88,8 @@ try {
         VALUES (?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
         ->execute([$token, $now, $now + (int)$c['reserve_seconds'], $sub, $ship, $total, $cust['name'], $cust['email'], $cust['street'], $cust['postcode'], $cust['city'], $cust['country'], $cust['note'], $lang]);
     $oid = (int)$shop->lastInsertId();
-    $ins = $shop->prepare('INSERT INTO order_lines (order_id, book_id, qty, title, author, isbn, price_cents, ship_cents) VALUES (?,?,?,?,?,?,?,?)');
-    foreach ($lines as $l) { $ins->execute([$oid, $l['book_id'], $l['qty'], $l['title'], $l['author'], $l['isbn'], $l['price_cents'], $l['ship_cents']]); }
+    $ins = $shop->prepare('INSERT INTO order_lines (order_id, book_id, qty, title, author, isbn, price_cents, ship_cents, location) VALUES (?,?,?,?,?,?,?,?,?)');
+    foreach ($lines as $l) { $ins->execute([$oid, $l['book_id'], $l['qty'], $l['title'], $l['author'], $l['isbn'], $l['price_cents'], $l['ship_cents'], $l['location']]); }
     $shop->exec('COMMIT');
 
     // Betaling aanmaken bij Mollie
