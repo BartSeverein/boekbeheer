@@ -252,11 +252,9 @@ class Site:
             desc_html = f'<div{nl_attr}>{desc_html}</div>'
         ship = self.eur(b["ship_cents"])
         stock_note = self.t("p_copies", n=b["amount"]) if b["amount"] > 1 else ""
-        plus = self.t("p_plus") if cfg["extra_per_additional_book_cents"] else ""
-        abroad = f' {esc(self.t("p_abroad"))}' if len(cfg["countries"]) > 1 else ""
         buy = (
             f'<p class="price">{self.eur(b["price_cents"])}</p><p class="ship il">{icon("truck")}<span>{esc(self.t("p_in_stock"))}{esc(stock_note)}. '
-            f'{esc(self.t("p_ship_line", ship=ship, plus=plus))}{abroad}</span></p>'
+            f'{esc(self.t("p_ship_line" if len(cfg["countries"]) > 1 else "p_ship_line_one", ship=ship))}</span></p>'
             f'<p><button type="button" class="add" data-id="{b["id"]}" data-title="{esc(b["title"])}" data-price="{b["price_cents"]}" '
             f'data-ship="{b["ship_cents"]}" data-big="{b["big"]}" data-max="{b["amount"]}" data-url="{path}">{icon("cart_plus")}<span>{esc(self.t("p_add"))}</span></button></p>'
             f'<p id="added" hidden><a href="{self.L("/winkelwagen/")}" class="il">{icon("cart")}{esc(self.t("p_view_cart"))}</a></p>'
@@ -265,9 +263,10 @@ class Site:
         share_text = quote(self.t("p_share_msg") + my_url, safe="")
         share = (
             f'<p class="share">{icon("share")} {esc(self.t("p_share_lead"))} '
-            f'<a href="https://wa.me/?text={share_text}" target="_blank" rel="noopener">{icon("whatsapp")} {esc(self.t("p_share_wa"))}</a> '
+            f'<a href="https://wa.me/?text={share_text}" target="_blank" rel="noopener">{icon("whatsapp")} {esc(self.t("p_share_wa"))}</a>, '
             f'<a href="mailto:?subject={quote(b["title"], safe="")}&amp;body={share_text}">{icon("mail_open")} {esc(self.t("p_share_mail"))}</a> '
-            f'<a href="{esc(my_url)}" data-copy="{esc(self.t("p_share_msg") + my_url)}">{icon("link")} <span>{esc(self.t("p_share_link"))}</span></a></p>'
+            f'{esc(self.t("p_share_of"))} '
+            f'<a href="{esc(my_url)}" data-copy="{esc(self.t("p_share_msg") + my_url)}">{icon("link")} <span>{esc(self.t("p_share_link"))}</span></a>.</p>'
         )
         body = nav + f"<article class=\"book\"><div>{gallery}</div><div><h1>{esc(b['title'])}</h1>" + \
             (f"<p>{esc(b['author'])}</p>" if b.get("author") else "") + buy + (f"<dl>{''.join(rows)}</dl>" if rows else "") + \
