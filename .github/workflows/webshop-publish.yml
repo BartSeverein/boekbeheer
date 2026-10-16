@@ -80,6 +80,7 @@ jobs:
           WEBSHOP_SMTP_USER: ${{ secrets.WEBSHOP_SMTP_USER || secrets.SMTP_USERNAME }}
           WEBSHOP_SMTP_PASS: ${{ secrets.WEBSHOP_SMTP_PASS || secrets.SMTP_PASSWORD }}
           WEBSHOP_SMTP_FROM: ${{ secrets.WEBSHOP_SMTP_FROM }}
+          WEBSHOP_INTIME_KEY: ${{ secrets.WEBSHOP_INTIME_KEY }}
           WEBSHOP_PHONE: ${{ secrets.WEBSHOP_PHONE }}
           WEBSHOP_DEFAULT_SHIPPING_CENTS: ${{ secrets.WEBSHOP_DEFAULT_SHIPPING_CENTS }}
           WEBSHOP_EXTRA_PER_BOOK_CENTS: ${{ secrets.WEBSHOP_EXTRA_PER_BOOK_CENTS }}
