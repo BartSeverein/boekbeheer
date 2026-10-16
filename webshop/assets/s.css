@@ -58,7 +58,7 @@ td.n{text-align:right;white-space:nowrap}
 .hp{position:absolute;left:-9999px;height:0;overflow:hidden}
 footer{color:var(--mut);font-size:.9rem;border-top:1px solid var(--line);margin-top:2rem}
 footer a,footer>span{margin-right:1rem}
-footer>span{color:var(--acct)}
+footer>span{color:var(--fg)}
 footer{display:flex;flex-wrap:wrap;gap:.3rem 0;align-items:center}
 nav.cats a.more{display:inline-flex;align-items:center;gap:.35rem;border-style:dashed;color:var(--acct)}
 footer .il{display:inline-flex}
@@ -69,7 +69,7 @@ nav.lang a+a{border-left:1px solid var(--line)}
 nav.lang a[aria-current]{font-weight:700;color:var(--fg)}
 .small{font-size:.875rem;opacity:.8}
 
-.share{color:var(--acct);margin-top:1.5rem;line-height:1.9}.share .i{vertical-align:-.3rem}.share a{margin-right:.25rem;white-space:nowrap}@media(min-width:700px){.share{white-space:nowrap}}
+.share{color:var(--fg);margin-top:1.5rem;line-height:1.9}.share .i{vertical-align:-.3rem}.share a{white-space:nowrap}@media(min-width:700px){.share{white-space:nowrap}}
 
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 .aboutme{margin-top:2rem;max-width:46rem}
