@@ -70,12 +70,6 @@ render_logo(Path(__file__).parent.parent / "assets" / "logo_mail.png")
 current_user = require_login()
 st.title("📑 Nieuw boek toevoegen")
 
-st.caption(
-    "Dit boek wordt pas echt bij Boekwinkeltjes en Bol aangemaakt bij de eerstvolgende "
-    "syncs, [afhankelijk van de tijd](https://boekbeheer.streamlit.app/Hulp_en_instellingen#druppelsysteem-boekwinkeltjes) "
-    "(of klik op Home op '📚 Sync boeken nu' voor meteen)."
-)
-
 # 'v' bepaalt de sleutel-suffix van elk veld (behalve Locatie). Na een succesvolle
 # opslag gaat dit nummer omhoog, waardoor elk veld daarna een gegarandeerd nieuwe,
 # lege widget is.
@@ -168,12 +162,18 @@ if market_info:
         box_lines.append(msg + ".")
     elif market_info.get("lastOrder"):
         box_lines.append(
-            f"Dit boek wordt momenteel niet aangeboden, maar is voor het laatst verkocht "
+            f"Bij Boekwinkeltjes wordt dit boek momenteel niet aangeboden, maar is voor het laatst verkocht "
             f"op {market_info['lastOrder']} voor het bedrag van {market_info['lastPrice']}."
         )
     else:
         bw_shows_nothing = True
-        box_lines.append("Dit boek wordt niet aangeboden op Boekwinkeltjes.")
+        bw_no_offers = True
+        box_lines.append("Bij Boekwinkeltjes wordt dit boek momenteel niet aangeboden.")
+elif market_error == "Geen gegevens gevonden voor dit ISBN.":
+    # Boekwinkeltjes kent dit ISBN helemaal niet: dat is hetzelfde als 'niet aangeboden'.
+    bw_shows_nothing = True
+    bw_no_offers = True
+    box_lines.append("Bij Boekwinkeltjes wordt dit boek momenteel niet aangeboden.")
 elif ean.strip() and ean.strip() != "0":
     st.caption(f"Kon geen marktgegevens ophalen: {market_error}")
 
@@ -189,7 +189,7 @@ if bol_count is not None:
         )
     else:
         box_lines.append(
-            "Ook bij Bol wordt dit boek momenteel niet aangeboden."
+            "Ook bij Bol niet."
             if bw_no_offers
             else "Bij Bol wordt dit boek momenteel niet aangeboden."
         )

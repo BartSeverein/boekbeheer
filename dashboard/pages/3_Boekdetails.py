@@ -726,7 +726,7 @@ else:
 
         st.divider()
 
-        current_push_status = "Push naar Boekwinkeltjes" if (pd.isna(b["push_enabled"]) or b["push_enabled"]) else "Geen push"
+        current_push_status = "Push" if (pd.isna(b["push_enabled"]) or b["push_enabled"]) else "Geen push"
         st.caption(f"Synchronisatiestatus: **{current_push_status}**")
 
         activity_rows = get_book_activity(chosen_id)
