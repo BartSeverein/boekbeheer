@@ -98,7 +98,11 @@ isbn_clean = ean.strip()
 isbn_is_valid = len(re.sub(r"\D", "", isbn_clean)) >= 10
 
 if isbn_is_valid:
-    existing_book = find_existing_book_by_isbn(isbn_clean)
+    # Eén keer per ISBN opzoeken (database) en onthouden: anders gebeurt het bij elke klik opnieuw.
+    if st.session_state.get("new_book_existing_for") != isbn_clean:
+        st.session_state["new_book_existing"] = find_existing_book_by_isbn(isbn_clean)
+        st.session_state["new_book_existing_for"] = isbn_clean
+    existing_book = st.session_state["new_book_existing"]
     if existing_book:
         location_text = f", op {existing_book['location']}" if existing_book.get("location") else ""
         st.warning(
@@ -115,6 +119,7 @@ if isbn_is_valid:
                     previous_values={"amount": existing_book["amount"]},
                 )
                 load_books.clear()
+                st.session_state.pop("new_book_existing_for", None)
                 st.success(f"Voorraad verhoogd naar {(existing_book['amount'] or 0) + 1}.")
         with existing_col_button:
             st.link_button("Naar boek", f"Boekdetails?book_id={existing_book['id']}")
@@ -400,6 +405,9 @@ st.divider()
 
 col_a, col_b = st.columns(2)
 
+CAT1_LABELS = ["(leeg)"] + [label for _, label in CATEGORY1_OPTIONS]
+CAT1_VALUES = [""] + [value for value, _ in CATEGORY1_OPTIONS]
+
 with col_a:
     title = st.text_input("Titel *", key=k("title"))
     author = st.text_input("Auteur", key=k("author"))
@@ -477,28 +485,29 @@ with col_a:
         shipping_cost_bol = None
 
 with col_b:
-    default_location = ""
-    if current_user_short_name() != "onbekend":
-        default_location = get_user_last_location(current_user_short_name()) or ""
+    if "new_book_default_location" not in st.session_state:
+        st.session_state["new_book_default_location"] = (
+            (get_user_last_location(current_user_short_name()) or "") if current_user_short_name() != "onbekend" else ""
+        )
+    default_location = st.session_state["new_book_default_location"]
     location = st.text_input(
         "Locatie",
         value=default_location,
         key="new_book_location",  # geen versie: blijft bewust staan voor de volgende invoer
     )
 
-    cat1_labels = ["(leeg)"] + [label for _, label in CATEGORY1_OPTIONS]
-    cat1_values = [""] + [value for value, _ in CATEGORY1_OPTIONS]
-    chosen_cat1_label = st.selectbox("Categorie 1", cat1_labels, key=k("category1"))
-    category1 = cat1_values[cat1_labels.index(chosen_cat1_label)]
+    # Categorie 1 en 2 staan in een 'fragment': kies je de eerste categorie, dan wordt alleen dit stukje opnieuw
+    # getekend (met de tweede lijst) en niet de hele pagina met al zijn opzoekingen. Dat scheelt de wachttijd.
+    @st.fragment
+    def category_pickers():
+        chosen_cat1_label = st.selectbox("Categorie 1", CAT1_LABELS, key=k("category1"))
+        cat1_value = CAT1_VALUES[CAT1_LABELS.index(chosen_cat1_label)]
+        if cat1_value in CATEGORY2_OPTIONS:
+            st.selectbox("Categorie 2", [label for _, label in CATEGORY2_OPTIONS[cat1_value]], key=k(f"category2_dd_{cat1_value}"))
+        else:
+            st.text_input("Categorie 2", key=k("category2_txt"))
 
-    if category1 in CATEGORY2_OPTIONS:
-        cat2_options = CATEGORY2_OPTIONS[category1]
-        cat2_labels = [label for _, label in cat2_options]
-        cat2_values = [value for value, _ in cat2_options]
-        chosen_cat2_label = st.selectbox("Categorie 2", cat2_labels, key=k(f"category2_dd_{category1}"))
-        category2 = cat2_values[cat2_labels.index(chosen_cat2_label)]
-    else:
-        category2 = st.text_input("Categorie 2", key=k("category2_txt"))
+    category_pickers()
 
     category3 = st.text_input("Categorie 3", key=k("category3"))
     language = st.text_input("Taal", value="NL", key=k("language"))
@@ -520,63 +529,77 @@ st.caption(
     "Kies de voorkant en eventueel overige foto's. De voorkant gaat als eerste naar Boekwinkeltjes en wordt daar de "
     "hoofdafbeelding. Daar hoef je na het opslaan dus niets meer aan te doen."
 )
-front_file = st.file_uploader(
-    "Voorkant",
-    type=["jpg", "jpeg", "png"],
-    accept_multiple_files=False,
-    key=k("front_upload"),
-)
-other_files = st.file_uploader(
-    "Overige foto's",
-    type=["jpg", "jpeg", "png"],
-    accept_multiple_files=True,
-    key=k("images_upload"),
-)
 
-# De voorkant is de eigen upload, of anders de automatisch gevonden omslag (via ISBNdb/Google Books/Open Library).
-external_images = st.session_state.get(k("external_images"), [])
-cover_note = st.session_state.get(k("cover_note"))
-front_image = None
-if front_file is not None:
-    front_image = {"data": front_file.getvalue(), "content_type": front_file.type or "image/jpeg", "label": front_file.name}
-    if external_images:
-        st.caption("De automatisch gevonden omslag wordt niet gebruikt, omdat je zelf een voorkant hebt gekozen.")
-elif external_images:
-    front_image = external_images[0]
-elif cover_note:
-    st.caption(cover_note)
 
-other_images = [
-    {"data": f.getvalue(), "content_type": f.type or "image/jpeg", "label": f.name} for f in (other_files or [])
-]
-all_images = ([front_image] if front_image else []) + other_images
+def collect_images():
+    """Leest de gekozen foto's uit de sessie. Geeft (voorkant, overige, alle, automatisch_gevonden) terug."""
+    front_file = st.session_state.get(k("front_upload"))
+    other_files = st.session_state.get(k("images_upload")) or []
+    external = st.session_state.get(k("external_images"), [])
+    front = None
+    if front_file is not None:
+        front = {"data": front_file.getvalue(), "content_type": front_file.type or "image/jpeg", "label": front_file.name}
+    elif external:
+        front = external[0]
+    others = [{"data": f.getvalue(), "content_type": f.type or "image/jpeg", "label": f.name} for f in other_files]
+    return front, others, ([front] if front else []) + others, external
 
-if all_images and front_image is None:
-    st.warning("Je hebt geen voorkant gekozen: de eerste overige foto wordt nu de hoofdafbeelding.")
 
-thumbs_per_row = 5
-for row_start in range(0, len(all_images), thumbs_per_row):
-    row_images = all_images[row_start : row_start + thumbs_per_row]
-    thumb_cols = st.columns(thumbs_per_row)
-    for offset, img in enumerate(row_images):
-        i = row_start + offset
-        with thumb_cols[offset]:
-            image_b64 = base64.b64encode(img["data"]).decode("ascii")
-            st.markdown(
-                f'<img src="data:{img["content_type"]};base64,{image_b64}" '
-                f'style="height:320px; width:auto; max-width:100%; object-fit:contain;" />',
-                unsafe_allow_html=True,
-            )
-            st.caption(img["label"])
-            if i == 0:
+# De foto's staan in een 'fragment': een foto kiezen of verwijderen tekent alleen dit stuk opnieuw en niet de hele
+# pagina met al zijn opzoekingen. Bij opslaan lezen we de foto's uit de sessie (collect_images).
+@st.fragment
+def image_section():
+    front_file = st.file_uploader(
+        "Voorkant",
+        type=["jpg", "jpeg", "png"],
+        accept_multiple_files=False,
+        key=k("front_upload"),
+    )
+    st.file_uploader(
+        "Overige foto's",
+        type=["jpg", "jpeg", "png"],
+        accept_multiple_files=True,
+        key=k("images_upload"),
+    )
+
+    # De voorkant is de eigen upload, of anders de automatisch gevonden omslag (via ISBNdb/Google Books/Open Library).
+    front_image, _others, all_images, external_images = collect_images()
+    cover_note = st.session_state.get(k("cover_note"))
+    if front_file is not None:
+        if external_images:
+            st.caption("De automatisch gevonden omslag wordt niet gebruikt, omdat je zelf een voorkant hebt gekozen.")
+    elif not external_images and cover_note:
+        st.caption(cover_note)
+
+    if all_images and front_image is None:
+        st.warning("Je hebt geen voorkant gekozen: de eerste overige foto wordt nu de hoofdafbeelding.")
+
+    thumbs_per_row = 5
+    for row_start in range(0, len(all_images), thumbs_per_row):
+        row_images = all_images[row_start : row_start + thumbs_per_row]
+        thumb_cols = st.columns(thumbs_per_row)
+        for offset, img in enumerate(row_images):
+            i = row_start + offset
+            with thumb_cols[offset]:
+                image_b64 = base64.b64encode(img["data"]).decode("ascii")
                 st.markdown(
-                    "<div style='text-align:center;'>⭐ Hoofdafbeelding</div>",
+                    f'<img src="data:{img["content_type"]};base64,{image_b64}" '
+                    f'style="height:320px; width:auto; max-width:100%; object-fit:contain;" />',
                     unsafe_allow_html=True,
                 )
-            if img in external_images and front_file is None:
-                if st.button("Verwijderen", key=k(f"remove_external_{i}")):
-                    st.session_state[k("external_images")] = []
-                    st.rerun()
+                st.caption(img["label"])
+                if i == 0:
+                    st.markdown(
+                        "<div style='text-align:center;'>⭐ Hoofdafbeelding</div>",
+                        unsafe_allow_html=True,
+                    )
+                if img in external_images and front_file is None:
+                    if st.button("Verwijderen", key=k(f"remove_external_{i}")):
+                        st.session_state[k("external_images")] = []
+                        st.rerun(scope="fragment")
+
+
+image_section()
 
 just_saved = st.session_state.get("new_book_just_saved", False)
 button_label = "Nog een boek toevoegen" if just_saved else "Boek toevoegen"
@@ -592,6 +615,15 @@ if st.button(button_label, key="new_book_submit"):
     else:
         if chosen_publisher_option == NEW_PUBLISHER_SENTINEL and publisher.strip():
             add_known_publisher(publisher)
+        # De categorieën staan in een fragment; hun waarde lezen we dus uit de sessie.
+        _c1_label = st.session_state.get(k("category1"), "(leeg)")
+        category1 = CAT1_VALUES[CAT1_LABELS.index(_c1_label)] if _c1_label in CAT1_LABELS else ""
+        if category1 in CATEGORY2_OPTIONS:
+            _c2_options = CATEGORY2_OPTIONS[category1]
+            _c2_label = st.session_state.get(k(f"category2_dd_{category1}"), _c2_options[0][1])
+            category2 = next((value for value, label in _c2_options if label == _c2_label), _c2_options[0][0])
+        else:
+            category2 = st.session_state.get(k("category2_txt"), "")
         temp_id = create_new_book_draft(
             {
                 "title": title,
@@ -617,6 +649,7 @@ if st.button(button_label, key="new_book_submit"):
             user_short_name=current_user_short_name(),
         )
 
+        _front_image, _other_images, all_images, _external = collect_images()
         if all_images:
             # De gekozen hoofdfoto vooraan: de volgorde bepaalt wat Boekwinkeltjes als eerste krijgt.
             images_to_save = order_main_first(
@@ -630,12 +663,15 @@ if st.button(button_label, key="new_book_submit"):
         # Volgend, gegarandeerd leeg formulier: de versie omhoog zodat elk veld
         # (behalve Locatie) een verse widget krijgt
         st.session_state.pop("new_book_prefilled_isbn", None)
+        st.session_state.pop("new_book_existing_for", None)
         st.session_state["new_book_form_version"] = v + 1
 
         if push_enabled_choice == "Push naar de webshop, Boekwinkeltjes en eventueel Bol":
             st.session_state["new_book_success_msg"] = (
-                f"Boek klaargezet (tijdelijk id {temp_id}). Wordt bij de eerstvolgende "
-                "sync-runs echt aangemaakt bij Boekwinkeltjes en eventueel Bol."
+                f"Het boek is klaargezet (tijdelijk id {temp_id}) en komt online:\n"
+                "- Bij de webshop aan het einde van de komende nacht.\n"
+                "- Bij Boekwinkeltjes gedurende de eerstvolgende druppeltijd.\n"
+                "- Eventueel bij Bol na de eerstvolgende synchronisatie."
             )
         else:
             st.session_state["new_book_success_msg"] = (
