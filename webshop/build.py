@@ -17,6 +17,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 import shutil
 import sqlite3
 import sys
@@ -81,6 +82,23 @@ def load_from_postgres(conn):
             """
         )
         rows = cur.fetchall()
+        # Boeken die de laatste 90 dagen verkocht zijn (op welk platform ook) houden hun pagina, met "verkocht" erop,
+        # zodat het adres bij Google blijft bestaan en bezoekers vergelijkbare boeken zien.
+        try:
+            cur.execute(
+                """
+                SELECT id, title, author, COALESCE(NULLIF(publisher_name, ''), publisher) AS publisher, ean, language,
+                       short_description, long_description, price, shipping_cost, amount, category1, category2, listing_date, location
+                FROM books
+                WHERE COALESCE(amount, 0) <= 0 AND COALESCE(pending_create, FALSE) = FALSE AND COALESCE(queued, FALSE) = FALSE
+                  AND price IS NOT NULL AND price > 0 AND COALESCE(title, '') <> ''
+                  AND id IN (SELECT book_id FROM orders WHERE book_id IS NOT NULL AND order_date::timestamp >= now() - interval '90 days')
+                """
+            )
+            sold_rows = cur.fetchall()
+        except Exception:   # verkochte boeken zijn een extraatje: een fout hier mag de bouw nooit stoppen
+            conn.rollback()
+            sold_rows = []
         cur.execute(
             """
             SELECT book_id, image_id, position, url_large, url_medium, (image_large_data IS NOT NULL) AS has_data
@@ -93,8 +111,8 @@ def load_from_postgres(conn):
         cur.execute("SELECT id FROM orders WHERE platform = 'Webshop' AND COALESCE(stock_adjusted, FALSE) = TRUE")
         imported = {(-int(r["id"]) - 3_000_000_000) // 1000 for r in cur.fetchall()}
     books = []
-    for r in rows:
-        books.append({
+    for r, is_sold in [(r, False) for r in rows] + [(r, True) for r in sold_rows]:
+        books.append({"sold": is_sold, **{
             "id": int(r["id"]), "title": r["title"], "author": r["author"], "publisher": r["publisher"], "isbn": r["ean"],
             "language": r["language"], "short": r["short_description"], "long": r["long_description"],
             "price": float(r["price"]), "shipping": float(r["shipping_cost"]) if r["shipping_cost"] is not None else None,
@@ -102,7 +120,7 @@ def load_from_postgres(conn):
             "listing_date": r["listing_date"],
             "images": [{"image_id": i["image_id"], "url_large": i["url_large"], "url_medium": i["url_medium"],
                         "has_data": bool(i["has_data"])} for i in images.get(int(r["id"]), [])],
-        })
+        }})
 
     import threading
     lock = threading.Lock()
@@ -239,7 +257,7 @@ def _prepare_books(raw_books, cfg, c1_labels, c2_labels):
         big = 1 if own > cfg["small_max_cents"] else 0   # groot pakje als de eigen verzendprijs van het boek boven de grens ligt
         ship = cfg["shipping_rates"]["NL"][big]           # getoonde prijs = tarief voor Nederland
         title = " ".join((r.get("title") or "").split())
-        if not title or price <= 0 or r["amount"] <= 0:
+        if not title or price <= 0 or (r["amount"] <= 0 and not r.get("sold")):
             continue
         c1 = r.get("category1") or "overig diverse"
         c1_label = c1_labels.get(c1, c1)
@@ -372,6 +390,46 @@ def i18n_php(cfg):
     return "<?php\n// Gegenereerd door build.py uit webshop/i18n.py — niet handmatig wijzigen.\nreturn json_decode(<<<'JSON'\n" + text + "\nJSON\n, true);\n"
 
 
+def _merchant_feed(books, cfg, book_tr, cat_label):
+    """Tab-gescheiden bestand voor Google Merchant Center (alleen boeken met foto; Google eist die)."""
+    cols = ["id", "title", "description", "link", "image_link", "additional_image_link", "availability", "price", "condition",
+            "gtin", "identifier_exists", "author", "product_type", "google_product_category", "shipping"]
+
+    def cell(v):
+        return re.sub(r"[\t\r\n]+", " ", str(v if v is not None else "")).strip()
+    base = cfg["base_url"]
+    lines = ["\t".join(cols)]
+    for b in books:
+        imgs = b.get("images") or []
+        if not imgs:
+            continue
+        loc = _book_loc(b, "nl", book_tr, cat_label)
+        desc = re.sub(r"\s+", " ", (loc.get("long") or loc.get("short") or b["title"])).strip()[:4900]
+        isbn = re.sub(r"\D", "", b.get("isbn") or "")
+        gtin = isbn if len(isbn) == 13 else ""
+        row = {
+            "id": b["id"], "title": b["title"][:150], "description": desc, "link": base + b["path"],
+            "image_link": base + imgs[0]["detail"][0],
+            "additional_image_link": ",".join(base + i["detail"][0] for i in imgs[1:10]),
+            "availability": "in_stock", "price": f"{b['price_cents'] / 100:.2f} EUR", "condition": "used",
+            "gtin": gtin, "identifier_exists": "yes" if gtin else "no", "author": b.get("author") or "",
+            "product_type": b["category_label"].replace(" › ", " > "), "google_product_category": "784",
+            "shipping": f"NL:::{b['ship_cents'] / 100:.2f} EUR",
+        }
+        lines.append("\t".join(cell(row[c]) for c in cols))
+    return "\n".join(lines) + "\n"
+
+
+def _load_cat_intros():
+    path = HERE / "content" / "categorie_teksten.json"
+    try:
+        return {k.strip().lower(): v for k, v in json.loads(path.read_text(encoding="utf-8")).items() if v}
+    except Exception:
+        return {}
+
+
+CAT_INTROS = _load_cat_intros()
+
 HTACCESS = """\
 # Gegenereerd door build.py
 DirectoryIndex index.html
@@ -453,6 +511,10 @@ def build_site(raw_books, out_dir, cfg=None, *, mode="full", imported_order_ids=
     t0 = time.time()
     c1_labels, c2_labels = category_labels()
     books = _prepare_books(raw_books, cfg, c1_labels, c2_labels)
+    sold = [b for b in books if b.get("sold")]      # recent verkocht: eigen pagina met "verkocht", verder nergens in de winkel
+    books = [b for b in books if not b.get("sold")]
+    for i, b in enumerate(books):
+        b["seq"] = i
     built_at = time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())
     data_dir = "d-" + cfg["data_key"]
     stats = {"mode": mode, "books": len(books)}
@@ -474,8 +536,8 @@ def build_site(raw_books, out_dir, cfg=None, *, mode="full", imported_order_ids=
         return stats
 
     # ---- afbeeldingen
-    new_imgs, failed_imgs, used_images = prepare_images(books, out_dir, known_images, fetch_image, process_images, log, image_deadline)
-    for b in books:
+    new_imgs, failed_imgs, used_images = prepare_images(books + sold, out_dir, known_images, fetch_image, process_images, log, image_deadline)
+    for b in books + sold:
         b["images"] = b.pop("images_final")
     log(f"Afbeeldingen: {new_imgs} nieuw gemaakt, {failed_imgs} mislukt, {len(used_images)} in gebruik.")
 
@@ -505,17 +567,19 @@ def build_site(raw_books, out_dir, cfg=None, *, mode="full", imported_order_ids=
     # ---- vertalen (DeepL, met geheugen); nieuwste boeken eerst, zodat een beperkt budget daar het meest oplevert
     tr = translator
     if tr and foreign:
-        labels = sorted({b["c1_label"] for b in books} | {b["c2_label"] for b in books if b["c2_label"]})
-        tr.ensure(labels + ([cfg["tagline"]] if cfg["tagline_custom"] else []), foreign)
+        labels = sorted({b["c1_label"] for b in books + sold} | {b["c2_label"] for b in books + sold if b["c2_label"]})
+        intros = sorted({v for k, v in CAT_INTROS.items() if k in {x.strip().lower() for x in labels}})
+        tr.ensure(labels + intros + ([cfg["tagline"]] if cfg["tagline_custom"] else []), foreign)
         keys = (("short",) if cfg["translate_short"] else ()) + (("long",) if cfg["translate_books"] else ())
         if keys:
-            for i in range(0, len(books), 40):
+            _tb = books + sold
+            for i in range(0, len(_tb), 40):
                 if tr.stopped:
-                    rest = [b.get(k) for b in books[i:] for k in keys if (b.get(k) or "").strip()]
+                    rest = [b.get(k) for b in _tb[i:] for k in keys if (b.get(k) or "").strip()]
                     tr.missing += len(rest) * len(foreign)
                     tr.missing_chars += sum(len(x) for x in rest) * len(foreign)
                     break
-                tr.ensure([x for b in books[i:i + 40] for x in (b.get(k) for k in keys) if x and x.strip()], foreign)
+                tr.ensure([x for b in _tb[i:i + 40] for x in (b.get(k) for k in keys) if x and x.strip()], foreign)
         if not cfg["translate_books"]:
             log("Alleen de Bijzonderheden en de categorienamen gaan via DeepL; de lange beschrijvingen blijven Nederlands "
                 "(WEBSHOP_TRANSLATE_BOOKS=ja om die ook te vertalen).")
@@ -577,20 +641,32 @@ def build_site(raw_books, out_dir, cfg=None, *, mode="full", imported_order_ids=
         emit("/", site.home(books[:24]))
         urls.append(site.L("/"))
 
-        def listing(label, parent, base, items, site=site):
+        def intro_for(raw_label, label, parent_label, site=site, lang=lang):
+            """Uitlegzin bovenaan een categorie: eigen tekst (content/categorie_teksten.json) voor hoofdcategorieën, anders een nette standaardzin."""
+            text = CAT_INTROS.get((raw_label or "").strip().lower())
+            if text and parent_label is None:
+                if lang == "nl":
+                    return text
+                if tr and tr.get(text, lang):
+                    return tr.get(text, lang)
+            if parent_label:
+                return i18n.t("p_cat_intro_sub", lang, label=label, parent=parent_label)
+            return i18n.t("p_cat_intro_top", lang, label=label, shop=cfg["name"])
+
+        def listing(label, parent, base, items, intro="", site=site):
             pages = max(1, -(-len(items) // PER_PAGE))
             for page in range(1, pages + 1):
                 chunk = items[(page - 1) * PER_PAGE: page * PER_PAGE]
-                html = site.category(label=label, parent=parent, base=base, books=chunk, page=page, pages=pages, total=len(items))
+                html = site.category(label=label, parent=parent, base=base, books=chunk, page=page, pages=pages, total=len(items), intro=intro)
                 emit(base if page == 1 else f"{base}pagina/{page}/", html)
             urls.append(site.L(base))
 
         for c in top:
             base = f"/categorie/{c['slug']}/"
-            listing(cat_label(c["label"], lang), None, base, c["books"])
+            listing(cat_label(c["label"], lang), None, base, c["books"], intro_for(c["label"], cat_label(c["label"], lang), None))
             for s in sorted(c["subs"].values(), key=lambda s: s["label"].lower()):
                 listing(cat_label(s["label"], lang), {"label": cat_label(c["label"], lang), "slug": c["slug"]},
-                        f"{base}{s['slug']}/", s["books"])
+                        f"{base}{s['slug']}/", s["books"], intro_for(s["label"], cat_label(s["label"], lang), cat_label(c["label"], lang)))
 
         for b in books:
             chain = [(cat_label(b["c1_label"], lang), f"/categorie/{b['c1_slug']}/")]
@@ -598,6 +674,18 @@ def build_site(raw_books, out_dir, cfg=None, *, mode="full", imported_order_ids=
                 chain.append((cat_label(b["c2_label"], lang), f"/categorie/{b['c1_slug']}/{b['c2_slug']}/"))
             emit(b["path"], site.book(b, _book_loc(b, lang, book_tr, cat_label), chain))
             urls.append(site.L(b["path"]))
+
+        for b in sold:
+            # Verwijs naar de categorie als die nog boeken heeft, anders naar de beginpagina; toon maximaal 4 vergelijkbare boeken.
+            c1 = tree.get(b["c1_slug"])
+            sub = c1["subs"].get(b["c2_slug"]) if c1 and b["c2_slug"] else None
+            chain = []
+            if c1:
+                chain.append((cat_label(b["c1_label"], lang), f"/categorie/{b['c1_slug']}/"))
+            if sub:
+                chain.append((cat_label(b["c2_label"], lang), f"/categorie/{b['c1_slug']}/{b['c2_slug']}/"))
+            pool = (sub or c1 or {"books": books})["books"][:4]
+            emit(b["path"], site.book(b, _book_loc(b, lang, book_tr, cat_label), chain, sold=True, similar=pool))
 
         if rest_buttons:
             emit("/overige-categorieen/", site.more_categories_page(rest_buttons))
@@ -613,18 +701,27 @@ def build_site(raw_books, out_dir, cfg=None, *, mode="full", imported_order_ids=
         if lang == "nl":
             _write(out_dir, "404.html", site.not_found())
 
+    # ---- productfeed voor Google Merchant Center (Nederlandse pagina's, verzending naar Nederland)
+    _write(out_dir, "feed.txt", _merchant_feed(books, cfg, book_tr, cat_label))
+
     # ---- sitemap, robots, htaccess
     base_url = cfg["base_url"]
-    sm = ['<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">']
-    sm += [f"<url><loc>{base_url}{u}</loc></url>" for u in urls]
-    sm.append("</urlset>")
-    _write(out_dir, "sitemap.xml", "".join(sm))
+    # Een sitemap mag maximaal 50.000 adressen bevatten: daarboven wordt het een index met deelbestanden.
+    _hdr = '<?xml version="1.0" encoding="UTF-8"?>'
+    _ns = 'xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"'
+    _chunks = [urls[i:i + 45000] for i in range(0, len(urls), 45000)] or [[]]
+    if len(_chunks) == 1:
+        _write(out_dir, "sitemap.xml", f"{_hdr}<urlset {_ns}>" + "".join(f"<url><loc>{base_url}{u}</loc></url>" for u in urls) + "</urlset>")
+    else:
+        for n, ch in enumerate(_chunks, 1):
+            _write(out_dir, f"sitemap-{n}.xml", f"{_hdr}<urlset {_ns}>" + "".join(f"<url><loc>{base_url}{u}</loc></url>" for u in ch) + "</urlset>")
+        _write(out_dir, "sitemap.xml", f"{_hdr}<sitemapindex {_ns}>" + "".join(f"<sitemap><loc>{base_url}/sitemap-{n}.xml</loc></sitemap>" for n in range(1, len(_chunks) + 1)) + "</sitemapindex>")
     disallow = "".join(f"Disallow: {i18n.localize(p, l)}\n" for l in langs for p in ("/zoeken/", "/winkelwagen/", "/afrekenen/", "/bedankt/"))
     _write(out_dir, "robots.txt", "User-agent: *\n" + disallow + "Disallow: /*.php\n" + f"Sitemap: {base_url}/sitemap.xml\n")
     _write(out_dir, ".htaccess", HTACCESS)
 
     # ---- PHP en data
-    for name in ("lib.php", "checkout.php", "search.php", "webhook.php", "status.php", "mailtest.php", "intimetest.php"):
+    for name in ("lib.php", "checkout.php", "search.php", "webhook.php", "status.php", "mailtest.php"):
         src = HERE / "php" / name
         if not src.exists():
             raise RuntimeError(f"PHP-bestand ontbreekt: {src}")

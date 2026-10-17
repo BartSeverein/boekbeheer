@@ -89,6 +89,13 @@ class Site:
         ]
         if image:
             head.append(f'<meta property="og:image" content="{esc(self.url(image))}">')
+        head += [
+            f'<meta name="twitter:card" content="{"summary_large_image" if image and og_type == "product" else "summary"}">',
+            f'<meta name="twitter:title" content="{esc(trim(title, 70))}">',
+            f'<meta name="twitter:description" content="{esc(trim(desc, 200))}">',
+        ]
+        if image:
+            head.append(f'<meta name="twitter:image" content="{esc(self.url(image))}">')
         head.append(f'<link rel="stylesheet" href="/{self.css}">')
         for block in ld or []:
             head.append(f'<script type="application/ld+json">{jsonld(block)}</script>')
@@ -141,25 +148,27 @@ class Site:
         return "".join(head) + header + cats + body + footer + script + "</body></html>"
 
     # ---- kaartjes en paginering ----
-    def card(self, b):
+    def card(self, b, eager=False):
         img = ""
         if b.get("thumb"):
             p, w, h = b["thumb"]
-            img = f'<img src="{p}" width="{w}" height="{h}" alt="" loading="lazy" decoding="async">'
+            # De eerste kaartjes staan direct in beeld: die laden meteen (anders wachten ze op de browser en verschijnen de foto's een voor een).
+            load = 'fetchpriority="high" decoding="async"' if eager else 'loading="lazy" decoding="async"'
+            img = f'<img src="{p}" width="{w}" height="{h}" alt="" {load}>'
         author = f"<p>{esc(b['author'])}</p>" if b.get("author") else ""
         return (f'<li class="card"><a href="{self.L(b["path"])}"><div class="ph">{img}</div><h3>{esc(b["title"])}</h3>'
                 f'{author}<p class="pr">{self.eur(b["price_cents"])}</p></a></li>')
 
-    def grid(self, books):
-        return '<ul class="grid">' + "".join(self.card(b) for b in books) + "</ul>"
+    def grid(self, books, nolazy=False):
+        return '<ul class="grid">' + "".join(self.card(b, eager=(i < 4 and not nolazy)) for i, b in enumerate(books)) + "</ul>"
 
     def pager(self, base, page, pages):
         if pages <= 1:
             return ""
         seg = f"{base}pagina/"
         prev_href = self.L(base if page == 2 else f"{seg}{page - 1}/")
-        prev = f'<a rel="prev" class="il" href="{prev_href}">{icon("prev")}{esc(self.t("p_prev"))}</a>' if page > 1 else ""
-        nxt = f'<a rel="next" class="il" href="{self.L(f"{seg}{page + 1}/")}">{esc(self.t("p_next"))}{icon("next")}</a>' if page < pages else ""
+        prev = f'<a class="il" href="{prev_href}">{icon("prev")}{esc(self.t("p_prev"))}</a>' if page > 1 else ""
+        nxt = f'<a class="il" href="{self.L(f"{seg}{page + 1}/")}">{esc(self.t("p_next"))}{icon("next")}</a>' if page < pages else ""
         return (f'<nav class="pager" aria-label="{esc(self.t("p_paging"))}">{prev}'
                 f'<span>{esc(self.t("p_page_of", p=page, n=pages))}</span>{nxt}</nav>')
 
@@ -187,8 +196,8 @@ class Site:
             "@context": "https://schema.org", "@type": "WebSite", "name": cfg["name"], "url": self.url(self.L("/")),
             "inLanguage": self.lang,
         }]
-        return self.layout(title=f"{cfg['name']} - {self.t('p_title_suffix')}", desc=self.tagline, path="/", body=body, ld=ld,
-                           show_cats=True)
+        return self.layout(title=self.t("p_home_title"), desc=self.tagline, path="/", body=body, ld=ld,
+                           show_cats=True, image=("/" + self.logo[0]) if self.logo else None)
 
     def more_categories_page(self, rest):
         """Alle categorieën die niet in de wolk op de beginpagina staan (de kleinste), gesorteerd op aantal boeken."""
@@ -199,7 +208,7 @@ class Site:
         body = nav + f'<h1>{esc(title)}</h1><p>{esc(self.t("p_more_cats_intro"))}</p><nav class="cats" aria-label="{esc(title)}"><ul class="cats" style="display:contents;list-style:none;padding:0;margin:0">{items}</ul></nav>'
         return self.layout(title=title, desc=self.t("p_more_cats_intro"), path="/overige-categorieen/", body=body)
 
-    def category(self, *, label, parent, base, books, page, pages, total):
+    def category(self, *, label, parent, base, books, page, pages, total, intro=""):
         crumbs = [(self.t("p_home"), "/")]
         if parent:
             crumbs.append((parent["label"], f"/categorie/{parent['slug']}/"))
@@ -207,7 +216,7 @@ class Site:
         nav = self._crumbs(crumbs)
         suffix = " " + self.t("p_page_n", n=page) if page > 1 else ""
         path = base if page == 1 else f"{base}pagina/{page}/"
-        body = nav + f"<h1>{esc(label)}{esc(suffix)}</h1><p>{esc(self.t('p_in_cat_one') if total == 1 else self.t('p_in_cat', total=total))}</p>" + \
+        body = nav + f"<h1>{esc(label)}{esc(suffix)}</h1><p>{esc(self.t('p_in_cat_one') if total == 1 else self.t('p_in_cat', total=total))}{(' ' + esc(intro)) if intro and page == 1 else ''}</p>" + \
             self.grid(books) + self.pager(base, page, pages)
         ld = [{
             "@context": "https://schema.org", "@type": "BreadcrumbList",
@@ -217,25 +226,27 @@ class Site:
             "inLanguage": self.lang,
             "isPartOf": {"@type": "WebSite", "name": self.cfg["name"], "url": self.url(self.L("/"))},
         }]
-        desc = self.t("p_cat_desc", label=label, total=total, suffix=suffix, shop=self.cfg["name"])
-        return self.layout(title=f"{label}{suffix} - {self.t('p_title_suffix')}", desc=desc, path=path, body=body, ld=ld)
+        desc = trim(f"{intro} {suffix}".strip(), 158) if intro else self.t("p_cat_desc", label=label, total=total, suffix=suffix, shop=self.cfg["name"])
+        return self.layout(title=self.t("p_cat_title", label=f"{label} {suffix}".strip(), total=total),
+                           desc=desc, path=path, body=body, ld=ld)
 
-    def book(self, b, loc, category_chain):
+    def book(self, b, loc, category_chain, sold=False, similar=None):
         """b: boek; loc: teksten in deze taal {short, long, short_fb, long_fb, category_label, language}; fb = Nederlandse terugval."""
         cfg = self.cfg
         path = b["path"]
         crumbs = [(self.t("p_home"), "/")] + category_chain + [(b["title"], path)]
         nav = self._crumbs(crumbs)
         imgs = b.get("images") or []
+        alt_text = b["title"] + (self.t("p_by", author=b["author"]) if b.get("author") else "")
         gallery = ""
         if imgs:
             p, w, h = imgs[0]["detail"]
             # Klik op een klein plaatje: het wisselt van plek met de grote foto (c.js). Zonder script opent het plaatje gewoon groot.
-            gallery = (f'<img class="mi" src="{p}" width="{w}" height="{h}" data-w="{w}" data-h="{h}" alt="{esc(b["title"])}" fetchpriority="high" decoding="async">')
+            gallery = (f'<img class="mi" src="{p}" width="{w}" height="{h}" data-w="{w}" data-h="{h}" alt="{esc(alt_text)}" fetchpriority="high" decoding="async">')
             if len(imgs) > 1:
                 gallery += '<div class="thumbs">' + "".join(
                     f'<a href="{i["detail"][0]}" aria-label="{esc(self.t("p_show_photo", n=n))}"><img src="{i["detail"][0]}" width="{i["thumb"][1]}" height="{i["thumb"][2]}" '
-                    f'data-w="{i["detail"][1]}" data-h="{i["detail"][2]}" alt="" loading="lazy" decoding="async"></a>'
+                    f'data-w="{i["detail"][1]}" data-h="{i["detail"][2]}" alt="{esc(self.t("p_photo_n", n=n, title=alt_text))}" loading="lazy" decoding="async"></a>'
                     for n, i in enumerate(imgs[1:], 2)) + "</div>"
         nl_attr = ' lang="nl"'
         rows = []
@@ -259,6 +270,10 @@ class Site:
             f'data-ship="{b["ship_cents"]}" data-big="{b["big"]}" data-max="{b["amount"]}" data-url="{path}">{icon("cart_plus")}<span>{esc(self.t("p_add"))}</span></button></p>'
             f'<p id="added" hidden><a href="{self.L("/winkelwagen/")}" class="il">{icon("cart")}{esc(self.t("p_view_cart"))}</a></p>'
         )
+        if sold:
+            cat_href, cat_name = (self.L(category_chain[-1][1]), category_chain[-1][0]) if category_chain else (self.L("/"), cfg["name"])
+            buy = (f'<p class="ship il">{icon("truck")}<span><strong>{esc(self.t("p_sold"))}</strong></span></p>'
+                   f'<p><a href="{cat_href}" class="il">{icon("list")}{esc(self.t("p_sold_more", cat=cat_name))}</a></p>')
         my_url = self.url(self.L(path))
         share_text = quote(self.t("p_share_msg") + my_url, safe="")
         share = (
@@ -270,9 +285,26 @@ class Site:
         )
         body = nav + f"<article class=\"book\"><div>{gallery}</div><div><h1>{esc(b['title'])}</h1>" + \
             (f"<p>{esc(b['author'])}</p>" if b.get("author") else "") + buy + (f"<dl>{''.join(rows)}</dl>" if rows else "") + \
-            (f"<h2>{esc(self.t('p_about_nl' if loc.get('long_fb') and self.lang != 'nl' else 'p_about'))}</h2>{desc_html}" if desc_html else "") + share + "</div></article>"
+            (f"<h2>{esc(self.t('p_about_nl' if loc.get('long_fb') and self.lang != 'nl' else 'p_about'))}</h2>{desc_html}" if desc_html else "") + ("" if sold else share) + "</div></article>" + \
+            (f'<section class="similar"><h2>{esc(self.t("p_similar"))}</h2>{self.grid(similar, nolazy=True)}</section>' if similar else "")
 
         image_urls = [self.url(i["detail"][0]) for i in imgs]
+        # Verzendkosten per land (zelfde regel als bij het afrekenen: eigen tarief van het land, anders OTHER) en verwerkingstijd.
+        rates = cfg["shipping_rates"]
+        ship_details = []
+        for cc in cfg["countries"]:
+            if cc == "NL":
+                cents = b["ship_cents"]
+            else:
+                rate = rates.get(cc) or rates.get("OTHER") or rates.get("NL")
+                cents = rate[1 if b["big"] else 0] if rate else b["ship_cents"]
+            ship_details.append({
+                "@type": "OfferShippingDetails",
+                "shippingRate": {"@type": "MonetaryAmount", "value": f"{cents / 100:.2f}", "currency": "EUR"},
+                "shippingDestination": {"@type": "DefinedRegion", "addressCountry": cc},
+                "deliveryTime": {"@type": "ShippingDeliveryTime",
+                                 "handlingTime": {"@type": "QuantitativeValue", "minValue": 0, "maxValue": 1, "unitCode": "DAY"}},
+            })
         product = {
             "@context": "https://schema.org", "@type": ["Product", "Book"], "@id": my_url + "#boek",
             "name": b["title"], "url": my_url, "sku": str(b["id"]),
@@ -280,12 +312,14 @@ class Site:
             "inLanguage": b.get("lang_code") or None,
             "offers": {
                 "@type": "Offer", "url": my_url, "priceCurrency": "EUR", "price": f"{b['price_cents'] / 100:.2f}",
-                "availability": "https://schema.org/InStock", "itemCondition": "https://schema.org/UsedCondition",
+                "availability": "https://schema.org/OutOfStock" if sold else "https://schema.org/InStock", "itemCondition": "https://schema.org/UsedCondition",
                 "seller": {"@type": "Organization", "name": cfg["name"], "url": self.url(self.L("/"))},
-                "shippingDetails": {
-                    "@type": "OfferShippingDetails",
-                    "shippingRate": {"@type": "MonetaryAmount", "value": f"{b['ship_cents'] / 100:.2f}", "currency": "EUR"},
-                    "shippingDestination": {"@type": "DefinedRegion", "addressCountry": "NL"},
+                "shippingDetails": ship_details,
+                "hasMerchantReturnPolicy": {
+                    "@type": "MerchantReturnPolicy", "applicableCountry": list(cfg["countries"]),
+                    "returnPolicyCategory": "https://schema.org/MerchantReturnFiniteReturnWindow", "merchantReturnDays": 14,
+                    "returnMethod": "https://schema.org/ReturnByMail", "returnFees": "https://schema.org/ReturnShippingFees",
+                    "merchantReturnLink": self.url(self.L("/voorwaarden/")),
                 },
             },
         }
@@ -309,7 +343,19 @@ class Site:
         by = self.t("p_by", author=b["author"]) if b.get("author") else ""
         short = (loc.get("short") or "").strip()
         short = (short if short[-1:] in ".!?" else short + ".") if short else ""
-        desc = trim(f"{b['title']}{by}. {short} {self.t('p_meta_book', price=self.eur(b['price_cents']))}", 158)
+        head_txt = f"{b['title']}{by}."
+        if sold:
+            desc = trim(f"{head_txt} {self.t('p_sold_meta', shop=cfg['name'])}", 158)
+        else:
+            tail = self.t("p_meta_book", price=self.eur(b["price_cents"]))
+            # Middenstuk: de bijzonderheden, anders het begin van de beschrijving; het past precies in wat er van de 158 tekens overblijft.
+            mid = short
+            if not mid:
+                first = re.split(r"\n\s*\n", (loc.get("long") or "").strip())[0]
+                mid = re.sub(r"\s+", " ", first).strip()
+            room = 158 - len(head_txt) - len(tail) - 2
+            mid = trim(mid, room) if mid and room >= 25 else ""
+            desc = trim(" ".join(x for x in (head_txt, mid, tail) if x), 158)
         return self.layout(title=trim(f"{b['title']}{by}", 70), desc=desc, path=path, body=body, ld=[product, crumbs_ld],
                            image=image_urls[0].replace(cfg["base_url"], "") if image_urls else None, og_type="product")
 
