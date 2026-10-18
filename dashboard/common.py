@@ -2580,6 +2580,31 @@ def delete_book(book_id):
         conn.close()
 
 
+def delete_unplaced_book(book_id):
+    """
+    Verwijdert een boek dat nog NIET bij Boekwinkeltjes is aangemaakt (tijdelijk negatief id, pending_create)
+    — bedoeld voor per ongeluk dubbel opgeslagen boeken. Wordt het boek ondertussen toch geplaatst, dan gebeurt er
+    niets en geeft de functie False terug. Geeft True terug als het boek is verwijderd.
+    """
+    conn = psycopg2.connect(get_db_url())
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT 1 FROM books WHERE id = %(id)s AND id < 0 AND pending_create = TRUE FOR UPDATE",
+                {"id": int(book_id)},
+            )
+            if cur.fetchone() is None:
+                conn.rollback()
+                return False
+            cur.execute("DELETE FROM book_images WHERE book_id = %(id)s", {"id": int(book_id)})
+            cur.execute("DELETE FROM book_uploaded_images WHERE book_id = %(id)s", {"id": int(book_id)})
+            cur.execute("DELETE FROM books WHERE id = %(id)s", {"id": int(book_id)})
+        conn.commit()
+        return True
+    finally:
+        conn.close()
+
+
 def normalize_isbn(raw):
     """
     Zet een ISBN-10 om naar ISBN-13 (met het standaard 978-prefix en herberekende
