@@ -27,6 +27,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from . import i18n
+from .authors import build_authors
 from .common import NORM_MAP, eur, norm, shop_config, slugify
 from .pages import Site
 
@@ -608,6 +609,7 @@ def build_site(raw_books, out_dir, cfg=None, *, mode="full", imported_order_ids=
 
     urls = []
     count_pages = 0
+    author_more, author_pages = build_authors(books)   # 'Meer van deze auteur' + auteurspagina's (>= 3 boeken), een keer berekend voor alle talen
     for lang in langs:
         # Knoppen onder de zoekbalk: heeft een hoofdcategorie subcategorieën, dan tonen we die (bijv. Fotografie) en niet
         # de hoofdcategorie zelf (Hobby). Boeken zonder subcategorie houden een knop met de hoofdcategorie.
@@ -678,8 +680,17 @@ def build_site(raw_books, out_dir, cfg=None, *, mode="full", imported_order_ids=
             chain = [(cat_label(b["c1_label"], lang), f"/categorie/{b['c1_slug']}/")]
             if b["c2_slug"]:
                 chain.append((cat_label(b["c2_label"], lang), f"/categorie/{b['c1_slug']}/{b['c2_slug']}/"))
-            emit(b["path"], site.book(b, _book_loc(b, lang, book_tr, cat_label), chain))
+            emit(b["path"], site.book(b, _book_loc(b, lang, book_tr, cat_label), chain, more_by=author_more.get(b["id"])))
             urls.append(site.L(b["path"]))
+
+        for ap in author_pages:
+            base = f"/auteur/{ap['slug']}/"
+            n_pages = max(1, -(-len(ap["books"]) // PER_PAGE))
+            for page in range(1, n_pages + 1):
+                chunk = ap["books"][(page - 1) * PER_PAGE: page * PER_PAGE]
+                emit(base if page == 1 else f"{base}pagina/{page}/",
+                     site.author_page(name=ap["name"], slug=ap["slug"], books=chunk, page=page, pages=n_pages, total=len(ap["books"])))
+            urls.append(site.L(base))
 
         for b in sold:
             # Verwijs naar de categorie als die nog boeken heeft, anders naar de beginpagina; toon maximaal 4 vergelijkbare boeken.

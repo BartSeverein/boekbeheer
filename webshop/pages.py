@@ -230,7 +230,28 @@ class Site:
         return self.layout(title=self.t("p_cat_title", label=f"{label} {suffix}".strip(), total=total),
                            desc=desc, path=path, body=body, ld=ld)
 
-    def book(self, b, loc, category_chain, sold=False, similar=None):
+    def author_page(self, *, name, slug, books, page, pages, total):
+        base = f"/auteur/{slug}/"
+        crumbs = [(self.t("p_home"), "/"), (name, base)]
+        nav = self._crumbs(crumbs)
+        suffix = " " + self.t("p_page_n", n=page) if page > 1 else ""
+        path = base if page == 1 else f"{base}pagina/{page}/"
+        h1 = self.t("p_author_h1", author=name)
+        body = nav + f"<h1>{icon('author')} {esc(h1)}{esc(suffix)}</h1><p>{esc(self.t('p_author_intro', total=total, author=name))}</p>" + \
+            self.grid(books) + self.pager(base, page, pages)
+        ld = [{
+            "@context": "https://schema.org", "@type": "BreadcrumbList",
+            "itemListElement": [{"@type": "ListItem", "position": i + 1, "name": t, "item": self.url(self.L(u))} for i, (t, u) in enumerate(crumbs)],
+        }, {
+            "@context": "https://schema.org", "@type": "CollectionPage", "name": f"{h1}{suffix}", "url": self.url(self.L(path)),
+            "inLanguage": self.lang, "about": {"@type": "Person", "name": name},
+            "isPartOf": {"@type": "WebSite", "name": self.cfg["name"], "url": self.url(self.L("/"))},
+        }]
+        return self.layout(title=self.t("p_author_title", author=name + suffix, total=total),
+                           desc=self.t("p_author_desc", author=name, total=total, suffix=suffix, shop=self.cfg["name"]),
+                           path=path, body=body, ld=ld)
+
+    def book(self, b, loc, category_chain, sold=False, similar=None, more_by=None):
         """b: boek; loc: teksten in deze taal {short, long, short_fb, long_fb, category_label, language}; fb = Nederlandse terugval."""
         cfg = self.cfg
         path = b["path"]
@@ -286,7 +307,10 @@ class Site:
         body = nav + f"<article class=\"book\"><div>{gallery}</div><div><h1>{esc(b['title'])}</h1>" + \
             (f"<p>{esc(b['author'])}</p>" if b.get("author") else "") + buy + (f"<dl>{''.join(rows)}</dl>" if rows else "") + \
             (f"<h2>{esc(self.t('p_about_nl' if loc.get('long_fb') and self.lang != 'nl' else 'p_about'))}</h2>{desc_html}" if desc_html else "") + ("" if sold else share) + "</div></article>" + \
-            (f'<section class="similar"><h2>{esc(self.t("p_similar"))}</h2>{self.grid(similar, nolazy=True)}</section>' if similar else "")
+            (f'<section class="similar"><h2>{esc(self.t("p_similar"))}</h2>{self.grid(similar, nolazy=True)}</section>' if similar else "") + \
+            (f'<section class="similar"><h2>{icon("author")} {esc(self.t("p_more_by", author=more_by["name"]))}</h2>{self.grid(more_by["others"])}'
+             + (f'<p><a href="{self.L("/auteur/" + more_by["slug"] + "/")}">{esc(self.t("p_more_all", total=more_by["total"], author=more_by["name"]))}</a></p>' if more_by.get("slug") else "")
+             + '</section>' if more_by and not sold else "")
 
         image_urls = [self.url(i["detail"][0]) for i in imgs]
         # Verzendkosten per land (zelfde regel als bij het afrekenen: eigen tarief van het land, anders OTHER) en verwerkingstijd.
