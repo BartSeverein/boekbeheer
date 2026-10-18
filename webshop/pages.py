@@ -216,7 +216,7 @@ class Site:
         nav = self._crumbs(crumbs)
         suffix = " " + self.t("p_page_n", n=page) if page > 1 else ""
         path = base if page == 1 else f"{base}pagina/{page}/"
-        body = nav + f"<h1>{esc(label)}{esc(suffix)}</h1><p>{esc(self.t('p_in_cat_one') if total == 1 else self.t('p_in_cat', total=total))}{(' ' + esc(intro)) if intro and page == 1 else ''}</p>" + \
+        body = nav + f"<h1>{esc(label)}{esc(suffix)}</h1><p>{(esc(intro) + ' ') if intro and page == 1 else ''}{esc(self.t('p_in_cat_one') if total == 1 else self.t('p_in_cat', total=total))}</p>" + \
             self.grid(books) + self.pager(base, page, pages)
         ld = [{
             "@context": "https://schema.org", "@type": "BreadcrumbList",
@@ -303,7 +303,10 @@ class Site:
                 "shippingRate": {"@type": "MonetaryAmount", "value": f"{cents / 100:.2f}", "currency": "EUR"},
                 "shippingDestination": {"@type": "DefinedRegion", "addressCountry": cc},
                 "deliveryTime": {"@type": "ShippingDeliveryTime",
-                                 "handlingTime": {"@type": "QuantitativeValue", "minValue": 0, "maxValue": 1, "unitCode": "DAY"}},
+                                 "handlingTime": {"@type": "QuantitativeValue", "minValue": 0, "maxValue": 1, "unitCode": "DAY"},
+                                 # Bezorgduur na verzending: Nederland 1-2 dagen, andere landen 3-5 dagen.
+                                 "transitTime": {"@type": "QuantitativeValue", "minValue": 1 if cc == "NL" else 3,
+                                                 "maxValue": 2 if cc == "NL" else 5, "unitCode": "DAY"}},
             })
         product = {
             "@context": "https://schema.org", "@type": ["Product", "Book"], "@id": my_url + "#boek",

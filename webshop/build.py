@@ -275,8 +275,9 @@ def _prepare_books(raw_books, cfg, c1_labels, c2_labels):
             "category_label": c1_label + (f" › {c2_label}" if c2_label else ""),
         })
         books.append(b)
-    # Nieuwste eerst: listing_date (tekst, ISO-achtig) aflopend, dan id.
-    books.sort(key=lambda x: (str(x.get("listing_date") or ""), x["id"]), reverse=True)
+    # Nieuwste eerst: op id (hoogste bovenaan), zoals ook het dashboard doet. Het id verandert na aanmaak nooit meer;
+    # de listing_date ontbreekt juist bij net ingevoerde boeken en kan bij bewerken verschuiven.
+    books.sort(key=lambda x: x["id"], reverse=True)
     for i, b in enumerate(books):
         b["seq"] = i
     return books
@@ -347,8 +348,9 @@ def _content_template(slug, lang):
 def _book_loc(b, lang, tr, cat_label):
     """De teksten van een boek in `lang`; ontbreekt de vertaling, dan blijft het Nederlands (fb = terugval)."""
     if lang == "nl":
+        cat = cat_label(b["c1_label"], "nl") + ((" › " + cat_label(b["c2_label"], "nl")) if b["c2_label"] else "")
         return {"short": b.get("short"), "long": b.get("long"), "short_fb": False, "long_fb": False,
-                "category_label": b["category_label"], "language": i18n.book_language(b.get("language"), "nl")}
+                "category_label": cat, "language": i18n.book_language(b.get("language"), "nl")}
     out = {"short_fb": False, "long_fb": False}
     for key in ("short", "long"):
         src = b.get(key) or ""
@@ -568,7 +570,8 @@ def build_site(raw_books, out_dir, cfg=None, *, mode="full", imported_order_ids=
     tr = translator
     if tr and foreign:
         labels = sorted({b["c1_label"] for b in books + sold} | {b["c2_label"] for b in books + sold if b["c2_label"]})
-        intros = sorted({v for k, v in CAT_INTROS.items() if k in {x.strip().lower() for x in labels}})
+        _lab = {x.strip().lower() for x in labels}
+        intros = sorted({v for k, v in CAT_INTROS.items() if k.split(" > ")[-1] in _lab})
         tr.ensure(labels + intros + ([cfg["tagline"]] if cfg["tagline_custom"] else []), foreign)
         keys = (("short",) if cfg["translate_short"] else ()) + (("long",) if cfg["translate_books"] else ())
         if keys:
@@ -641,10 +644,13 @@ def build_site(raw_books, out_dir, cfg=None, *, mode="full", imported_order_ids=
         emit("/", site.home(books[:24]))
         urls.append(site.L("/"))
 
-        def intro_for(raw_label, label, parent_label, site=site, lang=lang):
+        def intro_for(raw_label, label, parent_label, raw_parent=None, site=site, lang=lang):
             """Uitlegzin bovenaan een categorie: eigen tekst (content/categorie_teksten.json) voor hoofdcategorieën, anders een nette standaardzin."""
-            text = CAT_INTROS.get((raw_label or "").strip().lower())
-            if text and parent_label is None:
+            key = (raw_label or "").strip().lower()
+            if raw_parent:
+                key = f"{raw_parent.strip().lower()} > {key}"
+            text = CAT_INTROS.get(key)
+            if text:
                 if lang == "nl":
                     return text
                 if tr and tr.get(text, lang):
@@ -666,7 +672,7 @@ def build_site(raw_books, out_dir, cfg=None, *, mode="full", imported_order_ids=
             listing(cat_label(c["label"], lang), None, base, c["books"], intro_for(c["label"], cat_label(c["label"], lang), None))
             for s in sorted(c["subs"].values(), key=lambda s: s["label"].lower()):
                 listing(cat_label(s["label"], lang), {"label": cat_label(c["label"], lang), "slug": c["slug"]},
-                        f"{base}{s['slug']}/", s["books"], intro_for(s["label"], cat_label(s["label"], lang), cat_label(c["label"], lang)))
+                        f"{base}{s['slug']}/", s["books"], intro_for(s["label"], cat_label(s["label"], lang), cat_label(c["label"], lang), c["label"]))
 
         for b in books:
             chain = [(cat_label(b["c1_label"], lang), f"/categorie/{b['c1_slug']}/")]
