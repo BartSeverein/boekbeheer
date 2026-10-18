@@ -34,6 +34,7 @@ from common import (
     lookup_boekwinkeltjes_market_info,
     info_box,
     delete_book_image,
+    delete_unplaced_book,
     lookup_bol_competing_offers,
     format_price_dot,
     determine_busstuk,
@@ -223,6 +224,24 @@ else:
                 load_books.clear()
                 st.success("Synchronisatie weer aangezet. Wordt bij de eerstvolgende sync opnieuw geprobeerd.")
                 st.rerun()
+
+        # Per ongeluk dubbel opgeslagen? Een boek dat nog NIET bij Boekwinkeltjes staat kan hier worden verwijderd.
+        _unplaced = chosen_id < 0 and bool(b.get("pending_create")) if pd.notna(b.get("pending_create")) else False
+        if _unplaced:
+            with st.expander("🗑️ Dit boek verwijderen (nog niet bij Boekwinkeltjes)"):
+                st.caption(
+                    "Handig als je per ongeluk meerdere keren op opslaan hebt geklikt. Het boek en zijn foto's worden "
+                    "uit de app gehaald. Dit kan alleen zolang het boek nog op het druppelsysteem wacht."
+                )
+                _sure = st.checkbox("Ja, verwijder dit boek", key=f"del_unplaced_ok_{chosen_id}")
+                if st.button("Verwijderen", key=f"del_unplaced_btn_{chosen_id}", disabled=not _sure):
+                    if delete_unplaced_book(chosen_id):
+                        st.session_state.pop("current_book_id", None)
+                        load_books.clear()
+                        st.success("Het boek is verwijderd.")
+                        st.rerun()
+                    else:
+                        st.error("Niet verwijderd: het boek is ondertussen al bij Boekwinkeltjes geplaatst.")
 
         images = get_all_images(chosen_id)
         main_image_url = b.get("main_image_url")
