@@ -3978,6 +3978,8 @@ def restore_listing_dates(csv_path, execute=False):
     Alleen boeken waarvan de datum in het bestand EERDER is dan de huidige datum worden aangepast; niets anders verandert.
     Zonder execute is het een proefrun. Geeft regels tekst terug.
     """
+    import sys
+    csv.field_size_limit(sys.maxsize)   # lange beschrijvingen in een volledige export
     if not os.path.exists(csv_path):
         return [f"Bestand niet gevonden: {csv_path}"]
     with open(csv_path, encoding="utf-8-sig", newline="") as f:
