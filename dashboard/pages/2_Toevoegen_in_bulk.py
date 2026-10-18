@@ -42,12 +42,10 @@ require_login()
 st.title("📥 Toevoegen in bulk")
 
 st.caption(
-    "Upload een tekstbestand met op elke regel één ISBN. Voor elk ISBN wordt een "
-    "nieuw boek aangemaakt met o.a. automatisch ingevulde titel, auteur, uitgever, "
-    "categorie, afbeelding(en). Pas als je een boek hieronder hebt gecontroleerd en "
-    "in het boek de wachtrij op 'Nee' zet, gaat het mee met "
+    "Upload een tekstbestand met ISBN's. Pas als je een boek hieronder hebt gecontroleerd en "
+    "in het boek de wachtrij op 'Nee' blijft, gaat het mee met "
     "[de eerstvolgende synchronisatie](https://boekbeheer.streamlit.app/Hulp_en_instellingen#druppelsysteem-boekwinkeltjes) "
-    "naar Boekwinkeltjes."
+    "naar de webshop, Bol en Boekwinkeltjes. Zie [de handleiding](https://boekbeheer.streamlit.app/Hulp_en_instellingen) voor meer info."
 )
 
 st.warning(
