@@ -208,7 +208,10 @@ with books_tab:
         # Sorteren op id (hoogste eerst) i.p.v. listing_date: het id verandert
         # nooit meer na aanmaak, terwijl listing_date mogelijk meebeweegt bij
         # latere bewerkingen aan het boek.
-        books_sorted = books_sorted.sort_values("id", ascending=False).reset_index(drop=True)
+        # Nieuwe boeken die nog op het druppelsysteem wachten hebben een tijdelijk NEGATIEF id (hoe nieuwer, hoe
+        # lager). Die horen bovenaan: daarna komen de boeken met een echt id, hoogste eerst.
+        books_sorted["_volgorde"] = books_sorted["id"].where(books_sorted["id"] > 0, 10**12 - books_sorted["id"])
+        books_sorted = books_sorted.sort_values("_volgorde", ascending=False).drop(columns="_volgorde").reset_index(drop=True)
 
         # Boeken met voorraad 0 niet tonen in dit overzicht (onbekende/lege
         # voorraad blijft wel zichtbaar, alleen expliciet 0 wordt uitgesloten).
