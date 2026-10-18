@@ -1488,16 +1488,68 @@ def lookup_isbndb(isbn):
     return result if result else None
 
 
-def _map_language_to_boekwinkeltjes(lang):
-    """Zet een taalcode/-naam om naar wat Boekwinkeltjes verwacht (bijv. NL, GB)."""
-    if not lang:
+# ---------- Taalcode voor Boekwinkeltjes ----------
+# Boekwinkeltjes accepteert bij "language" maximaal 2 tekens (of MET voor meertalig, maar dat sturen we nooit).
+# Deze tabel staat bewust ook in dashboard/common.py (aparte map, geen gedeelde module): wijzig je er één, wijzig dan ook de ander.
+_BW_LANG_ALIASES = {
+    "nl": ("nl", "nederlands", "dutch", "dut", "nld", "vlaams", "flemish"),
+    "en": ("en", "engels", "english", "eng", "gb", "gbr", "uk", "us", "usa"),
+    "de": ("de", "duits", "german", "deutsch", "ger", "deu"),
+    "fr": ("fr", "frans", "french", "français", "francais", "fre", "fra"),
+    "es": ("es", "spaans", "spanish", "español", "espanol", "spa"),
+    "it": ("it", "italiaans", "italian", "italiano", "ita"),
+    "la": ("la", "latijn", "latin", "lat"),
+    "fy": ("fy", "fries", "frisian", "fry"),
+    "pt": ("pt", "portugees", "portuguese", "por"),
+    "sv": ("sv", "zweeds", "swedish", "swe"),
+    "da": ("da", "deens", "danish", "dan", "dk"),
+    "no": ("no", "noors", "norwegian", "nor", "nb", "nn"),
+    "ru": ("ru", "russisch", "russian", "rus"),
+    "pl": ("pl", "pools", "polish", "pol"),
+    "cs": ("cs", "tsjechisch", "czech", "ces", "cze"),
+    "hu": ("hu", "hongaars", "hungarian", "hun"),
+    "el": ("el", "grieks", "greek", "ell", "gre"),
+    "tr": ("tr", "turks", "turkish", "tur"),
+    "af": ("af", "afrikaans", "afr"),
+    "id": ("id", "indonesisch", "indonesian", "ind"),
+    "ja": ("ja", "japans", "japanese", "jpn", "jp"),
+    "zh": ("zh", "chinees", "chinese", "chi", "zho"),
+    "he": ("he", "hebreeuws", "hebrew", "heb"),
+    "ar": ("ar", "arabisch", "arabic", "ara"),
+}
+_BW_LANG_LOOKUP = {alias: code for code, names in _BW_LANG_ALIASES.items() for alias in names}
+_BW_MULTI = {"met", "multi", "multilingual", "meertalig", "mehrsprachig", "multilingue", "poly"}
+
+
+def _map_language_to_boekwinkeltjes(raw):
+    """
+    Zet een taalwaarde (naam, code, of een rijtje als "nl/en") om naar de tweeletterige code die Boekwinkeltjes
+    accepteert. Meertalig (MET of meerdere talen): "en" als Engels erbij zit, anders de eerste herkende taal; staat er
+    alleen "meertalig" zonder talen, dan "en". Onbekend: None (het veld wordt dan niet meegestuurd,
+    zodat het boek toch wordt aangemaakt).
+    """
+    import re as _re
+    text = (raw or "").strip().lower()
+    if not text:
         return None
-    l = lang.strip().lower()
-    if l in ("nl", "dut", "dutch", "nld"):
-        return "NL"
-    if l in ("en", "eng", "english"):
-        return "GB"
-    return lang.strip().upper()
+    if text in _BW_MULTI:
+        return "en"
+    codes = []
+    for part in _re.split(r"[/,;&+|]| en | and | und | et ", text):
+        part = part.strip().strip(".")
+        part = _re.split(r"[-_]", part)[0]   # pt-BR -> pt
+        if not part:
+            continue
+        if part in _BW_MULTI:
+            return "en"
+        code = _BW_LANG_LOOKUP.get(part)
+        if not code and len(part) == 2 and part.isalpha():
+            code = part   # onbekende maar geldige tweeletterige code laten we staan
+        if code and code not in codes:
+            codes.append(code)
+    if not codes:
+        return None
+    return "en" if "en" in codes else codes[0]
 
 
 _DIMENSION_UNIT_TO_CM = {
@@ -2293,7 +2345,7 @@ def autofill_book_fields_from_isbn(isbn):
         if market_info.get("schrijver"):
             fields["author"] = market_info["schrijver"]
         if market_info.get("taal"):
-            fields["language"] = market_info["taal"]
+            fields["language"] = _map_language_to_boekwinkeltjes(market_info["taal"]) or market_info["taal"]
         if cleaned_bijz:
             fields["short_description"] = cleaned_bijz
         if market_info.get("uitgever"):
@@ -2324,7 +2376,7 @@ def autofill_book_fields_from_isbn(isbn):
         if metadata.get("author") and "author" not in fields:
             fields["author"] = metadata["author"]
         if metadata.get("language") and "language" not in fields:
-            fields["language"] = metadata["language"]
+            fields["language"] = _map_language_to_boekwinkeltjes(metadata["language"]) or metadata["language"]
         if metadata.get("bijz") and "short_description" not in fields:
             fields["short_description"] = metadata["bijz"]
         if metadata.get("description"):
@@ -3420,32 +3472,3 @@ def get_cron_job_status():
         return [], f"Netwerkfout: {e}"
 
 
-@st.cache_data(ttl=21600)
-def get_cron_job_history(job_id, limit=20):
-    """
-    Haalt de laatste uitvoeringen van één cron-job.org-taak op (meest recente
-    eerst), voor het duur-grafiekje. Geeft een lege lijst terug bij een
-    ontbrekende sleutel of een mislukte opzoeking.
-
-    cron-job.org hanteert vooral een daglimiet (zie hierboven), maar noemt
-    daarnaast dat er ook losse, per-eindpunt snelheidslimieten kunnen gelden.
-    Deze functie wordt per taak apart aangeroepen (dus meerdere keren vlak na
-    elkaar bij het laden van Home) — de korte wachttijd hieronder spreidt die
-    verzoeken voor de zekerheid over de tijd uit. Geldt alleen bij een echte
-    (nog niet gecachete) opzoeking.
-    """
-    api_key = _get_secret("CRON_JOB_API_KEY")
-    if not api_key:
-        return []
-    time.sleep(13)
-    try:
-        resp = requests.get(
-            f"{CRON_JOB_API_BASE}/jobs/{job_id}/history",
-            headers={"Authorization": f"Bearer {api_key}"},
-            timeout=15,
-        )
-        if not resp.ok:
-            return []
-        return resp.json().get("history", [])[:limit]
-    except requests.RequestException:
-        return []

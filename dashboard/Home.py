@@ -38,7 +38,6 @@ from common import (
     get_cron_job_status,
     get_github_token_expiry,
     github_token_banner,
-    get_cron_job_history,
     format_isbn,
     trigger_github_workflow,
     render_logo,
@@ -332,7 +331,7 @@ st.divider()
 st.subheader("Geplande taken")
 
 # De status van cron-job.org wordt 6 uur onthouden (zijn daglimiet is klein). Deze knop haalt hem nu opnieuw op: dat kost
-# één aanroep. De geschiedenis voor het duurgrafiek blijft bewust onthouden (die kost er veel meer, en duurt een minuut).
+# één aanroep.
 if st.button("🔄 Status verversen", key="refresh_cron_status", help="Haalt de actuele status van cron-job.org op (kost één van de 100 aanroepen per dag)."):
     get_cron_job_status.clear()
     st.rerun()
@@ -387,32 +386,6 @@ Alle taken roepen GitHub aan om een workflow te starten. Bij een HTTP-fout is di
             }
         )
     st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
-
-    st.subheader("Duur van de taken")
-    history_frames = []
-    with st.spinner("Geschiedenis per taak ophalen (kan, vanwege cron-job.org's limiet, bij een koude cache circa een minuut duren)..."):
-        for job in cron_jobs:
-            job_history = get_cron_job_history(job["jobId"])
-            for item in job_history:
-                date_val = item.get("date") or item.get("time")
-                if date_val:
-                    history_frames.append(
-                        {
-                            "Taak": job.get("title", "(naamloos)"),
-                            "Moment": dt.datetime.fromtimestamp(date_val, tz=dt.timezone.utc).astimezone(AMSTERDAM_TZ),
-                            "Duur (s)": (item.get("duration") or 0) / 1000,
-                        }
-                    )
-    if history_frames:
-        history_df = pd.DataFrame(history_frames).sort_values("Moment")
-        fig_cron = px.line(
-            history_df, x="Moment", y="Duur (s)", color="Taak", markers=True,
-            labels={"Duur (s)": "Duur (seconden)"},
-        )
-        fig_cron.update_xaxes(tickformat="%d-%m-%Y<br>%H:%M:%S", hoverformat="%d-%m-%Y %H:%M:%S")
-        st.plotly_chart(fig_cron, width="stretch")
-    else:
-        st.caption("Nog geen uitvoeringsgeschiedenis beschikbaar.")
 
 st.divider()
 
@@ -502,10 +475,10 @@ with week_left:
     if weekly_error:
         st.info(f"De wekelijkse metingen konden nu niet worden opgevraagd ({weekly_error}).")
     elif not weekly_snapshots:
-        st.info("Nog geen metingen. De eerste komt in de nacht van zondag op maandag, of start de workflow 'Wekelijkse voorraadmeting' handmatig.")
+        st.info("Nog geen metingen. De eerste komt in de nacht van zaterdag op zondag, of start de workflow 'Wekelijkse voorraadmeting' handmatig.")
     else:
         st.plotly_chart(_weekly_stock_chart(weekly_snapshots, "bw_titles", "bol_titles", "aantal boeken"), width="stretch")
-        st.caption("Titels met voorraad boven 0. Het donkere deel staat ook op Bol. Meting: nacht van zondag op maandag.")
+        st.caption("Titels met voorraad boven 0. Het donkere deel staat ook op Bol. Meting: nacht van zaterdag op zondag.")
 with week_right:
     st.subheader("Verkoopvoorraad, in waarde")
     if weekly_error:
