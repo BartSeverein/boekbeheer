@@ -340,7 +340,12 @@ def pull_books():
                         price=excluded.price, shipping_cost=excluded.shipping_cost,
                         shipping_category=excluded.shipping_category,
                         shipping_format=CASE WHEN %(sf_known)s THEN excluded.shipping_format ELSE books.shipping_format END,
-                        listing_date=excluded.listing_date,
+                        -- 'Te koop sinds' schuift nooit naar later: Boekwinkeltjes zet de datum van alle boeken soms
+                        -- opnieuw (6-10-2026), en Winkeldochters moet de echte, oudste datum houden.
+                        listing_date=CASE WHEN COALESCE(books.listing_date, '') <> ''
+                                           AND COALESCE(excluded.listing_date, '') <> ''
+                                           AND books.listing_date < excluded.listing_date
+                                          THEN books.listing_date ELSE excluded.listing_date END,
                         weblink=excluded.weblink, last_synced_at=excluded.last_synced_at
                     WHERE books.pending_push = FALSE
                     """,
@@ -3964,6 +3969,52 @@ def _build_backup_zip(today_str, books_rows, orders_rows):
         archive.writestr(f"boeken_{today_str}.csv", _rows_to_csv_bytes(books_rows))
         archive.writestr(f"orders_{today_str}.csv", _rows_to_csv_bytes(orders_rows))
     return buffer.getvalue()
+
+
+def restore_listing_dates(csv_path, execute=False):
+    """
+    Zet 'Te koop sinds' (listing_date) terug uit een CSV-bestand van vóór de datumreset (bijv. boeken_2026-10-02.csv).
+    Het bestand hoeft alleen de kolommen 'id' en 'listing_date' te hebben (andere kolommen worden genegeerd).
+    Alleen boeken waarvan de datum in het bestand EERDER is dan de huidige datum worden aangepast; niets anders verandert.
+    Zonder execute is het een proefrun. Geeft regels tekst terug.
+    """
+    if not os.path.exists(csv_path):
+        return [f"Bestand niet gevonden: {csv_path}"]
+    with open(csv_path, encoding="utf-8-sig", newline="") as f:
+        sample = f.read(4096)
+        f.seek(0)
+        delimiter = ";" if sample.split("\n")[0].count(";") > sample.split("\n")[0].count(",") else ","
+        reader = csv.DictReader(f, delimiter=delimiter)
+        if "id" not in (reader.fieldnames or []) or "listing_date" not in (reader.fieldnames or []):
+            return [f"De kolommen 'id' en 'listing_date' ontbreken (gevonden: {reader.fieldnames})."]
+        old_dates = {}
+        for row in reader:
+            d = (row.get("listing_date") or "").strip()
+            if d and (row.get("id") or "").strip().isdigit():
+                old_dates[int(row["id"])] = d
+    lines = [f"{csv_path}: {len(old_dates)} boeken met een 'Te koop sinds' in het bestand."]
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id, listing_date FROM books")
+            current = {r["id"]: (r["listing_date"] or "").strip() for r in cur.fetchall()}
+            todo = [(bid, d) for bid, d in old_dates.items()
+                    if bid in current and (not current[bid] or d < current[bid])]
+            lines.append(f"{len(todo)} boeken krijgen hun oudere datum terug.")
+            for bid, d in todo[:5]:
+                lines.append(f"  voorbeeld: boek {bid}: {current[bid] or '(leeg)'} -> {d}")
+            if todo and not all(len(d) == len(current[bid]) for bid, d in todo[:50] if current[bid]):
+                lines.append("LET OP: het datumformaat in het bestand lijkt af te wijken van de database; controleer de voorbeelden.")
+            if execute:
+                for bid, d in todo:
+                    cur.execute("UPDATE books SET listing_date = %s WHERE id = %s", (d, bid))
+                conn.commit()
+                lines.append("Klaar: datums teruggezet.")
+            else:
+                lines.append("PROEFRUN: er is niets gewijzigd.")
+    finally:
+        conn.close()
+    return lines
 
 
 def take_weekly_stock_snapshot():

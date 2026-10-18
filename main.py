@@ -199,6 +199,13 @@ def main():
         print(result)
         if execute and result.get("failed"):
             sys.exit(1)
+    elif command == "restore-listing-dates":
+        # Gebruik: python main.py restore-listing-dates <pad naar CSV met id en listing_date> [ja]
+        if len(sys.argv) < 3:
+            print("Geef het pad naar de CSV, bijv. herstel/boeken_2026-10-02.csv.")
+            sys.exit(2)
+        for line in sync.restore_listing_dates(sys.argv[2], execute=len(sys.argv) > 3 and sys.argv[3].lower() == "ja"):
+            print(line)
     elif command == "weekly-stock-snapshot":
         # Legt het aantal actieve titels/exemplaren (totaal en op Bol) vast voor de weekgrafieken op Home.
         for line in sync.take_weekly_stock_snapshot():
