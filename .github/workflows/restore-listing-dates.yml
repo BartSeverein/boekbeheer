@@ -32,4 +32,7 @@ jobs:
           BESTAND: ${{ github.event.inputs.bestand }}
           ECHT_UITVOEREN: ${{ github.event.inputs.echt_uitvoeren }}
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          BOEKWINKELTJES_ENV: ${{ secrets.BOEKWINKELTJES_ENV }}
+          BOEKWINKELTJES_API_KEY_SANDBOX: ${{ secrets.BOEKWINKELTJES_API_KEY_SANDBOX }}
+          BOEKWINKELTJES_API_KEY_LIVE: ${{ secrets.BOEKWINKELTJES_API_KEY_LIVE }}
           PYTHONUNBUFFERED: "1"
