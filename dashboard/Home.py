@@ -433,7 +433,7 @@ def _nl_number(value):
 def _weekly_stock_chart(snapshots, total_key, bol_key, y_title, money=False):
     """Gestapelde staaf per meting: onderaan wat ook op Bol staat, daarboven de rest van wat in de verkoop is (samen = totaal)."""
     data = pd.DataFrame(snapshots)
-    data["week"] = pd.to_datetime(data["measured_on"]).dt.strftime("%d-%m-%Y")
+    data["week"] = pd.to_datetime(data["measured_on"]).dt.strftime("%m-%Y")   # een staaf per maand
     if "label" in data.columns:   # de laatste, actuele staaf heet 'Nu' in plaats van een datum
         data["week"] = data["label"].where(data["label"].notna(), data["week"])
     # Hele getallen (ook bij euro's): eerst afronden, dan pas 'alleen Boekwinkeltjes' = totaal min Bol,
@@ -472,10 +472,12 @@ try:
     weekly_snapshots = get_weekly_stock_snapshots()
     weekly_error = None
     if weekly_snapshots:
-        # Laatste staaf = de stand van nu (ververst elke paar minuten); een meting van vandaag maakt daar plaats voor.
+        # Laatste staaf = de stand van nu (ververst elke paar minuten); een meting uit de huidige maand maakt daar plaats voor.
         try:
             live = get_current_stock_snapshot()
-            weekly_snapshots = [r for r in weekly_snapshots if r["measured_on"] != live["measured_on"]] + [live]
+            this_month = (live["measured_on"].year, live["measured_on"].month)
+            weekly_snapshots = [r for r in weekly_snapshots
+                                if (r["measured_on"].year, r["measured_on"].month) != this_month] + [live]
         except Exception:
             pass
 except Exception as error:
@@ -488,10 +490,10 @@ with week_left:
     if weekly_error:
         st.info(f"De wekelijkse metingen konden nu niet worden opgevraagd ({weekly_error}).")
     elif not weekly_snapshots:
-        st.info("Nog geen metingen. De eerste komt in de nacht van zaterdag op zondag, of start de workflow 'Wekelijkse voorraadmeting' handmatig.")
+        st.info("Nog geen metingen. De eerste komt aan het einde van de maand, of start de workflow 'Maandelijkse voorraadmeting' handmatig.")
     else:
         st.plotly_chart(_weekly_stock_chart(weekly_snapshots, "bw_titles", "bol_titles", "aantal boeken"), width="stretch")
-        st.caption("Titels met voorraad boven 0. Het donkere deel staat ook op Bol. De laatste staaf ('Nu') is de stand van dit moment, de andere zijn metingen in de nacht van zaterdag op zondag.")
+        st.caption("Titels met voorraad boven 0. Het donkere deel staat ook op Bol. De laatste staaf ('Nu') is de stand van dit moment, de andere zijn metingen aan het einde van iedere maand.")
 with week_right:
     st.subheader("Verkoopvoorraad, in waarde")
     if weekly_error:
