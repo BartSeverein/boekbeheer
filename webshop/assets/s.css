@@ -61,6 +61,7 @@ footer a,footer>span{margin-right:1rem}
 footer>span{color:var(--fg)}
 footer{display:flex;flex-wrap:wrap;gap:.3rem 0;align-items:center}
 nav.cats a.more{display:inline-flex;align-items:center;gap:.35rem;border-style:dashed;color:var(--acct)}
+nav.cats a.subs{display:inline-flex;color:var(--fg)}nav.cats a.subs .i{color:var(--acct)}
 footer .il{display:inline-flex}
 nav.lang{max-width:80rem;margin:0 auto;padding:.4rem 1rem 0;display:flex;justify-content:flex-end;align-items:center;gap:.15rem;font-size:.85rem;color:var(--mut)}
 nav.lang .i{width:1.1rem;height:1.1rem;margin-right:.3rem}
