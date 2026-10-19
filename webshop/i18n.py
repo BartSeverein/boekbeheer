@@ -82,6 +82,8 @@ T = {
                        "Bücher von {author}: gebraucht und neu ({total})", "Livres de {author} : d'occasion et neufs ({total})"),
     "p_author_intro": ("Er zijn {total} boeken van {author} in mijn webshop.", "There are {total} books by {author} in my shop.",
                        "Es gibt {total} Bücher von {author} in meinem Shop.", "Il y a {total} livres de {author} dans ma boutique."),
+    "p_cat_parent": ("Alle boeken in {parent}", "All books in {parent}", "Alle Bücher in {parent}", "Tous les livres dans {parent}"),
+    "p_see_also": ("Kijk ook in {list}.", "Also take a look at {list}.", "Schauen Sie auch in {list}.", "Jetez aussi un œil à {list}."),
     "p_author_desc": ("Boeken van {author}: {total} titels{suffix}. Bekijk het aanbod van {shop}.",
                       "Books by {author}: {total} titles{suffix}. Browse the selection at {shop}.",
                       "Bücher von {author}: {total} Titel{suffix}. Entdecken Sie das Angebot von {shop}.",

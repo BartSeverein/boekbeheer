@@ -208,7 +208,7 @@ class Site:
         body = nav + f'<h1>{esc(title)}</h1><p>{esc(self.t("p_more_cats_intro"))}</p><nav class="cats" aria-label="{esc(title)}"><ul class="cats" style="display:contents;list-style:none;padding:0;margin:0">{items}</ul></nav>'
         return self.layout(title=title, desc=self.t("p_more_cats_intro"), path="/overige-categorieen/", body=body)
 
-    def category(self, *, label, parent, base, books, page, pages, total, intro=""):
+    def category(self, *, label, parent, base, books, page, pages, total, intro="", see_also=None):
         crumbs = [(self.t("p_home"), "/")]
         if parent:
             crumbs.append((parent["label"], f"/categorie/{parent['slug']}/"))
@@ -216,7 +216,14 @@ class Site:
         nav = self._crumbs(crumbs)
         suffix = " " + self.t("p_page_n", n=page) if page > 1 else ""
         path = base if page == 1 else f"{base}pagina/{page}/"
-        body = nav + f"<h1>{esc(label)}{esc(suffix)}</h1><p>{(esc(intro) + ' ') if intro and page == 1 else ''}{esc(self.t('p_in_cat_one') if total == 1 else self.t('p_in_cat', total=total))}</p>" + \
+        extra = ""
+        if page == 1:
+            if parent:
+                extra += f'<p><a href="{self.L("/categorie/" + parent["slug"] + "/")}" class="il">{icon("back")}{esc(self.t("p_cat_parent", parent=parent["label"]))}</a></p>'
+            if see_also:
+                links = ", ".join(f'<a href="{self.L(u)}">{esc(t)}</a>' for t, u in see_also)
+                extra += f'<p>{self.t("p_see_also", list=links)}</p>'
+        body = nav + f"<h1>{esc(label)}{esc(suffix)}</h1><p>{(esc(intro) + ' ') if intro and page == 1 else ''}{esc(self.t('p_in_cat_one') if total == 1 else self.t('p_in_cat', total=total))}</p>" + extra + \
             self.grid(books) + self.pager(base, page, pages)
         ld = [{
             "@context": "https://schema.org", "@type": "BreadcrumbList",

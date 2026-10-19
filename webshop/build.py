@@ -433,6 +433,19 @@ def _load_cat_intros():
 
 CAT_INTROS = _load_cat_intros()
 
+
+def _load_cat_refs():
+    """Handmatige verwijzingen tussen categorieën (content/categorie_verwijzingen.json): 'Kijk ook in …'."""
+    path = HERE / "content" / "categorie_verwijzingen.json"
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        return {k.strip().lower(): [x.strip().lower() for x in v] for k, v in raw.items() if isinstance(v, list)}
+    except Exception:
+        return {}
+
+
+CAT_REFS = _load_cat_refs()
+
 HTACCESS = """\
 # Gegenereerd door build.py
 DirectoryIndex index.html
@@ -606,6 +619,13 @@ def build_site(raw_books, out_dir, cfg=None, *, mode="full", imported_order_ids=
             s = c["subs"].setdefault(b["c2_slug"], {"label": b["c2_label"], "slug": b["c2_slug"], "books": []})
             s["books"].append(b)
     top = sorted(tree.values(), key=lambda c: c["label"].lower())
+    # opzoektabel voor 'Kijk ook in': 'hoofd' of 'hoofd > sub' (kleine letters) -> (hoofdlabel, sublabel of None, pad)
+    cat_ref = {}
+    for c in top:
+        ck = (c["label"] or "").strip().lower()
+        cat_ref[ck] = (c["label"], None, f"/categorie/{c['slug']}/")
+        for sc in c["subs"].values():
+            cat_ref[f"{ck} > {(sc['label'] or '').strip().lower()}"] = (c["label"], sc["label"], f"/categorie/{c['slug']}/{sc['slug']}/")
 
     urls = []
     count_pages = 0
@@ -661,20 +681,36 @@ def build_site(raw_books, out_dir, cfg=None, *, mode="full", imported_order_ids=
                 return i18n.t("p_cat_intro_sub", lang, label=label, parent=parent_label)
             return i18n.t("p_cat_intro_top", lang, label=label, shop=cfg["name"])
 
-        def listing(label, parent, base, items, intro="", site=site):
+        def see_also_for(raw_label, raw_parent=None, lang=lang):
+            key = (raw_label or "").strip().lower()
+            if raw_parent:
+                key = f"{raw_parent.strip().lower()} > {key}"
+            out = []
+            for target in CAT_REFS.get(key, []):
+                hit = cat_ref.get(target)
+                if not hit or target == key:
+                    continue
+                c1, c2, path = hit
+                name = cat_label(c1, lang) if not c2 else f"{cat_label(c1, lang)} › {cat_label(c2, lang)}"
+                out.append((name, path))
+            return out
+
+        def listing(label, parent, base, items, intro="", see_also=None, site=site):
             pages = max(1, -(-len(items) // PER_PAGE))
             for page in range(1, pages + 1):
                 chunk = items[(page - 1) * PER_PAGE: page * PER_PAGE]
-                html = site.category(label=label, parent=parent, base=base, books=chunk, page=page, pages=pages, total=len(items), intro=intro)
+                html = site.category(label=label, parent=parent, base=base, books=chunk, page=page, pages=pages, total=len(items), intro=intro, see_also=see_also)
                 emit(base if page == 1 else f"{base}pagina/{page}/", html)
             urls.append(site.L(base))
 
         for c in top:
             base = f"/categorie/{c['slug']}/"
-            listing(cat_label(c["label"], lang), None, base, c["books"], intro_for(c["label"], cat_label(c["label"], lang), None))
+            listing(cat_label(c["label"], lang), None, base, c["books"], intro_for(c["label"], cat_label(c["label"], lang), None),
+                    see_also=see_also_for(c["label"]))
             for s in sorted(c["subs"].values(), key=lambda s: s["label"].lower()):
                 listing(cat_label(s["label"], lang), {"label": cat_label(c["label"], lang), "slug": c["slug"]},
-                        f"{base}{s['slug']}/", s["books"], intro_for(s["label"], cat_label(s["label"], lang), cat_label(c["label"], lang), c["label"]))
+                        f"{base}{s['slug']}/", s["books"], intro_for(s["label"], cat_label(s["label"], lang), cat_label(c["label"], lang), c["label"]),
+                        see_also=see_also_for(s["label"], c["label"]))
 
         for b in books:
             chain = [(cat_label(b["c1_label"], lang), f"/categorie/{b['c1_slug']}/")]
