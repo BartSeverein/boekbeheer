@@ -2819,6 +2819,47 @@ def get_weekly_stock_snapshots(max_weeks=60):
         conn.close()
 
 
+_SKIP_CATEGORY_WORDS = ("overig", "divers", "onbekend")
+
+
+@st.cache_data(ttl=3600)
+def get_top_category_pairs(limit=6):
+    """
+    De meest gebruikte categorieen (of categoriekoppels 'Categorie 1 + Categorie 2') van alle boeken, voor de snelkeuze bij
+    Nieuw boek. Geeft een lijst (categorie1_waarde, categorie2_waarde of "") terug, meest gebruikte eerst. Waarden zijn
+    precies zoals in de keuzelijsten (categories.py). Overig/diverse/onbekend, lege categorieen en een hoofdcategorie met
+    subcategorieen maar zonder gekozen subcategorie worden overgeslagen.
+    """
+    conn = psycopg2.connect(get_db_url())
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT lower(trim(category1)), lower(trim(COALESCE(category2, ''))), COUNT(*) FROM books "
+                "WHERE COALESCE(trim(category1), '') <> '' GROUP BY 1, 2 ORDER BY 3 DESC LIMIT 200"
+            )
+            rows = cur.fetchall()
+    finally:
+        conn.close()
+    cat1_by_lower = {value.lower(): value for value, _ in CATEGORY1_OPTIONS}
+    result = []
+    for c1, c2, _count in rows:
+        if c1 not in cat1_by_lower or any(w in c1 or w in c2 for w in _SKIP_CATEGORY_WORDS):
+            continue
+        cat1 = cat1_by_lower[c1]
+        if cat1 in CATEGORY2_OPTIONS:
+            match = next((v for v, _label in CATEGORY2_OPTIONS[cat1] if v and v.lower() == c2), None)
+            if match is None:   # geen (herkenbare) subcategorie: dan geen bruikbare snelkeuze
+                continue
+            pair = (cat1, match)
+        else:
+            pair = (cat1, "")
+        if pair not in result:
+            result.append(pair)
+        if len(result) >= limit:
+            break
+    return result
+
+
 @st.cache_data(ttl=300)
 def get_current_stock_snapshot():
     """
