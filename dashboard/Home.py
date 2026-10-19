@@ -15,6 +15,7 @@ import datetime as dt
 import time
 
 import plotly.express as px
+import plotly.graph_objects as go
 import psycopg2
 import pandas as pd
 import streamlit as st
@@ -43,6 +44,8 @@ from common import (
     render_logo,
     require_login,
     get_database_size_mb,
+    get_search_console_data,
+    GSC_PERIODS,
     get_bol_condition_rows,
     get_weekly_stock_snapshots,
     get_current_stock_snapshot,
@@ -598,3 +601,52 @@ with right2:
             hole=0.4,
         )
         st.plotly_chart(fig_db, width="stretch")
+
+# ---------- Zoekverkeer Google (Search Console) ----------
+
+st.divider()
+
+
+@st.fragment
+def search_console_section():
+    st.subheader("Zoekverkeer in Google")
+    period = st.radio("Periode", list(GSC_PERIODS), index=1, horizontal=True, key="gsc_period", label_visibility="collapsed")
+    try:
+        data = get_search_console_data(period)
+    except Exception as error:
+        st.info(f"Het zoekverkeer kon nu niet worden opgevraagd ({error}).")
+        return
+    if data is None:
+        st.info("Nog niet gekoppeld. Zet in de secrets GSC_SERVICE_ACCOUNT (de sleutel van het serviceaccount) en GSC_SITE_URL "
+                "(bijvoorbeeld sc-domain:severein.nl).")
+        return
+    if data.empty:
+        st.info("Nog geen gegevens voor deze periode.")
+        return
+    clicks = float(data["clicks"].sum())
+    impressions = float(data["impressions"].sum())
+    ctr = clicks / impressions if impressions else 0.0
+    position = float((data["position"] * data["impressions"]).sum() / impressions) if impressions else 0.0
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Klikken", _nl_number(clicks))
+    m2.metric("Vertoningen", _nl_number(impressions))
+    m3.metric("Klikratio (CTR)", f"{ctr * 100:.1f}%".replace(".", ","))
+    m4.metric("Gemiddelde positie", f"{position:.1f}".replace(".", ","))
+    fig = go.Figure()
+    # Zelfde blauwtinten als de andere grafieken: licht = vertoningen (staven), donker = klikratio (lijn).
+    fig.add_bar(x=data["moment"], y=data["impressions"], name="Vertoningen", marker_color="#83C9FF",
+                hovertemplate="%{x}<br>Vertoningen: %{y}<extra></extra>")
+    fig.add_scatter(x=data["moment"], y=(data["ctr"] * 100).round(2), name="Klikratio (%)", mode="lines+markers",
+                    line=dict(color="#0068C9", width=3), yaxis="y2",
+                    hovertemplate="%{x}<br>Klikratio: %{y:.1f}%<extra></extra>")
+    fig.update_layout(
+        yaxis=dict(title="vertoningen", rangemode="tozero"),
+        yaxis2=dict(title="klikratio (%)", overlaying="y", side="right", rangemode="tozero", showgrid=False, ticksuffix="%"),
+        xaxis_title=None, legend_title_text=None, legend=dict(orientation="h", y=1.12), separators=",.",
+        bargap=0.15, hovermode="x unified",
+    )
+    st.plotly_chart(fig, width="stretch")
+    st.caption("Bron: Google Search Console (zoektype Web). De cijfers van de laatste uren zijn nog voorlopig en worden elk half uur ververst.")
+
+
+search_console_section()

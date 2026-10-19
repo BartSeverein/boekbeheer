@@ -2823,7 +2823,7 @@ _SKIP_CATEGORY_WORDS = ("overig", "divers", "onbekend")
 
 
 @st.cache_data(ttl=3600)
-def get_top_category_pairs(limit=6):
+def get_top_category_pairs(limit=8):
     """
     De meest gebruikte categorieen (of categoriekoppels 'Categorie 1 + Categorie 2') van alle boeken, voor de snelkeuze bij
     Nieuw boek. Geeft een lijst (categorie1_waarde, categorie2_waarde of "") terug, meest gebruikte eerst. Waarden zijn
@@ -2895,6 +2895,78 @@ def get_current_stock_snapshot():
             }
     finally:
         conn.close()
+
+
+# ---------- Google Search Console ----------
+
+GSC_PERIODS = {
+    # naam: (aantal dagen terug, per uur?)
+    "24 uur": (2, True),
+    "7 dagen": (7, False),
+    "28 dagen": (28, False),
+    "3 maanden": (90, False),
+}
+
+
+def _gsc_credentials_info():
+    """De sleutel van het serviceaccount (JSON-tekst of tabel) uit de secrets, of None als die nog niet is ingesteld."""
+    raw = _get_secret("GSC_SERVICE_ACCOUNT")
+    if not raw:
+        return None
+    if isinstance(raw, str):
+        return json.loads(raw)
+    return dict(raw)
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def get_search_console_data(period):
+    """
+    Zoekverkeer uit Google Search Console voor de gekozen periode (zie GSC_PERIODS): een tabel met een rij per uur (24 uur) of
+    per dag, met kolommen moment, clicks, impressions, ctr (0-1) en position. Geeft None als de koppeling nog niet is
+    ingesteld (secrets GSC_SERVICE_ACCOUNT en GSC_SITE_URL); bij een storing een uitzondering met een leesbare melding.
+    """
+    info = _gsc_credentials_info()
+    site = _get_secret("GSC_SITE_URL")
+    if not info or not site:
+        return None
+    from google.auth.transport.requests import Request as GoogleRequest
+    from google.oauth2 import service_account
+    from urllib.parse import quote
+
+    creds = service_account.Credentials.from_service_account_info(
+        info, scopes=["https://www.googleapis.com/auth/webmasters.readonly"])
+    creds.refresh(GoogleRequest())
+    days, hourly = GSC_PERIODS[period]
+    today = dt.datetime.now(ZoneInfo("America/Los_Angeles")).date()   # Search Console rekent in Pacific Time
+    body = {
+        "startDate": (today - dt.timedelta(days=days)).isoformat(),
+        "endDate": today.isoformat(),
+        "dimensions": ["HOUR" if hourly else "date"],
+        "dataState": "hourly_all" if hourly else "all",
+        "rowLimit": 25000,
+    }
+    url = f"https://www.googleapis.com/webmasters/v3/sites/{quote(site, safe='')}/searchAnalytics/query"
+    resp = requests.post(url, json=body, headers={"Authorization": f"Bearer {creds.token}"}, timeout=30)
+    if resp.status_code != 200:
+        try:
+            detail = resp.json().get("error", {}).get("message", "")
+        except Exception:
+            detail = resp.text[:200]
+        raise RuntimeError(f"Search Console antwoordde met {resp.status_code}: {detail}")
+    rows = resp.json().get("rows", [])
+    data = pd.DataFrame([
+        {"key": r["keys"][0], "clicks": r.get("clicks", 0), "impressions": r.get("impressions", 0),
+         "ctr": r.get("ctr", 0.0), "position": r.get("position", 0.0)}
+        for r in rows
+    ])
+    if data.empty:
+        return pd.DataFrame(columns=["moment", "clicks", "impressions", "ctr", "position"])
+    if hourly:
+        data["moment"] = pd.to_datetime(data["key"], utc=True).dt.tz_convert("Europe/Amsterdam").dt.tz_localize(None)
+        data = data[data["moment"] >= dt.datetime.now(ZoneInfo("Europe/Amsterdam")).replace(tzinfo=None) - dt.timedelta(hours=24)]
+    else:
+        data["moment"] = pd.to_datetime(data["key"])
+    return data.drop(columns="key").sort_values("moment").reset_index(drop=True)
 
 
 def get_database_size_mb():
