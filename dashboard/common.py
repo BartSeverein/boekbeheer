@@ -2787,7 +2787,7 @@ def get_bol_condition_rows():
 
 
 @st.cache_data(ttl=600)
-def get_weekly_stock_snapshots(max_weeks=26):
+def get_weekly_stock_snapshots(max_weeks=60):
     """
     De laatste wekelijkse metingen (oudste eerst) als lijst van dicts met measured_on, bw_titles, bol_titles,
     bw_value en bol_value (verkoopwaarde in euro). Geeft None als de tabel er nog niet is (de eerste meting is dan nog niet gedraaid).
