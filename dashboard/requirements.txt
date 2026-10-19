@@ -4,3 +4,4 @@ psycopg2-binary
 plotly
 python-dotenv
 pillow
+google-auth
