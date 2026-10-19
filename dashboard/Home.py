@@ -609,8 +609,8 @@ st.divider()
 
 @st.fragment
 def search_console_section():
-    st.subheader("Zoekverkeer in Google")
-    period = st.radio("Periode", list(GSC_PERIODS), index=1, horizontal=True, key="gsc_period", label_visibility="collapsed")
+    st.subheader("Zoekverkeer in Google voor webshop")
+    period = st.radio("Periode", list(GSC_PERIODS), index=0, horizontal=True, key="gsc_period", label_visibility="collapsed")
     try:
         data = get_search_console_data(period)
     except Exception as error:
@@ -629,19 +629,22 @@ def search_console_section():
     position = float((data["position"] * data["impressions"]).sum() / impressions) if impressions else 0.0
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Klikken", _nl_number(clicks))
-    m2.metric("Vertoningen", _nl_number(impressions))
-    m3.metric("Klikratio (CTR)", f"{ctr * 100:.1f}%".replace(".", ","))
+    m2.metric("Impressies", _nl_number(impressions))
+    m3.metric("CTR", f"{ctr * 100:.1f}%".replace(".", ","))
     m4.metric("Gemiddelde positie", f"{position:.1f}".replace(".", ","))
     fig = go.Figure()
     # Zelfde blauwtinten als de andere grafieken: licht = vertoningen (staven), donker = klikratio (lijn).
-    fig.add_bar(x=data["moment"], y=data["impressions"], name="Vertoningen", marker_color="#83C9FF",
-                hovertemplate="%{x}<br>Vertoningen: %{y}<extra></extra>")
-    fig.add_scatter(x=data["moment"], y=(data["ctr"] * 100).round(2), name="Klikratio (%)", mode="lines+markers",
+    fig.add_bar(x=data["moment"], y=data["impressions"], name="Impressies", marker_color="#83C9FF", opacity=0.45,
+                showlegend=False, hovertemplate="%{x}<br>Impressies: %{y}<extra></extra>")
+    fig.add_scatter(x=data["moment"], y=data["impressions"], name="Impressies", mode="lines+markers",
+                    line=dict(color="#83C9FF", width=3),
+                    hovertemplate="%{x}<br>Impressies: %{y}<extra></extra>")
+    fig.add_scatter(x=data["moment"], y=(data["ctr"] * 100).round(2), name="CTR (%)", mode="lines+markers",
                     line=dict(color="#0068C9", width=3), yaxis="y2",
-                    hovertemplate="%{x}<br>Klikratio: %{y:.1f}%<extra></extra>")
+                    hovertemplate="%{x}<br>CTR: %{y:.1f}%<extra></extra>")
     fig.update_layout(
-        yaxis=dict(title="vertoningen", rangemode="tozero"),
-        yaxis2=dict(title="klikratio (%)", overlaying="y", side="right", rangemode="tozero", showgrid=False, ticksuffix="%"),
+        yaxis=dict(title="impressies", rangemode="tozero"),
+        yaxis2=dict(title="CTR (%)", overlaying="y", side="right", rangemode="tozero", showgrid=False, ticksuffix="%"),
         xaxis_title=None, legend_title_text=None, legend=dict(orientation="h", y=1.12), separators=",.",
         bargap=0.15, hovermode="x unified",
     )
