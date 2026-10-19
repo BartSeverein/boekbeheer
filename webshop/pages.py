@@ -109,7 +109,7 @@ class Site:
             cats = f'<nav class="cats" aria-label="{esc(self.t("p_cats"))}"><ul class="cats" style="display:contents;list-style:none;padding:0;margin:0">' + "".join(
                 f'<li><a href="{self.L(c.get("href") or "/categorie/" + c["slug"] + "/")}">{esc(c["label"])} ({c["count"]})</a></li>'
                 for c in self.categories
-            ) + (f'<li><a class="more il" href="{self.L("/overige-categorieen/")}">{icon("list")}{esc(self.t("p_more_cats"))} ({self.more_cats})</a></li>'
+            ) + (f'<li><a class="more il" href="{self.L("/overige-categorieen/")}">{icon("list")}{esc(self.t("p_more_cats"))}</a></li>'
                  if self.more_cats else "") + "</ul></nav>"
             # Op mobiel achter een knop (alleen CSS: selectievakje + label, werkt zonder JavaScript); op een computer staat de wolk gewoon open.
             cats = (f'<div class="catbox"><input type="checkbox" id="catt" class="sr"><label for="catt" class="il">{icon("list")}'
@@ -200,7 +200,7 @@ class Site:
                            show_cats=True, image=("/" + self.logo[0]) if self.logo else None)
 
     def more_categories_page(self, rest):
-        """Alle categorieën die niet in de wolk op de beginpagina staan (de kleinste), gesorteerd op aantal boeken."""
+        """Alle hoofdcategorieën op alfabet (rest = lijst met label, slug, count); een categorie met subcategorieën opent een eigen pagina met knoppen."""
         title = self.t("p_more_cats")
         nav = self._crumbs([(self.t("p_home"), "/"), (title, "/overige-categorieen/")])
         items = "".join(
@@ -208,7 +208,7 @@ class Site:
         body = nav + f'<h1>{esc(title)}</h1><p>{esc(self.t("p_more_cats_intro"))}</p><nav class="cats" aria-label="{esc(title)}"><ul class="cats" style="display:contents;list-style:none;padding:0;margin:0">{items}</ul></nav>'
         return self.layout(title=title, desc=self.t("p_more_cats_intro"), path="/overige-categorieen/", body=body)
 
-    def category(self, *, label, parent, base, books, page, pages, total, intro="", see_also=None):
+    def category(self, *, label, parent, base, books, page, pages, total, intro="", see_also=None, subs=None, all_total=None):
         crumbs = [(self.t("p_home"), "/")]
         if parent:
             crumbs.append((parent["label"], f"/categorie/{parent['slug']}/"))
@@ -223,8 +223,16 @@ class Site:
             if see_also:
                 links = ", ".join(f'<a href="{self.L(u)}">{esc(t)}</a>' for t, u in see_also)
                 extra += f'<p>{self.t("p_see_also", list=links)}</p>'
-        body = nav + f"<h1>{esc(label)}{esc(suffix)}</h1><p>{(esc(intro) + ' ') if intro and page == 1 else ''}{esc(self.t('p_in_cat_one') if total == 1 else self.t('p_in_cat', total=total))}</p>" + extra + \
-            self.grid(books) + self.pager(base, page, pages)
+        if subs:
+            # Hoofdcategorie met subcategorieën: eerst de knoppen (op alfabet), daaronder alleen de boeken zonder subcategorie.
+            sub_nav = (f'<nav class="cats" aria-label="{esc(self.t("p_cats"))}"><ul class="cats" style="display:contents;list-style:none;padding:0;margin:0">'
+                       + "".join(f'<li><a href="{self.L(u)}">{esc(t)} ({n})</a></li>' for t, u, n in subs) + "</ul></nav>")
+            own = (f'<h2>{esc(self.t("p_own_books", label=label, total=total))}</h2>' + self.grid(books) + self.pager(base, page, pages)) if total else ""
+            body = nav + f"<h1>{esc(label)}{esc(suffix)}</h1><p>{(esc(intro) + ' ') if intro and page == 1 else ''}</p>" + extra + sub_nav + own
+        else:
+            body = nav + f"<h1>{esc(label)}{esc(suffix)}</h1><p>{(esc(intro) + ' ') if intro and page == 1 else ''}{esc(self.t('p_in_cat_one') if total == 1 else self.t('p_in_cat', total=total))}</p>" + extra + \
+                self.grid(books) + self.pager(base, page, pages)
+        total = all_total if all_total is not None else total   # titel en beschrijving noemen het totaal van de hele categorie
         ld = [{
             "@context": "https://schema.org", "@type": "BreadcrumbList",
             "itemListElement": [{"@type": "ListItem", "position": i + 1, "name": t, "item": self.url(self.L(u))} for i, (t, u) in enumerate(crumbs)],

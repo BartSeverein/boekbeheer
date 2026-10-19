@@ -21,7 +21,7 @@ LANG_NAME = {"nl": "Nederlands", "en": "English", "de": "Deutsch", "fr": "Franç
 # sleutel: (nl, en, de, fr)
 T = {
     # --- gedeeld skelet
-    "p_search_ph": ("Zoek op titel, auteur of ISBN", "Search by title, author or ISBN", "Suche nach Titel, Autor oder ISBN", "Rechercher par titre, auteur ou ISBN"),
+    "p_search_ph": ("Zoek op titel, auteur, categorie of ISBN", "Search by title, author, category or ISBN", "Suche nach Titel, Autor, Kategorie oder ISBN", "Rechercher par titre, auteur, catégorie ou ISBN"),
     "p_search_btn": ("Zoek", "Search", "Suchen", "Chercher"),
     "p_terms": ("Voorwaarden en verzending", "Terms and shipping", "Bedingungen und Versand", "Conditions et livraison"),
     "p_privacy": ("Privacy", "Privacy", "Datenschutz", "Confidentialité"),
@@ -30,9 +30,11 @@ T = {
     "p_paging": ("Paginering", "Pagination", "Seitennavigation", "Pagination"),
     "p_lang": ("Taal", "Language", "Sprache", "Langue"),
     "p_home": ("Home", "Home", "Startseite", "Accueil"),
-    "p_more_cats": ("Overige categorieën", "Other categories", "Weitere Kategorien", "Autres catégories"),
-    "p_more_cats_intro": ("Alle andere categorieën, gesorteerd op aantal boeken.", "All other categories, sorted by number of books.",
-                          "Alle weiteren Kategorien, sortiert nach Anzahl der Bücher.", "Toutes les autres catégories, classées par nombre de livres."),
+    "p_more_cats": ("Alle categorieën", "All categories", "Alle Kategorien", "Toutes les catégories"),
+    "p_more_cats_intro": ("Alle categorieën op alfabet. Bij een categorie met subcategorieën, zoals Hobby of Topografie, kies je op de volgende pagina eerst de subcategorie.",
+                          "All categories in alphabetical order. For a category with subcategories, such as Hobby or Topography, you choose the subcategory on the next page.",
+                          "Alle Kategorien in alphabetischer Reihenfolge. Bei einer Kategorie mit Unterkategorien, etwa Hobby oder Topografie, wählen Sie auf der nächsten Seite zuerst die Unterkategorie.",
+                          "Toutes les catégories par ordre alphabétique. Pour une catégorie avec des sous-catégories, comme Hobby ou Topographie, vous choisissez d'abord la sous-catégorie sur la page suivante."),
     "p_show_photo": ("Toon foto {n}", "Show photo {n}", "Foto {n} anzeigen", "Afficher la photo {n}"),
     "p_about_nl": ("Over dit boek", "About this book (in Dutch)", "Über dieses Buch (auf Niederländisch)",
                    "À propos de ce livre (en néerlandais)"),
@@ -56,6 +58,8 @@ T = {
     "p_page_n": ("(pagina {n})", "(page {n})", "(Seite {n})", "(page {n})"),
     "p_in_cat": ("Er zijn {total} boeken in deze categorie.", "There are {total} books in this category.",
                  "In dieser Kategorie gibt es {total} Bücher.", "Il y a {total} livres dans cette catégorie."),
+    "p_own_books": ("Boeken in {label} zonder subcategorie ({total})", "Books in {label} without a subcategory ({total})",
+                    "Bücher in {label} ohne Unterkategorie ({total})", "Livres dans {label} sans sous-catégorie ({total})"),
     "p_in_cat_one": ("Er is 1 boek in deze categorie (maar wel een mooie!).", "There is 1 book in this category (but a lovely one!).",
                      "In dieser Kategorie gibt es 1 Buch (aber ein schönes!).", "Il y a 1 livre dans cette catégorie (mais un beau !)."),
     "p_home_title": ("Tweedehands en nieuwe boeken kopen", "Buy second-hand and new books",

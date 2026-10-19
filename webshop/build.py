@@ -504,7 +504,7 @@ def write_catalog(path, books, imported_ids, cfg, built_at):
         rows = []
         for b in books:
             th = b.get("thumb")
-            hay = " " + norm(" ".join(filter(None, [b["title"], b["author"], b.get("publisher")]))) + " " + (b["isbn"] or "").lower() + " "
+            hay = " " + norm(" ".join(filter(None, [b["title"], b["author"], b.get("publisher"), b.get("c1_label"), b.get("c2_label")]))) + " " + (b["isbn"] or "").lower() + " "
             rows.append((b["id"], b["title"], b["author"], b["isbn"], b["price_cents"], b["ship_cents"], b["big"], b["amount"], b["path"],
                          th[0] if th else None, th[1] if th else None, th[2] if th else None, hay, norm(b["title"]), b["seq"], b.get("location")))
         con.executemany("INSERT INTO books VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
@@ -695,18 +695,27 @@ def build_site(raw_books, out_dir, cfg=None, *, mode="full", imported_order_ids=
                 out.append((name, path))
             return out
 
-        def listing(label, parent, base, items, intro="", see_also=None, site=site):
+        def listing(label, parent, base, items, intro="", see_also=None, subs=None, all_total=None, site=site):
             pages = max(1, -(-len(items) // PER_PAGE))
             for page in range(1, pages + 1):
                 chunk = items[(page - 1) * PER_PAGE: page * PER_PAGE]
-                html = site.category(label=label, parent=parent, base=base, books=chunk, page=page, pages=pages, total=len(items), intro=intro, see_also=see_also)
+                html = site.category(label=label, parent=parent, base=base, books=chunk, page=page, pages=pages, total=len(items), intro=intro,
+                                     see_also=see_also, subs=subs, all_total=all_total)
                 emit(base if page == 1 else f"{base}pagina/{page}/", html)
             urls.append(site.L(base))
 
         for c in top:
             base = f"/categorie/{c['slug']}/"
-            listing(cat_label(c["label"], lang), None, base, c["books"], intro_for(c["label"], cat_label(c["label"], lang), None),
-                    see_also=see_also_for(c["label"]))
+            if c["subs"]:
+                # Knoppen voor alle subcategorieën (op alfabet) en daaronder alleen de boeken zonder subcategorie.
+                sub_buttons = sorted(((cat_label(s["label"], lang), f"{base}{s['slug']}/", len(s["books"])) for s in c["subs"].values()),
+                                     key=lambda x: x[0].lower())
+                own_books = [b for b in c["books"] if not b["c2_slug"]]
+                listing(cat_label(c["label"], lang), None, base, own_books, intro_for(c["label"], cat_label(c["label"], lang), None),
+                        see_also=see_also_for(c["label"]), subs=sub_buttons, all_total=len(c["books"]))
+            else:
+                listing(cat_label(c["label"], lang), None, base, c["books"], intro_for(c["label"], cat_label(c["label"], lang), None),
+                        see_also=see_also_for(c["label"]))
             for s in sorted(c["subs"].values(), key=lambda s: s["label"].lower()):
                 listing(cat_label(s["label"], lang), {"label": cat_label(c["label"], lang), "slug": c["slug"]},
                         f"{base}{s['slug']}/", s["books"], intro_for(s["label"], cat_label(s["label"], lang), cat_label(c["label"], lang), c["label"]),
@@ -741,7 +750,9 @@ def build_site(raw_books, out_dir, cfg=None, *, mode="full", imported_order_ids=
             emit(b["path"], site.book(b, _book_loc(b, lang, book_tr, cat_label), chain, sold=True, similar=pool))
 
         if rest_buttons:
-            emit("/overige-categorieen/", site.more_categories_page(rest_buttons))
+            all_main = sorted(({"label": cat_label(c["label"], lang), "slug": c["slug"], "count": len(c["books"])} for c in top),
+                              key=lambda x: x["label"].lower())
+            emit("/overige-categorieen/", site.more_categories_page(all_main))
             urls.append(site.L("/overige-categorieen/"))
         emit("/zoeken/", site.search_page())
         emit("/winkelwagen/", site.cart_page())
