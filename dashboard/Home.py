@@ -633,9 +633,7 @@ def search_console_section():
     m3.metric("CTR", f"{ctr * 100:.1f}%".replace(".", ","))
     m4.metric("Gemiddelde positie", f"{position:.1f}".replace(".", ","))
     fig = go.Figure()
-    # Zelfde blauwtinten als de andere grafieken: licht = vertoningen (staven), donker = klikratio (lijn).
-    fig.add_bar(x=data["moment"], y=data["impressions"], name="Impressies", marker_color="#83C9FF", opacity=0.45,
-                showlegend=False, hovertemplate="%{x}<br>Impressies: %{y}<extra></extra>")
+    # Zelfde blauwtinten als de andere grafieken: licht = impressies, donker = CTR (beide lijnen).
     fig.add_scatter(x=data["moment"], y=data["impressions"], name="Impressies", mode="lines+markers",
                     line=dict(color="#83C9FF", width=3),
                     hovertemplate="%{x}<br>Impressies: %{y}<extra></extra>")
@@ -646,7 +644,7 @@ def search_console_section():
         yaxis=dict(title="impressies", rangemode="tozero"),
         yaxis2=dict(title="CTR (%)", overlaying="y", side="right", rangemode="tozero", showgrid=False, ticksuffix="%"),
         xaxis_title=None, legend_title_text=None, legend=dict(orientation="h", y=1.12), separators=",.",
-        bargap=0.15, hovermode="x unified",
+        hovermode="x unified",
     )
     st.plotly_chart(fig, width="stretch")
     st.caption("Bron: Google Search Console (zoektype Web). De cijfers van de laatste uren zijn nog voorlopig en worden elk half uur ververst.")
