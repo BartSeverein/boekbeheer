@@ -62,6 +62,7 @@ from common import (
     lookup_bol_category_names,
     find_matching_category,
     clean_boekwinkeltjes_title_and_bijz,
+    get_top_category_pairs,
 )
 from categories import CATEGORY1_OPTIONS, CATEGORY2_OPTIONS, category1_label_for_value, category2_label_for_value
 
@@ -498,8 +499,32 @@ with col_b:
 
     # Categorie 1 en 2 staan in een 'fragment': kies je de eerste categorie, dan wordt alleen dit stukje opnieuw
     # getekend (met de tweede lijst) en niet de hele pagina met al zijn opzoekingen. Dat scheelt de wachttijd.
+    def _quick_category_label(pair):
+        c1, c2 = pair
+        label = category1_label_for_value(c1)
+        label = label[:1].upper() + label[1:]
+        return f"{label} › {category2_label_for_value(c1, c2)}" if c2 else label
+
+    try:
+        quick_pairs = get_top_category_pairs(6)
+    except Exception:
+        quick_pairs = []
+    quick_by_label = {_quick_category_label(pair): pair for pair in quick_pairs}
+
+    def _apply_quick_category():
+        pair = quick_by_label.get(st.session_state.get(k("quick_category")))
+        if not pair:
+            return
+        c1, c2 = pair
+        st.session_state[k("category1")] = category1_label_for_value(c1)
+        if c2 and c1 in CATEGORY2_OPTIONS:
+            st.session_state[k(f"category2_dd_{c1}")] = category2_label_for_value(c1, c2)
+
     @st.fragment
     def category_pickers():
+        if quick_by_label:
+            st.radio("Snelkeuze categorie (de meest gebruikte)", list(quick_by_label), index=None, horizontal=True,
+                     key=k("quick_category"), on_change=_apply_quick_category)
         chosen_cat1_label = st.selectbox("Categorie 1", CAT1_LABELS, key=k("category1"))
         cat1_value = CAT1_VALUES[CAT1_LABELS.index(chosen_cat1_label)]
         if cat1_value in CATEGORY2_OPTIONS:
