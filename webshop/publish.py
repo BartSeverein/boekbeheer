@@ -10,6 +10,7 @@ import sqlite3
 import tempfile
 import time
 from pathlib import Path
+from pathlib import Path
 
 from .build import build_site, load_from_postgres
 from .common import shop_config
@@ -101,6 +102,18 @@ def publish(mode="full", execute=False, max_minutes=120, allow_overwrite=False, 
                 notify(cfg, changed, log=log)
             except Exception as exc:   # een melding aan zoekmachines mag het publiceren nooit tegenhouden
                 log(f"IndexNow overgeslagen: {exc}")
+        if execute and mode == "full":
+            try:   # controle van de foutpagina: staat de .htaccess goed en bestaat 404.html op de server?
+                local_ht = (Path(out_dir) / ".htaccess").read_bytes()
+                remote_ht = remote.read_bytes(".htaccess") or b""
+                if remote_ht != local_ht:
+                    remote.put(".htaccess", data=local_ht)
+                    log(".htaccess op de server week af van de nieuwe en is vervangen.")
+                has_err = b"ErrorDocument 404 /404.html" in remote_ht
+                log(f"Foutpagina: .htaccess bevat ErrorDocument = {'ja' if has_err else 'nee (nu hersteld)'}; "
+                    f"404.html op de server = {'ja' if remote.exists('404.html') else 'NEE'}.")
+            except Exception as exc:
+                log(f"Foutpagina-controle overgeslagen: {exc}")
         if execute:
             import sync
             status = "ok" if result["complete"] else "error"
