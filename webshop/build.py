@@ -772,6 +772,8 @@ def build_site(raw_books, out_dir, cfg=None, *, mode="full", imported_order_ids=
     disallow = "".join(f"Disallow: {i18n.localize(p, l)}\n" for l in langs for p in ("/zoeken/", "/winkelwagen/", "/afrekenen/", "/bedankt/"))
     _write(out_dir, "robots.txt", "User-agent: *\n" + disallow + "Disallow: /*.php\n" + f"Sitemap: {base_url}/sitemap.xml\n")
     _write(out_dir, ".htaccess", HTACCESS)
+    if cfg.get("indexnow") and cfg.get("indexnow_key"):
+        _write(out_dir, f"{cfg['indexnow_key']}.txt", cfg["indexnow_key"])   # IndexNow: bewijs dat de site van ons is
 
     # ---- PHP en data
     for name in ("lib.php", "checkout.php", "search.php", "webhook.php", "status.php", "mailtest.php"):

@@ -316,6 +316,7 @@ def deploy(remote, dist_dir, *, mode="full", execute=False, keep=(), time_budget
     deadline = time.time() + time_budget if time_budget else None
     files_state = dict(manifest)
     failed, uploaded, lock = [], [0], threading.Lock()
+    uploaded_rels, deleted_rels = [], []
     stopped = [False]
 
     consecutive = [0]
@@ -352,6 +353,7 @@ def deploy(remote, dist_dir, *, mode="full", execute=False, keep=(), time_budget
                 if res:
                     files_state[res[0]] = res[1]
                     uploaded[0] += 1
+                    uploaded_rels.append(res[0])
             save_manifest(remote, files_state, log)
             if stopped[0]:
                 break
@@ -363,6 +365,7 @@ def deploy(remote, dist_dir, *, mode="full", execute=False, keep=(), time_budget
                 if res:
                     files_state[res[0]] = res[1]
                     uploaded[0] += 1
+                    uploaded_rels.append(res[0])
             complete = not failed and not stopped[0]
     finally:
         pool.shutdown()
@@ -376,11 +379,13 @@ def deploy(remote, dist_dir, *, mode="full", execute=False, keep=(), time_budget
                 remote.delete(rel)
                 files_state.pop(rel, None)
                 deleted += 1
+                deleted_rels.append(rel)
     save_manifest(remote, files_state, log)
     log(f"Klaar: {uploaded[0]} geüpload, {deleted} verwijderd, {len(failed)} mislukt" + ("" if complete else " — NIET compleet, volgende run gaat verder."))
     for f in failed[:10]:
         log("  mislukt: " + f)
-    return {"uploaded": uploaded[0], "deleted": deleted, "failed": len(failed), "complete": complete, "dry_run": False}
+    return {"uploaded": uploaded[0], "deleted": deleted, "failed": len(failed), "complete": complete, "dry_run": False,
+            "changed_rels": uploaded_rels + deleted_rels}
 
 
 def manifest_views(manifest):

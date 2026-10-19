@@ -93,7 +93,14 @@ def publish(mode="full", execute=False, max_minutes=120, allow_overwrite=False, 
         remaining = max(60, max_minutes * 60 - (time.time() - t0))
         result = deploy(remote, out_dir, mode=mode, execute=execute, keep=stats.get("keep", []), time_budget=remaining,
                         allow_overwrite=allow_overwrite or os.environ.get("WEBSHOP_ALLOW_OVERWRITE") == "1", log=log)
+        changed = result.pop("changed_rels", [])
         summary.update(result)
+        if execute and mode == "full" and changed:
+            try:
+                from .indexnow import notify
+                notify(cfg, changed, log=log)
+            except Exception as exc:   # een melding aan zoekmachines mag het publiceren nooit tegenhouden
+                log(f"IndexNow overgeslagen: {exc}")
         if execute:
             import sync
             status = "ok" if result["complete"] else "error"

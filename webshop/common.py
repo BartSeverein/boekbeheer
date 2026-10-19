@@ -132,6 +132,9 @@ def shop_config():
         # Bijzonderheden (korte tekst per boek) worden standaard wel vertaald; de lange beschrijving alleen met WEBSHOP_TRANSLATE_BOOKS=ja.
         "translate_short": (os.environ.get("WEBSHOP_TRANSLATE_SHORT") or "ja").strip().lower() not in ("0", "nee", "no", "false", "uit"),
         "translate_books": (os.environ.get("WEBSHOP_TRANSLATE_BOOKS") or "").strip().lower() in ("1", "ja", "yes", "true", "aan"),
+        # IndexNow: melding van gewijzigde pagina's aan Bing e.a. De sleutel is niet geheim (hij staat openbaar als <sleutel>.txt op de site).
+        "indexnow": (os.environ.get("WEBSHOP_INDEXNOW") or "ja").strip().lower() not in ("0", "nee", "no", "false", "uit"),
+        "indexnow_key": (os.environ.get("WEBSHOP_INDEXNOW_KEY") or "ac521e5d3a869fae5b03ae10cbdda04d").strip(),
         "data_key": os.environ.get("WEBSHOP_DATA_KEY") or "",
         "mollie_key": os.environ.get("WEBSHOP_MOLLIE_API_KEY") or "",
         "mollie_api_base": os.environ.get("WEBSHOP_MOLLIE_API_BASE") or "https://api.mollie.com/v2",
