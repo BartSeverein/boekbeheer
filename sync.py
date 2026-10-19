@@ -4037,7 +4037,8 @@ def restore_listing_dates(csv_path, execute=False):
 def take_weekly_stock_snapshot():
     """
     Legt vast hoeveel titels/exemplaren er nu actief in de verkoop zijn en hoeveel daarvan ook op Bol staan.
-    Bedoeld voor de nacht van zondag op maandag (de taak 'Wekelijkse voorraadmeting'); elke meting krijgt de
+    Bedoeld voor de nacht van de laatste dag van de maand op de 1e (de taak 'Wekelijkse voorraadmeting', nu maandelijks, bijvoorbeeld
+    op de 1e om 00:05 Nederlandse tijd); een meting op de 1e telt als de laatste dag van de maand ervoor. Elke andere meting krijgt de
     datum van de dag waarop ze gedraaid is (Nederlandse tijd), en een tweede meting op dezelfde dag vervangt de eerste.
     Actief in de verkoop = voorraad boven 0, echt bij Boekwinkeltjes aangemaakt, niet in een wachtrij en met
     synchronisatie aan. Actief op Bol = bij Bol bekende voorraad boven 0. Verkoopwaarde = Prijs Boekwinkeltjes x voorraad. Geeft regels tekst terug.
@@ -4087,7 +4088,11 @@ def take_weekly_stock_snapshot():
                 """
             )
             row = cur.fetchone()
-            measured_on = dt.datetime.now(ZoneInfo("Europe/Amsterdam")).date()
+            now_nl = dt.datetime.now(ZoneInfo("Europe/Amsterdam"))
+            measured_on = now_nl.date()
+            if measured_on.day == 1:
+                # Gedraaid in de nacht van de laatste dag op de 1e: de meting hoort bij het einde van de afgelopen maand.
+                measured_on = measured_on - dt.timedelta(days=1)
             values = {
                 "d": measured_on, "bw_t": int(row["bw_titles"]), "bol_t": int(row["bol_titles"]),
                 "bw_u": int(row["bw_units"]), "bol_u": int(row["bol_units"]),
