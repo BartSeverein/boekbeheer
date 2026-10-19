@@ -83,6 +83,19 @@ def upload_backup(token, filename, data):
     return meta.get("path_display") or path
 
 
+def download_backup(token, filename):
+    """Haalt één back-upbestand uit de back-upmap op (bytes)."""
+    import json
+    resp = requests.post(
+        "https://content.dropboxapi.com/2/files/download",
+        headers={"Authorization": f"Bearer {token}",
+                 "Dropbox-API-Arg": json.dumps({"path": f"{BACKUP_FOLDER}/{filename}"})},
+        timeout=300,
+    )
+    _check(resp, f"Back-up {filename} ophalen")
+    return resp.content
+
+
 def _list_backup_files(token):
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
     resp = requests.post(LIST_URL, headers=headers, json={"path": BACKUP_FOLDER}, timeout=30)

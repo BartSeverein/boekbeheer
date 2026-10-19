@@ -4008,10 +4008,25 @@ def restore_listing_dates(csv_path, execute=False):
             if todo and not all(len(d) == len(current[bid]) for bid, d in todo[:50] if current[bid]):
                 lines.append("LET OP: het datumformaat in het bestand lijkt af te wijken van de database; controleer de voorbeelden.")
             if execute:
-                for bid, d in todo:
-                    cur.execute("UPDATE books SET listing_date = %s WHERE id = %s", (d, bid))
-                conn.commit()
-                lines.append("Klaar: datums teruggezet.")
+                # Vaste volgorde, kleine stukken en opnieuw proberen bij een botsing met de gewone sync (deadlock).
+                todo.sort()
+                done = 0
+                for start in range(0, len(todo), 100):
+                    chunk = todo[start:start + 100]
+                    for attempt in range(6):
+                        try:
+                            for bid, d in chunk:
+                                cur.execute("UPDATE books SET listing_date = %s WHERE id = %s", (d, bid))
+                            conn.commit()
+                            done += len(chunk)
+                            break
+                        except psycopg2.errors.DeadlockDetected:
+                            conn.rollback()
+                            time.sleep(2 + attempt * 2)
+                    else:
+                        lines.append(f"Gestopt bij stuk vanaf boek {chunk[0][0]}: steeds een botsing. Draai de workflow opnieuw; reeds teruggezette boeken worden overgeslagen.")
+                        break
+                lines.append(f"Klaar: {done} van {len(todo)} datums teruggezet.")
             else:
                 lines.append("PROEFRUN: er is niets gewijzigd.")
     finally:
