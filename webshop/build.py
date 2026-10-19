@@ -658,7 +658,7 @@ def build_site(raw_books, out_dir, cfg=None, *, mode="full", imported_order_ids=
                                 "href": f"/categorie/{c['slug']}/{s['slug']}/"})
             rest = sum(1 for b in c["books"] if not b["c2_slug"])
             if rest:
-                buttons.append({"label": cat_label(c['label'], lang), "slug": c["slug"], "count": rest,
+                buttons.append({"label": cat_label(c['label'], lang), "slug": c["slug"], "count": rest, "has_subs": True,
                                 "other": c["label"].strip().lower() == "overig"})
         # Alleen de 25 grootste (naar aantal boeken), grootste eerst.
         buttons.sort(key=lambda x: (-x["count"], x["label"].lower()))
@@ -764,7 +764,8 @@ def build_site(raw_books, out_dir, cfg=None, *, mode="full", imported_order_ids=
             emit(b["path"], site.book(b, _book_loc(b, lang, book_tr, cat_label), chain, sold=True, similar=pool))
 
         if rest_buttons:
-            all_main = sorted(({"label": cat_label(c["label"], lang), "slug": c["slug"], "count": len(c["books"])} for c in top),
+            all_main = sorted(({"label": cat_label(c["label"], lang), "slug": c["slug"], "count": len(c["books"]),
+                                "has_subs": bool(c["subs"])} for c in top),
                               key=lambda x: x["label"].lower())
             emit("/overige-categorieen/", site.more_categories_page(all_main))
             urls.append(site.L("/overige-categorieen/"))

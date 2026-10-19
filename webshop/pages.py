@@ -110,8 +110,7 @@ class Site:
         cats = ""
         if show_cats and self.categories:
             cats = f'<nav class="cats" aria-label="{esc(self.t("p_cats"))}"><ul class="cats" style="display:contents;list-style:none;padding:0;margin:0">' + "".join(
-                f'<li><a href="{self.L(c.get("href") or "/categorie/" + c["slug"] + "/")}">{esc(c["label"])} ({c["count"]})</a></li>'
-                for c in self.categories
+                self._cat_li(c) for c in self.categories
             ) + (f'<li><a class="more il" href="{self.L("/overige-categorieen/")}">{icon("list")}{esc(self.t("p_more_cats"))}</a></li>'
                  if self.more_cats else "") + "</ul></nav>"
             # Op mobiel achter een knop (alleen CSS: selectievakje + label, werkt zonder JavaScript); op een computer staat de wolk gewoon open.
@@ -202,12 +201,19 @@ class Site:
         return self.layout(title=self.t("p_home_title"), desc=self.tagline, path="/", body=body, ld=ld,
                            show_cats=True, image=("/" + self.logo[0]) if self.logo else None)
 
+    def _cat_li(self, c):
+        """Knop voor een categorie; leidt hij naar subcategorieën, dan staat het lijst-icoon ervoor."""
+        href = self.L(c.get("href") or "/categorie/" + c["slug"] + "/")
+        if c.get("has_subs"):
+            return f'<li><a class="il subs" href="{href}">{icon("list")}{esc(c["label"])} ({c["count"]})</a></li>'
+        return f'<li><a href="{href}">{esc(c["label"])} ({c["count"]})</a></li>'
+
     def more_categories_page(self, rest):
         """Alle hoofdcategorieën op alfabet (rest = lijst met label, slug, count); een categorie met subcategorieën opent een eigen pagina met knoppen."""
         title = self.t("p_more_cats")
         nav = self._crumbs([(self.t("p_home"), "/"), (title, "/overige-categorieen/")])
         items = "".join(
-            f'<li><a href="{self.L(c.get("href") or "/categorie/" + c["slug"] + "/")}">{esc(c["label"])} ({c["count"]})</a></li>' for c in rest)
+            self._cat_li(c) for c in rest)
         body = nav + f'<h1>{esc(title)}</h1><p>{esc(self.t("p_more_cats_intro"))}</p><nav class="cats" aria-label="{esc(title)}"><ul class="cats" style="display:contents;list-style:none;padding:0;margin:0">{items}</ul></nav>'
         return self.layout(title=title, desc=self.t("p_more_cats_intro"), path="/overige-categorieen/", body=body)
 
