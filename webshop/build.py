@@ -718,12 +718,21 @@ def build_site(raw_books, out_dir, cfg=None, *, mode="full", imported_order_ids=
                 emit(base if page == 1 else f"{base}pagina/{page}/", html)
             urls.append(site.L(base))
 
+        topo_order = {slugify(c1_labels.get("topografie", "topografie")): {}}
+        for _i, _l in enumerate((c2_labels.get("topografie") or {}).values()):
+            if _l and slugify(_l) not in topo_order[slugify(c1_labels.get("topografie", "topografie"))]:
+                topo_order[slugify(c1_labels.get("topografie", "topografie"))][slugify(_l)] = _i
         for c in top:
             base = f"/categorie/{c['slug']}/"
             if c["subs"]:
                 # Knoppen voor alle subcategorieën (op alfabet) en daaronder alleen de boeken zonder subcategorie.
-                sub_buttons = sorted(((cat_label(s["label"], lang), f"{base}{s['slug']}/", len(s["books"])) for s in c["subs"].values()),
+                sub_buttons = sorted(((cat_label(s["label"], lang), f"{base}{s['slug']}/", len(s["books"]), s["slug"]) for s in c["subs"].values()),
                                      key=lambda x: x[0].lower())
+                # Uitzondering: Topografie staat niet op alfabet maar van klein naar groot (provincies, landen, werelddelen, wereld),
+                # in de volgorde van het dashboard. Onbekende subcategorieën komen daarna, op alfabet.
+                if c["slug"] in topo_order:
+                    sub_buttons.sort(key=lambda x: topo_order[c["slug"]].get(x[3], 10 ** 6))
+                sub_buttons = [x[:3] for x in sub_buttons]
                 own_books = [b for b in c["books"] if not b["c2_slug"]]
                 listing(cat_label(c["label"], lang), None, base, own_books, intro_for(c["label"], cat_label(c["label"], lang), None),
                         see_also=see_also_for(c["label"]), subs=sub_buttons, all_total=len(c["books"]))
