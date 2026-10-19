@@ -2819,6 +2819,43 @@ def get_weekly_stock_snapshots(max_weeks=26):
         conn.close()
 
 
+@st.cache_data(ttl=300)
+def get_current_stock_snapshot():
+    """
+    De voorraad op dit moment, op dezelfde manier geteld als de wekelijkse meting (take_weekly_stock_snapshot in sync.py),
+    zodat de laatste staaf in de grafieken op Home altijd actueel is. Geeft een dict met dezelfde sleutels als
+    get_weekly_stock_snapshots, of None als de bol-koppeltabel ontbreekt.
+    """
+    conn = psycopg2.connect(get_db_url())
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT COUNT(*),
+                       COUNT(*) FILTER (WHERE COALESCE(m.bol_stock, 0) > 0),
+                       COALESCE(SUM(COALESCE(b.price, 0) * b.amount), 0),
+                       COALESCE(SUM(COALESCE(b.price, 0) * LEAST(m.bol_stock, b.amount))
+                                FILTER (WHERE COALESCE(m.bol_stock, 0) > 0), 0)
+                FROM books b
+                LEFT JOIN bol_offer_mapping m ON m.ean = b.ean
+                WHERE b.id > 0
+                  AND COALESCE(b.pending_create, FALSE) = FALSE
+                  AND COALESCE(b.queued, FALSE) = FALSE
+                  AND COALESCE(b.push_enabled, TRUE) = TRUE
+                  AND COALESCE(b.amount, 0) > 0
+                """
+            )
+            bw_t, bol_t, bw_v, bol_v = cur.fetchone()
+            return {
+                "measured_on": dt.datetime.now(ZoneInfo("Europe/Amsterdam")).date(),
+                "bw_titles": int(bw_t), "bol_titles": int(bol_t),
+                "bw_value": float(bw_v or 0), "bol_value": float(bol_v or 0),
+                "label": "Nu",
+            }
+    finally:
+        conn.close()
+
+
 def get_database_size_mb():
     """
     Huidige grootte van de database in MB, zoals Supabase de limiet toepast: de som over alle databases
