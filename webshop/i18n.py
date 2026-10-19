@@ -161,6 +161,8 @@ T = {
     "p_order": ("Bestelling", "Order", "Bestellung", "Commande"),
     "p_order_desc": ("Status van je bestelling.", "Status of your order.", "Status Ihrer Bestellung.", "Statut de votre commande."),
     "p_keep_shopping": ("Verder winkelen", "Continue shopping", "Weiter einkaufen", "Continuer vos achats"),
+    "p_404_alt": ("Een lege boekenplank met een briefje: 404, geen boeken gevonden", "An empty bookshelf with a note: 404, no books found",
+                  "Ein leeres Bücherregal mit einem Zettel: 404, keine Bücher gefunden", "Une étagère vide avec un mot : 404, aucun livre trouvé"),
     "p_404_title": ("Pagina niet gevonden", "Page not found", "Seite nicht gefunden", "Page introuvable"),
     "p_404_text": ("Dit boek is mogelijk verkocht of de pagina bestaat niet meer. Zoek hierboven verder of kies een categorie.",
                    "This book may have been sold or the page no longer exists. Keep searching above or pick a category.",

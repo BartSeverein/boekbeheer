@@ -36,6 +36,7 @@ class Site:
     def __init__(self, cfg, css_name, js_name, categories, logo=None, lang="nl", tagline=None, more_cats=0):
         self.cfg = cfg
         self.logo = logo  # (bestandsnaam, breedte, hoogte) of None
+        self.err_img = None  # foto voor de 404-pagina: (bestandsnaam, breedte, hoogte)
         self.css = css_name
         self.js = js_name
         self.categories = categories  # lijst van dicts: label, slug, count, (href: Nederlands pad)
@@ -450,7 +451,12 @@ class Site:
 
     def not_found(self):
         """Eén 404-pagina voor alle talen (de server kent maar één ErrorDocument)."""
-        body = f"<h1>{esc(i18n.t('p_404_title', 'nl'))}</h1>" + "".join(
-            f'<p lang="{l}">{esc(i18n.t("p_404_text", l))}</p>' for l in i18n.LANGS if l in self.langs)
+        photo = ""
+        if self.err_img:
+            n, w, h = self.err_img
+            photo = f'<p><img class="err" src="/{n}" width="{w}" height="{h}" alt="{esc(i18n.t("p_404_alt", "nl"))}"></p>'
+        # Eerst de foto, dan de titel en de uitleg in alle talen, daaronder de categorieën.
+        body = photo + f"<h1>{esc(i18n.t('p_404_title', 'nl'))}</h1>" + "".join(
+            f'<p lang="{l}">{esc(i18n.t("p_404_text", l))}</p>' for l in i18n.LANGS if l in self.langs) + "<!--CATS-->"
         return self.layout(title=i18n.t("p_404_title", "nl"), desc=i18n.t("p_404_title", "nl"), path="/404.html", body=body,
                            robots="noindex", show_cats=True)

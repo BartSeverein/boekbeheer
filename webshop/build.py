@@ -584,6 +584,21 @@ def build_site(raw_books, out_dir, cfg=None, *, mode="full", imported_order_ids=
             _buf = io.BytesIO()
             _im.save(_buf, "ICO", sizes=[(16, 16), (32, 32), (48, 48)])
             _write(out_dir, "favicon.ico", _buf.getvalue())
+    err_img = None   # foto voor de 404-pagina
+    err_file = HERE / "assets" / "404.jpg"
+    if err_file.exists():
+        import io
+        from PIL import Image
+        with Image.open(err_file) as _im:
+            _im = _im.convert("RGB")
+            if _im.size[0] > 1200:
+                _im = _im.resize((1200, round(_im.size[1] * 1200 / _im.size[0])), Image.LANCZOS)
+            _buf = io.BytesIO()
+            _im.save(_buf, "WEBP", quality=80, method=6)
+            _data = _buf.getvalue()
+            _name = f"404.{hashlib.sha1(_data).hexdigest()[:8]}.webp"
+            _write(out_dir, _name, _data)
+            err_img = (_name, _im.size[0], _im.size[1])
     logo = None
     logo_file = HERE / "assets" / "logo.png"
     if logo_file.exists():
@@ -671,6 +686,7 @@ def build_site(raw_books, out_dir, cfg=None, *, mode="full", imported_order_ids=
         if cfg["tagline_custom"]:
             tagline = cfg["tagline"] if lang == "nl" else ((tr.get(cfg["tagline"], lang) if tr else None) or cfg["tagline"])
         site = Site(cfg, css_name, js_name, buttons, logo, lang, tagline, more_cats=sum(x['count'] for x in rest_buttons))
+        site.err_img = err_img
 
         def emit(path, html, site=site):
             nonlocal count_pages
