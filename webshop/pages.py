@@ -189,11 +189,11 @@ class Site:
         body = (f'<div class="hc"><h1 class="sr">{esc(cfg["name"])}</h1><h2>{esc(self.t("p_newest"))}</h2>' + self.grid(newest)
                 + "<!--CATS-->" + f'<section class="aboutme"><h2>{esc(self.t("p_about_me"))}</h2><p>{esc(self.t("p_about_me_text"))}</p></section></div>')
         ld = [{
-            "@context": "https://schema.org", "@type": "BookStore", "name": cfg["name"], "url": self.url(self.L("/")),
+            "@context": "https://schema.org", "@type": "BookStore", "name": cfg["name"], "alternateName": "Severein", "url": self.url(self.L("/")),
             "description": self.tagline,
             **({"logo": self.url("/" + self.logo[0])} if self.logo else {}),
         }, {
-            "@context": "https://schema.org", "@type": "WebSite", "name": cfg["name"], "url": self.url(self.L("/")),
+            "@context": "https://schema.org", "@type": "WebSite", "name": cfg["name"], "alternateName": "Severein", "url": self.url(self.L("/")),
             "inLanguage": self.lang,
         }]
         return self.layout(title=self.t("p_home_title"), desc=self.tagline, path="/", body=body, ld=ld,
@@ -237,7 +237,7 @@ class Site:
         suffix = " " + self.t("p_page_n", n=page) if page > 1 else ""
         path = base if page == 1 else f"{base}pagina/{page}/"
         h1 = self.t("p_author_h1", author=name)
-        body = nav + f"<h1>{icon('author')} {esc(h1)}{esc(suffix)}</h1><p>{esc(self.t('p_author_intro', total=total, author=name))}</p>" + \
+        body = nav + f"<h1>{esc(h1)}{esc(suffix)}</h1><p>{esc(self.t('p_author_intro', total=total, author=name))}</p>" + \
             self.grid(books) + self.pager(base, page, pages)
         ld = [{
             "@context": "https://schema.org", "@type": "BreadcrumbList",
@@ -308,8 +308,8 @@ class Site:
             (f"<p>{esc(b['author'])}</p>" if b.get("author") else "") + buy + (f"<dl>{''.join(rows)}</dl>" if rows else "") + \
             (f"<h2>{esc(self.t('p_about_nl' if loc.get('long_fb') and self.lang != 'nl' else 'p_about'))}</h2>{desc_html}" if desc_html else "") + ("" if sold else share) + "</div></article>" + \
             (f'<section class="similar"><h2>{esc(self.t("p_similar"))}</h2>{self.grid(similar, nolazy=True)}</section>' if similar else "") + \
-            (f'<section class="similar"><h2>{icon("author")} {esc(self.t("p_more_by", author=more_by["name"]))}</h2>{self.grid(more_by["others"])}'
-             + (f'<p><a href="{self.L("/auteur/" + more_by["slug"] + "/")}">{esc(self.t("p_more_all", total=more_by["total"], author=more_by["name"]))}</a></p>' if more_by.get("slug") else "")
+            (f'<section class="similar"><h2>{esc(self.t("p_more_by", author=more_by["name"]))}</h2>{self.grid(more_by["others"])}'
+             + (f'<p><a href="{self.L("/auteur/" + more_by["slug"] + "/")}" class="il">{icon("author")}{esc(self.t("p_more_all", total=more_by["total"], author=more_by["name"]))}</a></p>' if more_by.get("slug") else "")
              + '</section>' if more_by and not sold else "")
 
         image_urls = [self.url(i["detail"][0]) for i in imgs]
