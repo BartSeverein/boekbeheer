@@ -570,6 +570,20 @@ def build_site(raw_books, out_dir, cfg=None, *, mode="full", imported_order_ids=
     js_name = f"c.{hashlib.sha1(js_src).hexdigest()[:8]}.js"
     _write(out_dir, css_name, css_src)
     _write(out_dir, js_name, js_src)
+    # favicon (Google toont dit icoon naast de zoekresultaten): vaste adressen in de hoofdmap
+    icon_file = HERE / "assets" / "icon.png"
+    if icon_file.exists():
+        import io
+        from PIL import Image
+        with Image.open(icon_file) as _im:
+            _im = _im.convert("RGBA")
+            for _size, _name in ((48, "icon-48.png"), (192, "icon-192.png"), (180, "apple-touch-icon.png")):
+                _buf = io.BytesIO()
+                _im.resize((_size, _size), Image.LANCZOS).save(_buf, "PNG", optimize=True)
+                _write(out_dir, _name, _buf.getvalue())
+            _buf = io.BytesIO()
+            _im.save(_buf, "ICO", sizes=[(16, 16), (32, 32), (48, 48)])
+            _write(out_dir, "favicon.ico", _buf.getvalue())
     logo = None
     logo_file = HERE / "assets" / "logo.png"
     if logo_file.exists():
