@@ -156,6 +156,71 @@ def _join_dutch_list(names):
     return ", ".join(names[:-1]) + " en " + names[-1]
 
 
+
+# ---------- Ingelogd blijven (cookie) ----------
+
+AUTH_COOKIE = "bb_auth"
+AUTH_COOKIE_DAYS = 30
+
+
+def _cookie_key(user):
+    """Sleutel per gebruiker, afgeleid van het opgeslagen wachtwoord: een wachtwoordwijziging maakt alle cookies ongeldig."""
+    return (str(user["password_hash"]) + str(user["password_salt"])).encode("utf-8")
+
+
+def _make_auth_token(user):
+    import hmac
+    expires = int(time.time()) + AUTH_COOKIE_DAYS * 86400
+    msg = f"{user['id']}.{expires}"
+    sig = hmac.new(_cookie_key(user), msg.encode("utf-8"), hashlib.sha256).hexdigest()
+    return f"{msg}.{sig}"
+
+
+def _get_user_by_id(user_id):
+    conn = _dict_connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT * FROM app_users WHERE id = %(i)s AND is_active = TRUE", {"i": user_id})
+            return cur.fetchone()
+    finally:
+        conn.close()
+
+
+def _user_from_cookie():
+    """Geeft de gebruiker terug als de browser een geldige 'ingelogd blijven'-cookie meestuurt, anders None."""
+    import hmac
+    try:
+        token = st.context.cookies.get(AUTH_COOKIE)
+        if not token:
+            return None
+        user_id, expires, sig = token.split(".")
+        if int(expires) < time.time():
+            return None
+        user = _get_user_by_id(int(user_id))
+        if not user:
+            return None
+        expected = hmac.new(_cookie_key(user), f"{user_id}.{expires}".encode("utf-8"), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(expected, sig):
+            return None
+        return dict(user)
+    except Exception:
+        return None
+
+
+def _write_cookie_js(value, max_age):
+    """Zet of verwijdert de cookie in de browser (via een onzichtbaar stukje JavaScript)."""
+    try:
+        import streamlit.components.v1 as components
+        components.html(
+            "<script>try{var d=window.parent.document;"
+            f"d.cookie='{AUTH_COOKIE}={value}; max-age={max_age}; path=/; SameSite=Lax'"
+            "+(window.parent.location.protocol==='https:'?'; Secure':'');}catch(e){}</script>",
+            height=0,
+        )
+    except Exception:
+        pass
+
+
 def require_login():
     """
     Toont een inlogscherm als er nog niemand is ingelogd (of nog geen gebruikers
@@ -163,9 +228,16 @@ def require_login():
     Gebruikersbeheer). Geeft de ingelogde gebruiker (dict) terug, of None in de
     opstartfase zonder gebruikers.
     """
+    if not st.session_state.get("user") and not st.session_state.get("_uitgelogd"):
+        cookie_user = _user_from_cookie()
+        if cookie_user:
+            st.session_state["user"] = cookie_user
+
     if st.session_state.get("user"):
         user = st.session_state["user"]
         update_last_seen(user["short_name"])
+        if st.session_state.pop("_zet_cookie", False):
+            _write_cookie_js(_make_auth_token(user), AUTH_COOKIE_DAYS * 86400)
         with st.sidebar:
             st.caption(f"Ingelogd als **{user['full_name']}**")
             other_active = get_active_users(user["short_name"])
@@ -173,6 +245,7 @@ def require_login():
                 st.caption(f"Ook ingelogd: {_join_dutch_list(other_active)}")
             if st.button("Uitloggen", key="logout_button"):
                 del st.session_state["user"]
+                st.session_state["_uitgelogd"] = True
                 st.rerun()
         return user
 
@@ -184,6 +257,8 @@ def require_login():
         )
         return None
 
+    if st.session_state.get("_uitgelogd"):
+        _write_cookie_js("", 0)
     st.title("🔒 Inloggen")
     with st.form("login_form"):
         short_name = st.text_input("Gebruikersnaam")
@@ -193,6 +268,8 @@ def require_login():
         user = _attempt_login(short_name.strip(), password)
         if user:
             st.session_state["user"] = user
+            st.session_state["_zet_cookie"] = True
+            st.session_state.pop("_uitgelogd", None)
             st.rerun()
         else:
             st.error("Onjuiste gebruikersnaam of wachtwoord.")

@@ -246,7 +246,7 @@ with books_tab:
             selection_mode="single-row",
             key="books_overview_table",
         )
-        st.caption("Klik op een rij om de boekdetails te openen. Gesorteerd op laatst toegevoegd.")
+        st.caption("Klik op een rij om de boekdetails te openen. Gesorteerd op laatst toegevoegd; boeken die nog op het druppelsysteem wachten staan bovenaan.")
         selected_rows = event.selection.rows if event and event.selection else []
         if selected_rows:
             selected_book_id = int(books_sorted.iloc[selected_rows[0]]["id"])
