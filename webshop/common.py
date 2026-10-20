@@ -152,3 +152,46 @@ def shop_config():
         "phone": os.environ.get("WEBSHOP_PHONE") or "",
         "intime_key": (os.environ.get("WEBSHOP_INTIME_KEY") or "").strip(),
     }
+
+
+# ---- kortingscodes
+# Opslag: app_settings 'webshop_discount_codes' = JSON-lijst, bijv.
+#   [{"code": "LENTE10", "type": "percent", "percent": 10, "active": true, "until": "2026-12-31"},
+#    {"code": "GRATISPORTO", "type": "shipping", "active": true}]
+# type "percent": percentage korting op de boekenprijs; type "shipping": geen verzendkosten. "until" (laatste dag) is optioneel.
+DISCOUNT_SETTING = "webshop_discount_codes"
+
+
+def normalize_code(code):
+    """Hoofdletters, zonder spaties; alleen letters, cijfers en - _ . (max 30 tekens)."""
+    return re.sub(r"[^A-Z0-9_.\-]", "", str(code or "").strip().upper())[:30]
+
+
+def parse_discount_codes(raw):
+    """JSON-tekst (of lijst) -> schone lijst met actieve codes: [{code, kind ('percent'|'shipping'), pct (int), until ('YYYY-MM-DD' of '')}]."""
+    import json
+    try:
+        items = json.loads(raw) if isinstance(raw, (str, bytes)) else (raw or [])
+    except ValueError:
+        return []
+    out, seen = [], set()
+    for it in items if isinstance(items, list) else []:
+        if not isinstance(it, dict) or not it.get("active", True):
+            continue
+        code = normalize_code(it.get("code"))
+        kind = "shipping" if it.get("type") == "shipping" else "percent"
+        try:
+            pct = int(round(float(it.get("percent") or 0)))
+        except (TypeError, ValueError):
+            pct = 0
+        until = str(it.get("until") or "")[:10]
+        if not code or code in seen or (kind == "percent" and not 1 <= pct <= 100):
+            continue
+        seen.add(code)
+        out.append({"code": code, "kind": kind, "pct": pct if kind == "percent" else 0, "until": until})
+    return out
+
+
+def percent_off(price_cents, pct):
+    """Korting op één prijs in hele centen (half omhoog); dezelfde formule staat in lib.php en c.js."""
+    return (int(price_cents) * int(pct) + 50) // 100
