@@ -22,6 +22,23 @@ def shop_order_id_from(pg_id):
     return (-int(pg_id) - WEBSHOP_ID_BASE) // 1000
 
 
+def _unit_price_cents(order, line):
+    """Prijs van één exemplaar na kortingscode (type 'percent'); zelfde afronding als lib.php (half omhoog per prijs)."""
+    price = int(line["price_cents"])
+    if (order.get("discount_kind") == "percent") and int(order.get("discount_pct") or 0) > 0:
+        price -= (price * int(order["discount_pct"]) + 50) // 100
+    return price
+
+
+def _discount_note(order):
+    code = order.get("discount_code")
+    if not code:
+        return ""
+    if order.get("discount_kind") == "shipping":
+        return f" | Kortingscode {code}: gratis verzending"
+    return f" | Kortingscode {code}: {int(order.get('discount_pct') or 0)}% korting"
+
+
 def read_paid_orders(shop_db_path):
     con = sqlite3.connect(shop_db_path)
     con.row_factory = sqlite3.Row
@@ -137,9 +154,9 @@ def import_shop_orders(conn, shop_db_path, execute=True, update_book=None, log=p
                 """,
                 {
                     "id": pid, "date": paid, "book_id": line["book_id"], "title": line["title"], "author": line["author"],
-                    "price": line["price_cents"] / 100, "ship": (o["ship_cents"] / 100) if first else 0, "ean": line["isbn"],
+                    "price": _unit_price_cents(o, line) / 100, "ship": (o["ship_cents"] / 100) if first else 0, "ean": line["isbn"],
                     "name": o["name"], "email": o["email"], "street": o["street"], "zip": o["postcode"], "city": o["city"],
-                    "country": o["country"], "note": ((note + " | ") if note else "") + f"Webshop-bestelling #{o['id']}" +
+                    "country": o["country"], "note": ((note + " | ") if note else "") + f"Webshop-bestelling #{o['id']}" + _discount_note(o) +
                     (f" — LET OP: {o['attention']}" if o.get("attention") else ""),
                 },
             )

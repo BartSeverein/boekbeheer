@@ -499,8 +499,11 @@ def write_catalog(path, books, imported_ids, cfg, built_at):
             CREATE INDEX books_seq ON books(seq);
             CREATE TABLE imported_orders (id INTEGER PRIMARY KEY);
             CREATE TABLE meta (k TEXT PRIMARY KEY, v TEXT);
+            CREATE TABLE discount_codes (code TEXT PRIMARY KEY, kind TEXT NOT NULL, pct INTEGER NOT NULL DEFAULT 0, until TEXT NOT NULL DEFAULT '');
             """
         )
+        con.executemany("INSERT INTO discount_codes VALUES (?,?,?,?)",
+                        [(d["code"], d["kind"], d["pct"], d["until"]) for d in (cfg.get("discount_codes") or [])])
         rows = []
         for b in books:
             th = b.get("thumb")
@@ -827,7 +830,7 @@ def build_site(raw_books, out_dir, cfg=None, *, mode="full", imported_order_ids=
         _write(out_dir, f"{cfg['indexnow_key']}.txt", cfg["indexnow_key"])   # IndexNow: bewijs dat de site van ons is
 
     # ---- PHP en data
-    for name in ("lib.php", "checkout.php", "search.php", "webhook.php", "status.php", "mailtest.php"):
+    for name in ("lib.php", "checkout.php", "code.php", "search.php", "webhook.php", "status.php", "mailtest.php"):
         src = HERE / "php" / name
         if not src.exists():
             raise RuntimeError(f"PHP-bestand ontbreekt: {src}")

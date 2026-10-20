@@ -434,6 +434,8 @@ class Site:
             f'<div class="row"><label>{esc(t("f_postcode"))}<input name="postcode" required maxlength="10" autocomplete="postal-code"></label>'
             f'<label>{esc(t("f_city"))}<input name="city" required maxlength="80" autocomplete="address-level2"></label></div>'
             f'<label>{esc(t("f_country"))}<select name="country">{countries}</select></label>'
+            f'<div class="code"><label>{esc(t("f_code"))}<input name="code" maxlength="30" autocomplete="off" autocapitalize="characters" spellcheck="false"></label>'
+            f'<button type="button" id="codebtn" class="ghost">{esc(t("f_code_apply"))}</button></div><p id="codemsg" class="msg" hidden role="status"></p>'
             f'<label>{esc(t("f_note"))}<textarea name="note" rows="2" maxlength="300"></textarea></label>'
             f'<div class="hp" aria-hidden="true"><label>{esc(t("f_website"))}<input name="website" tabindex="-1" autocomplete="off"></label></div>'
             f'<p>{agree}</p>'

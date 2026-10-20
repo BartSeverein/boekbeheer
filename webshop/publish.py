@@ -76,6 +76,14 @@ def publish(mode="full", execute=False, max_minutes=120, allow_overwrite=False, 
 
         # 2. bouwen
         books, imported, fetch_image = load_from_postgres(conn)
+        try:   # kortingscodes uit de dashboard-instellingen mee de catalogus in
+            import sync
+            from .common import DISCOUNT_SETTING, parse_discount_codes
+            cfg["discount_codes"] = parse_discount_codes(sync._get_setting(conn, DISCOUNT_SETTING, "[]"))
+            log(f"Kortingscodes: {len(cfg['discount_codes'])} actief.")
+        except Exception as exc:   # codes zijn een extraatje: een fout hier mag het publiceren niet stoppen
+            cfg["discount_codes"] = []
+            log(f"Kortingscodes overgeslagen: {exc}")
         image_deadline = time.time() + max_minutes * 60 * 0.4
         translator = None
         if mode == "full" and len(cfg["langs"]) > 1:
