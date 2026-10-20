@@ -32,15 +32,20 @@
   }
   // Zelfde regel als in lib.php (shipping_for): tarief van het land (klein pakje, of groot als één boek groot is)
   // + toeslag per extra boek; OTHER geldt voor landen zonder eigen tarief. Gratis verzenden geldt alleen voor Nederland.
-  function totals(c, country) {
+  // Kortingscode (alleen op de afrekenpagina): {code, kind: 'percent'|'shipping', pct}. Korting per prijs half omhoog afgerond, zoals in lib.php.
+  function totals(c, country, code) {
     country = country || 'NL';
-    var sub = 0, big = 0, n = 0;
-    c.forEach(function (i) { sub += i.p * i.q; n += i.q; if (i.g) big = 1; });
-    if (!n) return { sub: 0, ship: 0, total: 0 };
+    var sub = 0, big = 0, n = 0, disc = 0;
+    c.forEach(function (i) {
+      sub += i.p * i.q; n += i.q; if (i.g) big = 1;
+      if (code && code.kind === 'percent') disc += i.q * Math.floor((i.p * code.pct + 50) / 100);
+    });
+    if (!n) return { sub: 0, ship: 0, disc: 0, total: 0 };
     var rate = RT[country] || RT.OTHER || RT.NL || [DEF, DEF];
     var ship = rate[big] + EXTRA * (n - 1);
     if (FREE && sub >= FREE && country === 'NL') ship = 0;
-    return { sub: sub, ship: ship, total: sub + ship };
+    if (code && code.kind === 'shipping') ship = 0;
+    return { sub: sub, ship: ship, disc: disc, total: sub - disc + ship };
   }
   function h(tag, attrs) {
     var el = document.createElement(tag);
@@ -83,7 +88,7 @@
     add.addEventListener('click', function () {
       var c = load(), it = c.filter(function (x) { return x.id === +d.id; })[0];
       if (it) { if (it.q < +d.max) it.q++; }
-      else c.push({ id: +d.id, t: d.title, p: +d.price, s: +d.ship, g: +d.big || 0, u: d.url, m: +d.max, q: 1 });
+      else c.push({ id: +d.id, t: d.title, p: +d.price, s: +d.ship, g: +d.big || 0, u: d.url, m: +d.max, q: 1, i: d.img || '', r: +d.ir || 0 });
       save(c); refresh();
       var m = $('added'); if (m) m.hidden = false;
     });
@@ -105,7 +110,9 @@
         var rm = h('button', { type: 'button', class: 'ghost', title: T.remove, 'aria-label': T.remove });
         rm.innerHTML = ICON_DEL;  // vaste, eigen SVG (mdi trash-can-outline); geen gegevens van buiten
         rm.addEventListener('click', function () { save(load().filter(function (x) { return x.id !== i.id; })); drawCart(); });
-        tb.appendChild(h('tr', {}, h('td', {}, h('a', { href: bookHref(i.u), text: i.t })),
+        var thumb = i.i && /^\/[\w\/.\-]+$/.test(i.i) ? h('img', { src: i.i, alt: '', height: 48, width: Math.round(48 * (i.r || 0.7)), loading: 'lazy' }) : null;
+        var link = h('a', { href: bookHref(i.u), text: i.t });
+        tb.appendChild(h('tr', {}, h('td', {}, thumb ? h('div', { class: 'ci' }, h('a', { href: bookHref(i.u), tabindex: -1, 'aria-hidden': 'true' }, thumb), link) : link),
           h('td', { class: 'n', text: eur(i.p) + (i.q > 1 ? ' × ' + i.q : '') }), h('td', {}, rm)));
       });
       var t = totals(c);
@@ -123,12 +130,35 @@
   if (form) {
     var sum = $('sum'), msg = $('msg'), btn = form.querySelector('button[type=submit]'), sel = form.querySelector('select[name=country]');
     var country = function () { return sel ? sel.value : 'NL'; };
+    var applied = null, codeIn = form.querySelector('input[name=code]'), codeBtn = $('codebtn'), codeMsg = $('codemsg');
     var paint = function () {
-      var c = load(), t = totals(c, country());
-      sum.textContent = c.length ? fmt(T.sum, { total: eur(t.total), sub: eur(t.sub), ship: t.ship ? eur(t.ship) : T.free }) : T.empty;
+      var c = load(), t = totals(c, country(), applied);
+      var vars = { total: eur(t.total), sub: eur(t.sub), disc: eur(t.disc), ship: t.ship ? eur(t.ship) : T.free };
+      sum.textContent = c.length ? fmt(t.disc ? T.sum_disc : T.sum, vars) : T.empty;
       btn.disabled = !c.length;
     };
     paint();
+    var showCode = function (text, ok) { if (codeMsg) { codeMsg.hidden = !text; codeMsg.textContent = text || ''; codeMsg.className = 'msg' + (ok ? ' ok' : ''); } };
+    var applyCode = function () {
+      var v = (codeIn.value || '').trim();
+      if (applied && codeBtn.dataset.mode === 'remove') { applied = null; codeIn.value = ''; codeIn.readOnly = false; codeBtn.textContent = T.code_apply; codeBtn.dataset.mode = ''; showCode(''); paint(); return; }
+      if (!v) return;
+      codeBtn.disabled = true;
+      fetch('/code.php?c=' + encodeURIComponent(v) + '&lang=' + encodeURIComponent(LANG)).then(function (r) { return r.json(); }).then(function (r) {
+        codeBtn.disabled = false;
+        if (r.ok) {
+          applied = { code: r.code, kind: r.kind, pct: +r.pct || 0 };
+          codeIn.value = r.code; codeIn.readOnly = true; codeBtn.textContent = T.code_remove; codeBtn.dataset.mode = 'remove';
+          showCode(fmt(applied.kind === 'shipping' ? T.code_ship : T.code_pct, { code: r.code, pct: applied.pct }), true);
+        } else { applied = null; showCode(r.error || T.oops); }
+        paint();
+      }).catch(function () { codeBtn.disabled = false; showCode(T.noconn); });
+    };
+    if (codeBtn) {
+      codeBtn.textContent = T.code_apply;
+      codeBtn.addEventListener('click', applyCode);
+      codeIn.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); applyCode(); } });
+    }
     if (sel) sel.addEventListener('change', paint);
     form.addEventListener('submit', function (ev) {
       ev.preventDefault();
@@ -139,7 +169,7 @@
       fetch('/checkout.php', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ items: c.map(function (i) { return { id: i.id, q: i.q }; }), customer: cust, lang: LANG,
-          expected: totals(c, country()).total, hp: (f.get('website') || '').toString() })
+          code: applied ? applied.code : '', expected: totals(c, country(), applied).total, hp: (f.get('website') || '').toString() })
       }).then(function (r) { return r.json().catch(function () { return { ok: false, error: T.unexpected }; }); })
         .then(function (r) {
           if (r.ok && r.url) { window.location.href = r.url; return; }
@@ -149,6 +179,7 @@
           if (r.prices) {
             var cc = load(); cc.forEach(function (i) { if (r.prices[i.id]) { i.p = r.prices[i.id].p; i.s = r.prices[i.id].s; i.g = r.prices[i.id].g; } }); save(cc); paint();
           }
+          if (r.code_invalid) { applied = null; if (codeIn) { codeIn.readOnly = false; codeBtn.textContent = T.code_apply; codeBtn.dataset.mode = ''; } showCode(''); paint(); }
           msg.textContent = r.error || T.oops; btn.disabled = !load().length;
         }).catch(function () { msg.textContent = T.noconn; btn.disabled = false; });
     });
