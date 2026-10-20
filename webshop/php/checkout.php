@@ -50,6 +50,9 @@ try {
     }
     if (!$want || count($want) > 20) { json_out(['ok' => false, 'error' => tr('php_cart_bad', $lang)]); }
 
+    // Een kortingscode telt als poging (buiten de transactie, zodat de telling blijft staan ook als de bestelling niet doorgaat).
+    if (normalize_code($in['code'] ?? '') !== '' && !code_attempt_allowed($shop)) { json_out(['ok' => false, 'error' => tr('php_too_many', $lang)], 429); }
+
     // Voorraad controleren en bestelling vastleggen in één transactie, zodat twee klanten niet hetzelfde boek krijgen.
     $shop->exec('BEGIN IMMEDIATE');
     $cat = db_catalog();
@@ -77,16 +80,26 @@ try {
         $prices[$id] = ['p' => (int)$b['price_cents'], 's' => (int)$b['ship_cents'], 'g' => (int)$b['big']];
     }
     $ship = shipping_for($lines, $sub, $cust['country']);
-    $total = $sub + $ship;
+    // Kortingscode (optioneel): controle gebeurt hier opnieuw, de pagina is niet te vertrouwen.
+    $code = find_code($in['code'] ?? '');
+    if (normalize_code($in['code'] ?? '') !== '' && !$code) {
+        $shop->exec('ROLLBACK');
+        json_out(['ok' => false, 'code_invalid' => true, 'error' => tr('php_code_bad', $lang)]);
+    }
+    $disc = discount_cents($lines, $code);
+    if ($code && $code['kind'] === 'shipping') { $ship = 0; }
+    $total = $sub - $disc + $ship;
     if ((int)($in['expected'] ?? -1) !== $total) {
         $shop->exec('ROLLBACK');
         json_out(['ok' => false, 'prices' => $prices, 'error' => tr('php_prices', $lang)]);
     }
     $token = bin2hex(random_bytes(16));
     $now = time();
-    $shop->prepare("INSERT INTO orders (token, status, created_at, reserved_until, subtotal_cents, ship_cents, total_cents, name, email, street, postcode, city, country, note, lang)
-        VALUES (?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-        ->execute([$token, $now, $now + (int)$c['reserve_seconds'], $sub, $ship, $total, $cust['name'], $cust['email'], $cust['street'], $cust['postcode'], $cust['city'], $cust['country'], $cust['note'], $lang]);
+    $shop->prepare("INSERT INTO orders (token, status, created_at, reserved_until, subtotal_cents, ship_cents, total_cents, name, email, street, postcode, city, country, note, lang,
+            discount_code, discount_kind, discount_pct, discount_cents)
+        VALUES (?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        ->execute([$token, $now, $now + (int)$c['reserve_seconds'], $sub, $ship, $total, $cust['name'], $cust['email'], $cust['street'], $cust['postcode'], $cust['city'], $cust['country'], $cust['note'], $lang,
+                   $code ? $code['code'] : null, $code ? $code['kind'] : null, $code ? $code['pct'] : 0, $disc]);
     $oid = (int)$shop->lastInsertId();
     $ins = $shop->prepare('INSERT INTO order_lines (order_id, book_id, qty, title, author, isbn, price_cents, ship_cents, location) VALUES (?,?,?,?,?,?,?,?,?)');
     foreach ($lines as $l) { $ins->execute([$oid, $l['book_id'], $l['qty'], $l['title'], $l['author'], $l['isbn'], $l['price_cents'], $l['ship_cents'], $l['location']]); }

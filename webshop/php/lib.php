@@ -66,6 +66,9 @@ function db_shop() {
             price_cents INTEGER NOT NULL, ship_cents INTEGER NOT NULL)");
         try { $db->exec('ALTER TABLE order_lines ADD COLUMN location TEXT'); } catch (Throwable $e) { /* bestaat al */ }
         try { $db->exec('ALTER TABLE orders ADD COLUMN intime_id TEXT'); } catch (Throwable $e) { /* bestaat al */ }
+        foreach (['discount_code TEXT', "discount_kind TEXT", 'discount_pct INTEGER NOT NULL DEFAULT 0', 'discount_cents INTEGER NOT NULL DEFAULT 0'] as $col) {
+            try { $db->exec('ALTER TABLE orders ADD COLUMN ' . $col); } catch (Throwable $e) { /* bestaat al */ }
+        }
         $db->exec('CREATE INDEX IF NOT EXISTS ol_book ON order_lines(book_id)');
         $db->exec('CREATE INDEX IF NOT EXISTS ol_order ON order_lines(order_id)');
         $db->exec('CREATE TABLE IF NOT EXISTS ratelimit (ip TEXT NOT NULL, ts INTEGER NOT NULL)');
@@ -107,6 +110,49 @@ function shipping_for($lines, $subtotal, $country = 'NL') {
     $ship = (int)$rate[$big] + $c['extra_cents'] * ($n - 1);
     if ($c['free_from_cents'] > 0 && $subtotal >= $c['free_from_cents'] && $country === 'NL') { $ship = 0; }
     return $ship;
+}
+
+// Kortingscodes (komen met de catalogus uit de dashboard-instellingen). Een code is "percent" (percentage korting op de boekenprijs)
+// of "shipping" (geen verzendkosten). Geeft de rij uit de catalogus terug, of null als de code onbekend, uit of verlopen is.
+function normalize_code($code) {
+    $c = strtoupper(preg_replace('/[^A-Za-z0-9_.\-]/', '', trim((string)$code)));
+    return substr($c, 0, 30);
+}
+function find_code($code) {
+    $code = normalize_code($code);
+    if ($code === '') { return null; }
+    try {
+        $st = db_catalog()->prepare('SELECT code, kind, pct, until FROM discount_codes WHERE code = ?');
+        $st->execute([$code]);
+        $r = $st->fetch();
+    } catch (Throwable $e) { return null; }   // oude catalogus zonder codes
+    if (!$r) { return null; }
+    if ($r['until'] !== '') {
+        $today = (new DateTime('now', new DateTimeZone('Europe/Amsterdam')))->format('Y-m-d');
+        if ($today > $r['until']) { return null; }
+    }
+    $r['pct'] = (int)$r['pct'];
+    return $r;
+}
+// Rem op het raden van kortingscodes: max 10 pogingen per 10 minuten per IP, gedeeld door code.php en checkout.php
+// (anders zou een bot de codes via het afrekenen kunnen raden). Geeft false als de grens bereikt is.
+function code_attempt_allowed($shop) {
+    $ip = hash('sha256', 'code|' . ($_SERVER['REMOTE_ADDR'] ?? '') . '|' . cfg()['data_dir']);
+    $shop->prepare('DELETE FROM ratelimit WHERE ts < ?')->execute([time() - 600]);
+    $st = $shop->prepare('SELECT COUNT(*) AS n FROM ratelimit WHERE ip = ?');
+    $st->execute([$ip]);
+    if ((int)$st->fetch()['n'] >= 10) { return false; }
+    $shop->prepare('INSERT INTO ratelimit (ip, ts) VALUES (?, ?)')->execute([$ip, time()]);
+    return true;
+}
+// Korting op één prijs in centen (half omhoog); dezelfde formule staat in c.js en in orders.py.
+function percent_off($price_cents, $pct) { return intdiv((int)$price_cents * (int)$pct + 50, 100); }
+// Totale korting op de boeken in deze regels voor een code van het type "percent".
+function discount_cents($lines, $row) {
+    if (!$row || $row['kind'] !== 'percent') { return 0; }
+    $d = 0;
+    foreach ($lines as $l) { $d += $l['qty'] * percent_off($l['price_cents'], $row['pct']); }
+    return $d;
 }
 
 // Aantal exemplaren dat nog te koop is: voorraad uit de catalogus min webshop-bestellingen die daar nog niet in zijn verwerkt
@@ -239,6 +285,8 @@ function eur_text($cents, $lang = 'nl') {
 function order_mail_text($order, $lines, $lang = 'nl') {
     $t = tr('mail_thanks', $lang, ['id' => $order['id']]) . "\n\n";
     foreach ($lines as $l) { $t .= $l['qty'] . " x " . $l['title'] . " — " . eur_text($l['price_cents'], $lang) . "\n"; }
+    if ((int)($order['discount_cents'] ?? 0) > 0) { $t .= "\n" . tr('mail_discount', $lang, ['code' => $order['discount_code']]) . ": -" . eur_text($order['discount_cents'], $lang); }
+    elseif (($order['discount_kind'] ?? '') === 'shipping') { $t .= "\n" . tr('mail_discount', $lang, ['code' => $order['discount_code']]); }
     $t .= "\n" . tr('mail_ship', $lang) . ": " . eur_text($order['ship_cents'], $lang) . "\n" . tr('mail_total', $lang) . ": " . eur_text($order['total_cents'], $lang) . "\n\n";
     $t .= tr('mail_addr', $lang) . ":\n" . $order['name'] . "\n" . $order['street'] . "\n" . $order['postcode'] . " " . $order['city'] . "\n" . $order['country'] . "\n";
     return $t;
@@ -250,6 +298,9 @@ function owner_mail_text($order, $lines) {
     foreach ($lines as $l) {
         $loc = trim((string)($l['location'] ?? ''));
         $t .= $l['qty'] . " x " . $l['title'] . ($loc !== '' ? " — locatie " . $loc : '') . "  —  " . eur_text($l['price_cents'], 'nl') . "\n";
+    }
+    if (!empty($order['discount_code'])) {
+        $t .= "\nKortingscode " . $order['discount_code'] . ((int)($order['discount_cents'] ?? 0) > 0 ? ": -" . eur_text($order['discount_cents'], 'nl') : ": gratis verzending");
     }
     $t .= "\nVerzendkosten: " . eur_text($order['ship_cents'], 'nl') . "\nTotaal: " . eur_text($order['total_cents'], 'nl') . "\n\n";
     $t .= "Verzendadres:\n" . $order['name'] . "\n" . $order['street'] . "\n" . $order['postcode'] . " " . $order['city'] . "\n" . $order['country'] . "\n";
