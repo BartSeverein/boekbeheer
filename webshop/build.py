@@ -541,7 +541,7 @@ def _write_assets(out_dir, cfg):
 def _write_server_files(out_dir, cfg, data_dir):
     """Wat op de server draait en snel kan wijzigen: .htaccess, de PHP-scripts en hun instellingen. Gaat ook mee in een catalogusrun."""
     _write(out_dir, ".htaccess", HTACCESS)
-    for name in ("lib.php", "checkout.php", "code.php", "search.php", "stock.php", "webhook.php", "status.php", "mailtest.php"):
+    for name in ("lib.php", "checkout.php", "code.php", "search.php", "stock.php", "purge.php", "webhook.php", "status.php", "mailtest.php"):
         src = HERE / "php" / name
         if not src.exists():
             raise RuntimeError(f"PHP-bestand ontbreekt: {src}")

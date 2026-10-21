@@ -18,6 +18,26 @@ from .deploy import (DeployError, connect_from_env, deploy, manifest_views, read
 from .orders import import_shop_orders, sync_intime_status
 
 
+
+def _purge_personal_data(shop_db, cfg, log):
+    """Laat de server de persoonsgegevens wissen van bestellingen die veilig in de eigen administratie staan (zie php/purge.php)."""
+    import hashlib
+    import sqlite3
+    import requests
+    try:
+        con = sqlite3.connect(shop_db)
+        ids = [str(r[0]) for r in con.execute("SELECT id FROM orders WHERE status = 'paid' AND COALESCE(email, '') <> '' AND id IN (SELECT order_id FROM order_lines)")]
+        con.close()
+        token = hashlib.sha256(("purge|" + cfg["data_key"]).encode()).hexdigest()
+        r = requests.post(cfg["base_url"].rstrip("/") + "/purge.php", data={"t": token, "ids": ",".join(ids)}, timeout=30)
+        if r.ok:
+            d = r.json()
+            log(f"Persoonsgegevens op de server gewist: {d.get('paid', 0)} betaalde, {d.get('unpaid', 0)} niet-betaalde bestelling(en).")
+        else:
+            log(f"Persoonsgegevens wissen: server antwoordde HTTP {r.status_code} (purge.php staat er misschien nog niet; volgende run opnieuw).")
+    except Exception as exc:  # nooit de run laten mislukken
+        log(f"Persoonsgegevens wissen overgeslagen: {exc}")
+
 def _download_shop_db(remote, cfg, log):
     rel = f"d-{cfg['data_key']}/shop.sqlite"
     for attempt in range(3):
@@ -70,6 +90,8 @@ def publish(mode="full", execute=False, max_minutes=120, allow_overwrite=False, 
                     log(f"Intime: {n_ship} webshop-bestelling(en) op 'verstuurd' gezet.")
                 except Exception as exc:  # een storing bij Intime mag het bijwerken van de webshop nooit tegenhouden
                     log(f"Intime-terugkoppeling overgeslagen: {exc}")
+            if execute:
+                _purge_personal_data(shop_db, cfg, log)
             os.unlink(shop_db)
         else:
             log("Nog geen shop.sqlite op de server (nog geen bestellingen).")
