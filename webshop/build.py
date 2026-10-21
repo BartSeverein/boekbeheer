@@ -830,7 +830,7 @@ def build_site(raw_books, out_dir, cfg=None, *, mode="full", imported_order_ids=
         _write(out_dir, f"{cfg['indexnow_key']}.txt", cfg["indexnow_key"])   # IndexNow: bewijs dat de site van ons is
 
     # ---- PHP en data
-    for name in ("lib.php", "checkout.php", "code.php", "search.php", "webhook.php", "status.php", "mailtest.php"):
+    for name in ("lib.php", "checkout.php", "code.php", "search.php", "stock.php", "webhook.php", "status.php", "mailtest.php"):
         src = HERE / "php" / name
         if not src.exists():
             raise RuntimeError(f"PHP-bestand ontbreekt: {src}")
