@@ -126,13 +126,72 @@ function find_code($code) {
         $st->execute([$code]);
         $r = $st->fetch();
     } catch (Throwable $e) { return null; }   // oude catalogus zonder codes
-    if (!$r) { return null; }
+    if (!$r) { return find_daily_code($code); }
     if ($r['until'] !== '') {
         $today = (new DateTime('now', new DateTimeZone('Europe/Amsterdam')))->format('Y-m-d');
         if ($today > $r['until']) { return null; }
     }
     $r['pct'] = (int)$r['pct'];
     return $r;
+}
+// Dagcode: elke dag één code van 4 tekens, een maand geldig (zie ook webshop/common.py daily_code en het dashboard — alle drie rekenen hetzelfde).
+// De code wordt uit de datum afgeleid met de geheime sleutel; de catalogus (meta) bevat alleen of de dagcode aan staat en het percentage.
+function daily_key() { return hash('sha256', 'daycode|' . substr(cfg()['data_dir'], 2), true); }
+function day_code($ymd) {
+    $alphabet = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+    $d = hash_hmac('sha256', 'day|' . $ymd, daily_key(), true);
+    $out = '';
+    for ($i = 0; $i < 4; $i++) { $out .= $alphabet[ord($d[$i]) & 31]; }
+    return $out;
+}
+function add_month_ymd($ymd) {
+    [$y, $m, $d] = array_map('intval', explode('-', $ymd));
+    $m++; if ($m > 12) { $m = 1; $y++; }
+    $dim = (int)date('t', mktime(0, 0, 0, $m, 1, $y));
+    return sprintf('%04d-%02d-%02d', $y, $m, min($d, $dim));
+}
+function daily_cfg() {
+    static $c = null;
+    if ($c !== null) { return $c; }
+    $c = ['active' => false, 'pct' => 0];
+    try {
+        $rows = db_catalog()->query("SELECT k, v FROM meta WHERE k IN ('daily_active', 'daily_pct')")->fetchAll();
+        $m = [];
+        foreach ($rows as $r) { $m[$r['k']] = $r['v']; }
+        if (($m['daily_active'] ?? '0') === '1' && (int)($m['daily_pct'] ?? 0) > 0) { $c = ['active' => true, 'pct' => (int)$m['daily_pct']]; }
+    } catch (Throwable $e) {}
+    return $c;
+}
+function find_daily_code($code) {
+    $dc = daily_cfg();
+    if (!$dc['active'] || strlen($code) !== 4) { return null; }
+    $tz = new DateTimeZone('Europe/Amsterdam');
+    $now = new DateTime('now', $tz);
+    $today = $now->format('Y-m-d');
+    for ($i = 0; $i <= 31; $i++) {
+        $day = (clone $now)->modify('-' . $i . ' day')->format('Y-m-d');
+        if (!hash_equals(day_code($day), $code)) { continue; }
+        $until = add_month_ymd($day);
+        if ($today <= $until) { return ['code' => $code, 'kind' => 'percent', 'pct' => $dc['pct'], 'until' => $until]; }
+    }
+    return null;
+}
+// De alinea met de dagcode onderaan de bevestigingsmail (de code van de dag waarop er is betaald); leeg als de dagcode uit staat.
+function daily_mail_block($order, $lang = 'nl') {
+    $dc = daily_cfg();
+    if (!$dc['active']) { return ''; }
+    $tz = new DateTimeZone('Europe/Amsterdam');
+    $paid = (new DateTime('@' . (int)(($order['paid_at'] ?? 0) ?: time())))->setTimezone($tz);
+    $ymd = $paid->format('Y-m-d');
+    $until = add_month_ymd($ymd);
+    [$y, $m, $d] = array_map('intval', explode('-', $until));
+    $months_en = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    if ($lang === 'en') { $until_txt = $d . ' ' . $months_en[$m] . ' ' . $y; }
+    elseif ($lang === 'de') { $until_txt = sprintf('%02d.%02d.%04d', $d, $m, $y); }
+    elseif ($lang === 'fr') { $until_txt = sprintf('%02d/%02d/%04d', $d, $m, $y); }
+    else { $until_txt = sprintf('%02d-%02d-%04d', $d, $m, $y); }
+    $site = preg_replace('/^www\./', '', (string)parse_url(cfg()['base_url'], PHP_URL_HOST));
+    return "\n" . tr('mail_daycode', $lang, ['pct' => $dc['pct'], 'site' => $site, 'code' => day_code($ymd), 'until' => $until_txt]) . "\n";
 }
 // Rem op het raden van kortingscodes: max 10 pogingen per 10 minuten per IP, gedeeld door code.php en checkout.php
 // (anders zou een bot de codes via het afrekenen kunnen raden). Geeft false als de grens bereikt is.
@@ -289,6 +348,7 @@ function order_mail_text($order, $lines, $lang = 'nl') {
     elseif (($order['discount_kind'] ?? '') === 'shipping') { $t .= "\n" . tr('mail_discount', $lang, ['code' => $order['discount_code']]); }
     $t .= "\n" . tr('mail_ship', $lang) . ": " . eur_text($order['ship_cents'], $lang) . "\n" . tr('mail_total', $lang) . ": " . eur_text($order['total_cents'], $lang) . "\n\n";
     $t .= tr('mail_addr', $lang) . ":\n" . $order['name'] . "\n" . $order['street'] . "\n" . $order['postcode'] . " " . $order['city'] . "\n" . $order['country'] . "\n";
+    $t .= daily_mail_block($order, $lang);
     return $t;
 }
 
