@@ -51,6 +51,7 @@ dt{color:var(--mut)}dd{margin:0}
 table{width:100%;border-collapse:collapse}
 td,th{padding:.5rem .3rem;border-bottom:1px solid var(--line);text-align:left;vertical-align:middle}
 .ci{display:flex;align-items:center;gap:.6rem}.ci img{display:block;height:48px;width:auto;border-radius:.2rem}
+.promo{background:var(--card);border-bottom:1px solid var(--line);text-align:center;font-size:.9rem;padding:.35rem 1rem}
 td.n{text-align:right;white-space:nowrap}
 .f{display:grid;gap:.7rem;max-width:30rem}
 .f label{display:grid;gap:.2rem;font-size:.9rem}

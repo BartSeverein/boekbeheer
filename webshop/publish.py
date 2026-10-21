@@ -122,6 +122,30 @@ def publish(mode="full", execute=False, max_minutes=120, allow_overwrite=False, 
                     f"404.html op de server = {'ja' if remote.exists('404.html') else 'NEE'}.")
             except Exception as exc:
                 log(f"Foutpagina-controle overgeslagen: {exc}")
+            try:   # live controle vanaf de GitHub-server: toont de site de eigen 404-pagina, en is de datamap afgesloten?
+                import secrets
+                import urllib.error
+                import urllib.request
+
+                def _probe(url):
+                    req = urllib.request.Request(url, headers={"User-Agent": "severein-controle"})
+                    try:
+                        with urllib.request.urlopen(req, timeout=20) as r:
+                            return r.status, r.read(30000).decode("utf-8", "replace"), dict(r.headers)
+                    except urllib.error.HTTPError as e:
+                        return e.code, e.read(30000).decode("utf-8", "replace"), dict(e.headers)
+
+                base = cfg["base_url"].rstrip("/")
+                code, body, hdr = _probe(f"{base}/bestaat-niet-{secrets.token_hex(4)}")
+                own = "Pagina niet gevonden" in body
+                heads = {k.lower(): v for k, v in hdr.items()}
+                log(f"Live controle onbekend adres: HTTP {code}; eigen foutpagina = {'ja' if own else 'NEE (standaard serverpagina)'}; "
+                    f"server = {heads.get('server', '?')}; .htaccess-header (nosniff) = {'ja' if 'x-content-type-options' in heads else 'NEE'}.")
+                for name in ("catalog.sqlite", "shop.sqlite"):
+                    c2, _b, _h = _probe(f"{base}/d-{cfg['data_key']}/{name}")
+                    log(f"Live controle datamap ({name}): HTTP {c2} " + ("— GOED, afgesloten." if c2 in (401, 403, 404) else "— LET OP: bereikbaar vanaf internet!"))
+            except Exception as exc:
+                log(f"Live controle overgeslagen: {exc}")
         if execute:
             import sync
             status = "ok" if result["complete"] else "error"

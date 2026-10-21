@@ -506,7 +506,7 @@ with col_b:
         return f"{label} › {category2_label_for_value(c1, c2)}" if c2 else label
 
     try:
-        quick_pairs = get_top_category_pairs(6)
+        quick_pairs = get_top_category_pairs(8)
     except Exception:
         quick_pairs = []
     quick_by_label = {_quick_category_label(pair): pair for pair in quick_pairs}

@@ -118,6 +118,7 @@
       var t = totals(c);
       cartEl.appendChild(h('table', {}, tb));
       cartEl.appendChild(h('p', { text: T.books + ': ' + eur(t.sub) + ' · ' + T.shipping + ': ' + (t.ship ? eur(t.ship) : T.free) }));
+      if (FREE && LANG === 'nl') cartEl.appendChild(h('p', { class: 'small', text: t.sub >= FREE ? T.free_got : fmt(T.free_left, { amount: eur(FREE - t.sub) }) }));
       if (Object.keys(RT).length > 1) cartEl.appendChild(h('p', { class: 'small', text: T.abroad }));
       cartEl.appendChild(h('p', { class: 'price', text: T.total + ': ' + eur(t.total) }));
       cartEl.appendChild(h('a', { class: 'btn', href: P.checkout || '/afrekenen/', text: T.checkout }));

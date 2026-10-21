@@ -58,6 +58,18 @@ class Site:
     def eur(self, cents):
         return eur(cents, self.lang)
 
+    def free_amount(self):
+        """Grens voor gratis verzending als tekst zonder ',00' (€ 50); None als die uit staat of Nederland niet in de lijst staat."""
+        n = int(self.cfg.get("free_shipping_from_cents") or 0)
+        if self.lang != "nl":   # alleen op de Nederlandse pagina's (de regel geldt alleen voor Nederland)
+            return None
+        if n <= 0 or "NL" not in (self.cfg.get("countries") or ["NL"]):
+            return None
+        t = self.eur(n)
+        for tail in (",00", ".00"):
+            t = t.replace(tail, "")
+        return t
+
     # ---- gedeeld skelet
     def layout(self, *, title, desc, path, body, robots=None, image=None, og_type="website", ld=None, scripts=True,
                show_cats=False):
@@ -121,6 +133,8 @@ class Site:
             brand = f'<img src="/{self.logo[0]}" width="{self.logo[1]}" height="{self.logo[2]}" alt="{esc(cfg["name"])}">'
         else:
             brand = esc(cfg["name"])
+        free = self.free_amount()
+        promo = f'<div class="promo">{esc(self.t("p_free_bar", amount=free))}</div>' if free else ""
         switch = ""
         if len(self.langs) > 1:
             items = []
@@ -130,7 +144,7 @@ class Site:
                 items.append(f'<a href="{href}" hreflang="{l}" lang="{l}" title="{esc(i18n.LANG_NAME[l])}"{cur}>{i18n.LANG_LABEL[l]}</a>')
             switch = f'<nav class="lang" aria-label="{esc(self.t("p_lang"))}">{"".join(items)}</nav>'
         header = (
-            f'<body {data}>{switch}<header><a class="brand" href="{self.L("/")}">{brand}</a>'
+            f'<body {data}>{promo}{switch}<header><a class="brand" href="{self.L("/")}">{brand}</a>'
             f'<a href="{self.L("/zoeken/")}" id="sbtn" class="sbtn" aria-label="{esc(self.t("p_search"))}" aria-controls="sform" aria-expanded="false">{icon("search")}</a>'
             f'<form id="sform" action="{self.L("/zoeken/")}" method="get" role="search">'
             f'<input type="search" name="q" placeholder="{esc(self.t("p_search_ph"))}" aria-label="{esc(self.t("p_search"))}" minlength="2" required>'
@@ -307,13 +321,18 @@ class Site:
         desc_html = "".join(f"<p>{esc(p)}</p>" for p in re.split(r"\n\s*\n|\r\n\s*\r\n", (loc.get("long") or "").strip()) if p.strip())
         if desc_html and loc.get("long_fb") and self.lang != "nl":
             desc_html = f'<div{nl_attr}>{desc_html}</div>'
+        th = b.get("thumb")
+        thumb_attr = f' data-img="{esc(th[0])}" data-ir="{th[1] / th[2]:.3f}"' if th and th[2] else ""
         ship = self.eur(b["ship_cents"])
         stock_note = self.t("p_copies", n=b["amount"]) if b["amount"] > 1 else ""
+        free = self.free_amount()
+        free_line = f'<p class="small">{esc(self.t("p_free_book", amount=free))}</p>' if free else ""
         buy = (
             f'<p class="price">{self.eur(b["price_cents"])}</p><p class="ship il">{icon("truck")}<span>{esc(self.t("p_in_stock"))}{esc(stock_note)}. '
             f'{esc(self.t("p_ship_line" if len(cfg["countries"]) > 1 else "p_ship_line_one", ship=ship))}</span></p>'
+            f'{free_line}'
             f'<p><button type="button" class="add" data-id="{b["id"]}" data-title="{esc(b["title"])}" data-price="{b["price_cents"]}" '
-            f'data-ship="{b["ship_cents"]}" data-big="{b["big"]}" data-max="{b["amount"]}" data-url="{path}">{icon("cart_plus")}<span>{esc(self.t("p_add"))}</span></button></p>'
+            f'data-ship="{b["ship_cents"]}" data-big="{b["big"]}" data-max="{b["amount"]}" data-url="{path}"{thumb_attr}>{icon("cart_plus")}<span>{esc(self.t("p_add"))}</span></button></p>'
             f'<p id="added" hidden><a href="{self.L("/winkelwagen/")}" class="il">{icon("cart")}{esc(self.t("p_view_cart"))}</a></p>'
         )
         if sold:
