@@ -504,6 +504,9 @@ def write_catalog(path, books, imported_ids, cfg, built_at):
         )
         con.executemany("INSERT INTO discount_codes VALUES (?,?,?,?)",
                         [(d["code"], d["kind"], d["pct"], d["until"]) for d in (cfg.get("discount_codes") or [])])
+        daily = cfg.get("daily_code") or {"active": True, "pct": 15}   # instelling voor de dagcode (zie common.daily_code)
+        con.executemany("INSERT OR REPLACE INTO meta VALUES (?,?)",
+                        [("daily_active", "1" if daily.get("active") else "0"), ("daily_pct", str(int(daily.get("pct") or 15)))])
         rows = []
         for b in books:
             th = b.get("thumb")

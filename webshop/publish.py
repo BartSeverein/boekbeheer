@@ -81,6 +81,9 @@ def publish(mode="full", execute=False, max_minutes=120, allow_overwrite=False, 
             from .common import DISCOUNT_SETTING, parse_discount_codes
             cfg["discount_codes"] = parse_discount_codes(sync._get_setting(conn, DISCOUNT_SETTING, "[]"))
             log(f"Kortingscodes: {len(cfg['discount_codes'])} actief.")
+            from .common import DAILY_SETTING, parse_daily_setting
+            cfg["daily_code"] = parse_daily_setting(sync._get_setting(conn, DAILY_SETTING, "{}"))
+            log(f"Dagcode: {'aan, ' + str(cfg['daily_code']['pct']) + '% korting' if cfg['daily_code']['active'] else 'uit'}.")
         except Exception as exc:   # codes zijn een extraatje: een fout hier mag het publiceren niet stoppen
             cfg["discount_codes"] = []
             log(f"Kortingscodes overgeslagen: {exc}")

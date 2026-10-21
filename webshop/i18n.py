@@ -282,6 +282,14 @@ T = {
                     "Vielen Dank für Ihre Bestellung #{id}.", "Merci pour votre commande n°{id}."),
     "mail_ship": ("Verzendkosten", "Shipping", "Versandkosten", "Frais de port"),
     "mail_discount": ("Kortingscode {code}", "Discount code {code}", "Rabattcode {code}", "Code promo {code}"),
+    "mail_daycode": ("Als dank voor je aankoop geef ik je {pct}% korting op de aanschafprijs van je volgende boek(en) op {site}.\n"
+                     "Gebruik daarvoor de code: {code}\nDe code is een maand geldig, tot {until}",
+                     "As a thank-you for your purchase, I'm giving you {pct}% off the price of your next book(s) at {site}.\n"
+                     "Use this code: {code}\nThe code is valid for one month, until {until}",
+                     "Als Dankeschön für Ihren Einkauf erhalten Sie {pct} % Rabatt auf den Preis Ihrer nächsten Bücher bei {site}.\n"
+                     "Verwenden Sie dazu den Code: {code}\nDer Code ist einen Monat gültig, bis {until}",
+                     "Pour vous remercier de votre achat, je vous offre {pct} % de réduction sur le prix de vos prochains livres sur {site}.\n"
+                     "Utilisez pour cela le code : {code}\nLe code est valable un mois, jusqu'au {until}"),
     "mail_total": ("Totaal", "Total", "Gesamt", "Total"),
     "mail_addr": ("Verzendadres", "Shipping address", "Lieferadresse", "Adresse de livraison"),
     "mail_reply": ("Vragen over je bestelling? Stuur die gewoon als antwoord op deze e-mail.",

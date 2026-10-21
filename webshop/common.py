@@ -192,6 +192,49 @@ def parse_discount_codes(raw):
     return out
 
 
+# ---- dagcode
+# Elke dag is er één code van 4 tekens (zonder I, O, 1 en 0) die klanten in de bevestigingsmail krijgen: korting op hun volgende boeken,
+# een maand geldig. De code wordt uit de datum afgeleid met een geheime sleutel (WEBSHOP_DATA_KEY), dus de server (lib.php), de bouw
+# en het dashboard rekenen hem onafhankelijk van elkaar identiek uit — wijzig je één van de drie, wijzig dan alle drie.
+# Opslag van de instelling: app_settings 'webshop_daily_code' = {"active": true, "percent": 15}.
+DAILY_SETTING = "webshop_daily_code"
+DAILY_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"   # 32 tekens
+DAILY_DEFAULT = {"active": True, "pct": 15}
+
+
+def parse_daily_setting(raw):
+    """JSON-tekst (of dict) -> {active: bool, pct: int}; zonder (geldige) instelling: aan, 15%."""
+    import json
+    try:
+        data = json.loads(raw) if isinstance(raw, (str, bytes)) else (raw or {})
+    except ValueError:
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    try:
+        pct = int(round(float(data.get("percent", DAILY_DEFAULT["pct"]))))
+    except (TypeError, ValueError):
+        pct = DAILY_DEFAULT["pct"]
+    return {"active": bool(data.get("active", True)), "pct": pct if 1 <= pct <= 100 else DAILY_DEFAULT["pct"]}
+
+
+def daily_code(data_key, day):
+    """De dagcode voor een datum (datetime.date)."""
+    import hashlib
+    import hmac
+    key = hashlib.sha256(("daycode|" + data_key).encode()).digest()
+    digest = hmac.new(key, ("day|" + day.isoformat()).encode(), hashlib.sha256).digest()
+    return "".join(DAILY_ALPHABET[b & 31] for b in digest[:4])
+
+
+def add_one_month(day):
+    """Dezelfde dag een maand later (31 jan -> 28 of 29 feb)."""
+    import calendar
+    import datetime as dt
+    year, month = (day.year + 1, 1) if day.month == 12 else (day.year, day.month + 1)
+    return dt.date(year, month, min(day.day, calendar.monthrange(year, month)[1]))
+
+
 def percent_off(price_cents, pct):
     """Korting op één prijs in hele centen (half omhoog); dezelfde formule staat in lib.php en c.js."""
     return (int(price_cents) * int(pct) + 50) // 100
