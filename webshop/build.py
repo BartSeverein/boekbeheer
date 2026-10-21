@@ -464,16 +464,19 @@ AddDefaultCharset UTF-8
 <IfModule mod_expires.c>
   ExpiresActive On
   ExpiresByType image/webp "access plus 1 year"
-  ExpiresByType text/css "access plus 1 year"
-  ExpiresByType application/javascript "access plus 1 year"
+  ExpiresByType text/css "access plus 10 minutes"
+  ExpiresByType application/javascript "access plus 10 minutes"
   ExpiresByType text/html "access plus 10 minutes"
 </IfModule>
 <IfModule mod_headers.c>
   Header always set X-Content-Type-Options "nosniff"
   Header always set Referrer-Policy "strict-origin-when-cross-origin"
   Header always set X-Frame-Options "SAMEORIGIN"
-  <FilesMatch "\\.(webp|css|js)$">
+  <FilesMatch "\\.webp$">
     Header set Cache-Control "public, max-age=31536000, immutable"
+  </FilesMatch>
+  <FilesMatch "^[sc]\\.(css|js)$">
+    Header set Cache-Control "public, max-age=600, must-revalidate"
   </FilesMatch>
 </IfModule>
 """
@@ -521,6 +524,34 @@ def write_catalog(path, books, imported_ids, cfg, built_at):
         con.close()
 
 
+def _write_assets(out_dir, cfg):
+    """s.css en c.js (met de teksten per taal erin) onder vaste namen: een wijziging raakt zo alleen deze twee bestanden en niet elke pagina.
+    Geeft (css_naam, js_naam) terug."""
+    css_src = (HERE / "assets" / "s.css").read_bytes()
+    js_text = (HERE / "assets" / "c.js").read_text(encoding="utf-8")
+    if "/*I18N*/{}" not in js_text:
+        raise RuntimeError("c.js mist de plaats voor de teksten (/*I18N*/{}).")
+    js_src = js_text.replace("/*I18N*/{}", json.dumps({l: i18n.js_strings(l) for l in cfg["langs"]}, ensure_ascii=False,
+                                                       separators=(",", ":"))).encode("utf-8")
+    _write(out_dir, "s.css", css_src)
+    _write(out_dir, "c.js", js_src)
+    return "s.css", "c.js"
+
+
+def _write_server_files(out_dir, cfg, data_dir):
+    """Wat op de server draait en snel kan wijzigen: .htaccess, de PHP-scripts en hun instellingen. Gaat ook mee in een catalogusrun."""
+    _write(out_dir, ".htaccess", HTACCESS)
+    for name in ("lib.php", "checkout.php", "code.php", "search.php", "stock.php", "webhook.php", "status.php", "mailtest.php"):
+        src = HERE / "php" / name
+        if not src.exists():
+            raise RuntimeError(f"PHP-bestand ontbreekt: {src}")
+        _write(out_dir, name, src.read_bytes())
+    _write(out_dir, "norm.php", norm_php())
+    _write(out_dir, "i18n.php", i18n_php(cfg))
+    _write(out_dir, "config.php", config_php(cfg))
+    _write(out_dir, f"{data_dir}/.htaccess", DATA_HTACCESS)
+
+
 def build_site(raw_books, out_dir, cfg=None, *, mode="full", imported_order_ids=(), known_images=(), known_pages=None,
                fetch_image=None, process_images=True, image_deadline=None, translator=None, log=print):
     cfg = cfg or shop_config()
@@ -554,6 +585,8 @@ def build_site(raw_books, out_dir, cfg=None, *, mode="full", imported_order_ids=
                 have = index.get((b["id"], n, _hash8(b["id"], img)), {})
                 b["thumb"] = have.get("t")
         write_catalog(out_dir / data_dir / "catalog.sqlite", books, imported_order_ids, cfg, built_at)
+        _write_assets(out_dir, cfg)   # ook het script, de stijl en de PHP-bestanden: die wijzigen vaak en zijn klein (alleen gewijzigde gaan mee)
+        _write_server_files(out_dir, cfg, data_dir)
         stats.update(books=len(books), keep=[], seconds=round(time.time() - t0, 1))
         return stats
 
@@ -564,18 +597,9 @@ def build_site(raw_books, out_dir, cfg=None, *, mode="full", imported_order_ids=
     log(f"Afbeeldingen: {new_imgs} nieuw gemaakt, {failed_imgs} mislukt, {len(used_images)} in gebruik.")
 
     # ---- statische bestanden
-    css_src = (HERE / "assets" / "s.css").read_bytes()
     langs = cfg["langs"]
     foreign = [l for l in langs if l != "nl"]
-    js_text = (HERE / "assets" / "c.js").read_text(encoding="utf-8")
-    if "/*I18N*/{}" not in js_text:
-        raise RuntimeError("c.js mist de plaats voor de teksten (/*I18N*/{}).")
-    js_src = js_text.replace("/*I18N*/{}", json.dumps({l: i18n.js_strings(l) for l in langs}, ensure_ascii=False,
-                                                       separators=(",", ":"))).encode("utf-8")
-    css_name = f"s.{hashlib.sha1(css_src).hexdigest()[:8]}.css"
-    js_name = f"c.{hashlib.sha1(js_src).hexdigest()[:8]}.js"
-    _write(out_dir, css_name, css_src)
-    _write(out_dir, js_name, js_src)
+    css_name, js_name = _write_assets(out_dir, cfg)
     # favicon (Google toont dit icoon naast de zoekresultaten): vaste adressen in de hoofdmap
     icon_file = HERE / "assets" / "icon.png"
     if icon_file.exists():
@@ -828,20 +852,11 @@ def build_site(raw_books, out_dir, cfg=None, *, mode="full", imported_order_ids=
         _write(out_dir, "sitemap.xml", f"{_hdr}<sitemapindex {_ns}>" + "".join(f"<sitemap><loc>{base_url}/sitemap-{n}.xml</loc></sitemap>" for n in range(1, len(_chunks) + 1)) + "</sitemapindex>")
     disallow = "".join(f"Disallow: {i18n.localize(p, l)}\n" for l in langs for p in ("/zoeken/", "/winkelwagen/", "/afrekenen/", "/bedankt/"))
     _write(out_dir, "robots.txt", "User-agent: *\n" + disallow + "Disallow: /*.php\n" + f"Sitemap: {base_url}/sitemap.xml\n")
-    _write(out_dir, ".htaccess", HTACCESS)
     if cfg.get("indexnow") and cfg.get("indexnow_key"):
         _write(out_dir, f"{cfg['indexnow_key']}.txt", cfg["indexnow_key"])   # IndexNow: bewijs dat de site van ons is
 
     # ---- PHP en data
-    for name in ("lib.php", "checkout.php", "code.php", "search.php", "stock.php", "webhook.php", "status.php", "mailtest.php"):
-        src = HERE / "php" / name
-        if not src.exists():
-            raise RuntimeError(f"PHP-bestand ontbreekt: {src}")
-        _write(out_dir, name, src.read_bytes())
-    _write(out_dir, "norm.php", norm_php())
-    _write(out_dir, "i18n.php", i18n_php(cfg))
-    _write(out_dir, "config.php", config_php(cfg))
-    _write(out_dir, f"{data_dir}/.htaccess", DATA_HTACCESS)
+    _write_server_files(out_dir, cfg, data_dir)
     write_catalog(out_dir / data_dir / "catalog.sqlite", books, imported_order_ids, cfg, built_at)
 
     stats.update(pages=count_pages, new_images=new_imgs, failed_images=failed_imgs, keep=sorted(used_images),

@@ -294,10 +294,19 @@ def deploy(remote, dist_dir, *, mode="full", execute=False, keep=(), time_budget
     dist = Path(dist_dir)
     manifest = read_manifest(remote)
     if mode == "catalog":
-        # alleen de catalogus (en niets verwijderen)
-        files = {p.relative_to(dist).as_posix(): p for p in dist.rglob("catalog.sqlite")}
-        upload = [(rel, p, sha1_file(p)) for rel, p in files.items()]
-        same, stale = 0, []
+        # de catalogus (altijd) plus de kleine, snel wijzigende bestanden die de bouw in dit geval meelevert (script, stijl, PHP, .htaccess):
+        # die alleen als ze afwijken van wat op de server staat. Er wordt niets verwijderd.
+        upload, same, stale = [], 0, []
+        for p in dist.rglob("*"):
+            if not p.is_file():
+                continue
+            rel = p.relative_to(dist).as_posix()
+            h = sha1_file(p)
+            if rel.endswith("catalog.sqlite") or manifest.get(rel) != h:
+                upload.append((rel, p, h))
+            else:
+                same += 1
+        upload.sort(key=lambda x: (_priority(x[0]), x[0]))
     else:
         upload, same, stale = plan(dist, manifest, keep)
 
