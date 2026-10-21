@@ -200,7 +200,7 @@ with tab_compare:
     if backup_orders is not None:
         st.divider()
         st.subheader("Bestellingen")
-        now_orders = load_orders()
+        now_orders = load_orders(include_tests=True)
         o_only_b, o_only_n, o_diffs = compare_orders(backup_orders, now_orders)
         c1, c2, c3 = st.columns(3)
         c1.metric("Alleen in back-up", len(o_only_b))
@@ -251,7 +251,7 @@ with tab_bw:
             source = st.radio("Vergelijken met", ["App nu (database)", "De geopende back-up"], horizontal=True,
                               key="bw_source")
             if source == "App nu (database)":
-                left_books, left_orders, left_name = load_books(), load_orders(), "App"
+                left_books, left_orders, left_name = load_books(), load_orders(include_tests=True), "App"
             else:
                 left_books, left_orders, left_name = backup_books, backup_orders, "Back-up"
             if left_books is None:
