@@ -141,6 +141,7 @@
     var sum = $('sum'), msg = $('msg'), btn = form.querySelector('button[type=submit]'), sel = form.querySelector('select[name=country]');
     var country = function () { return sel ? sel.value : 'NL'; };
     var applied = null, codeIn = form.querySelector('input[name=code]'), codeBtn = $('codebtn'), codeMsg = $('codemsg');
+    var applyLabel = codeBtn ? codeBtn.textContent : '';   // de tekst staat al in de pagina (f_code_apply)
     var paint = function () {
       var c = load(), t = totals(c, country(), applied);
       var vars = { total: eur(t.total), sub: eur(t.sub), disc: eur(t.disc), ship: t.ship ? eur(t.ship) : T.free };
@@ -151,7 +152,7 @@
     var showCode = function (text, ok) { if (codeMsg) { codeMsg.hidden = !text; codeMsg.textContent = text || ''; codeMsg.className = 'msg' + (ok ? ' ok' : ''); } };
     var applyCode = function () {
       var v = (codeIn.value || '').trim();
-      if (applied && codeBtn.dataset.mode === 'remove') { applied = null; codeIn.value = ''; codeIn.readOnly = false; codeBtn.textContent = T.code_apply; codeBtn.dataset.mode = ''; showCode(''); paint(); return; }
+      if (applied && codeBtn.dataset.mode === 'remove') { applied = null; codeIn.value = ''; codeIn.readOnly = false; codeBtn.textContent = applyLabel; codeBtn.dataset.mode = ''; showCode(''); paint(); return; }
       if (!v) return;
       codeBtn.disabled = true;
       fetch('/code.php?c=' + encodeURIComponent(v) + '&lang=' + encodeURIComponent(LANG)).then(function (r) { return r.json(); }).then(function (r) {
@@ -165,7 +166,6 @@
       }).catch(function () { codeBtn.disabled = false; showCode(T.noconn); });
     };
     if (codeBtn) {
-      codeBtn.textContent = T.code_apply;
       codeBtn.addEventListener('click', applyCode);
       codeIn.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); applyCode(); } });
     }
@@ -173,6 +173,8 @@
     form.addEventListener('submit', function (ev) {
       ev.preventDefault();
       var c = load(); if (!c.length) return;
+      // Een ingevulde maar nog niet toegepaste code: eerst controleren (en het resultaat tonen) in plaats van hem stilletjes te negeren.
+      if (codeIn && !applied && (codeIn.value || '').trim()) { applyCode(); return; }
       var f = new FormData(form), cust = {};
       ['name', 'email', 'street', 'postcode', 'city', 'country', 'note'].forEach(function (k) { cust[k] = (f.get(k) || '').toString().trim(); });
       btn.disabled = true; msg.hidden = false; msg.textContent = T.wait;
@@ -189,7 +191,7 @@
           if (r.prices) {
             var cc = load(); cc.forEach(function (i) { if (r.prices[i.id]) { i.p = r.prices[i.id].p; i.s = r.prices[i.id].s; i.g = r.prices[i.id].g; } }); save(cc); paint();
           }
-          if (r.code_invalid) { applied = null; if (codeIn) { codeIn.readOnly = false; codeBtn.textContent = T.code_apply; codeBtn.dataset.mode = ''; } showCode(''); paint(); }
+          if (r.code_invalid) { applied = null; if (codeIn) { codeIn.readOnly = false; codeBtn.textContent = applyLabel; codeBtn.dataset.mode = ''; } showCode(''); paint(); }
           msg.textContent = r.error || T.oops; btn.disabled = !load().length;
         }).catch(function () { msg.textContent = T.noconn; btn.disabled = false; });
     });
