@@ -43,8 +43,9 @@ from common import (
     shipping_format_label,
     lookup_abebooks_lowest_price,
     abebooks_box_line,
+    get_top_category_pairs,
 )
-from categories import CATEGORY1_OPTIONS, CATEGORY2_OPTIONS
+from categories import CATEGORY1_OPTIONS, CATEGORY2_OPTIONS, category1_label_for_value, category2_label_for_value
 
 
 def _s(value):
@@ -468,6 +469,33 @@ else:
                         elif abebooks_result["message"]:
                             st.write(f"Melding: {abebooks_result['message']}.")
                         st.code(abebooks_result["raw"] or "(geen antwoord ontvangen)", language="json")
+
+            # Snelkeuze: de 8 meest gebruikte categorieen (zelfde lijst als bij Nieuw boek); zet Categorie 1 en 2 hieronder in een klik.
+            def _quick_category_label(pair):
+                c1, c2 = pair
+                label = category1_label_for_value(c1)
+                label = label[:1].upper() + label[1:]
+                return f"{label} › {category2_label_for_value(c1, c2)}" if c2 else label
+
+            try:
+                quick_pairs = get_top_category_pairs(8)
+            except Exception:
+                quick_pairs = []
+            quick_by_label = {_quick_category_label(pair): pair for pair in quick_pairs}
+            quick_key = f"{edit_prefix}_quick_category"
+
+            def _apply_quick_category(by_label=quick_by_label, qkey=quick_key, prefix=edit_prefix):
+                pair = by_label.get(st.session_state.get(qkey))
+                if not pair:
+                    return
+                c1, c2 = pair
+                st.session_state[f"{prefix}_category1"] = category1_label_for_value(c1)
+                if c2 and c1 in CATEGORY2_OPTIONS:
+                    st.session_state[f"{prefix}_category2_dd_{c1}"] = category2_label_for_value(c1, c2)
+
+            if quick_by_label:
+                st.radio("Snelkeuze categorie (de meest gebruikte)", list(quick_by_label), index=None, horizontal=True,
+                         key=quick_key, on_change=_apply_quick_category)
 
             cat1_col, cat2_col = st.columns(2)
             with cat1_col:
