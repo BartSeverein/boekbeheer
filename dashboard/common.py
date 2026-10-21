@@ -617,6 +617,39 @@ def load_revenue_history():
     return data
 
 
+# ---------- Dagcode voor klanten ----------
+# Dezelfde berekening als webshop/common.py (daily_code, add_one_month) en webshop/php/lib.php (day_code, add_month_ymd): wijzig je er één, wijzig dan alle drie.
+DAILY_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
+
+
+def daily_code_for(data_key, day):
+    """De dagcode (4 tekens) voor een datum (datetime.date)."""
+    import hashlib
+    import hmac
+    key = hashlib.sha256(("daycode|" + data_key).encode()).digest()
+    digest = hmac.new(key, ("day|" + day.isoformat()).encode(), hashlib.sha256).digest()
+    return "".join(DAILY_ALPHABET[b & 31] for b in digest[:4])
+
+
+def add_one_month(day):
+    """Dezelfde dag een maand later (31 jan -> 28 of 29 feb)."""
+    import calendar
+    year, month = (day.year + 1, 1) if day.month == 12 else (day.year, day.month + 1)
+    return dt.date(year, month, min(day.day, calendar.monthrange(year, month)[1]))
+
+
+def active_daily_codes(data_key, today=None):
+    """De dagcodes die nu nog geldig zijn, nieuwste eerst: lijst van (datum, code, geldig_tot)."""
+    today = today or dt.datetime.now(AMSTERDAM_TZ).date()
+    out = []
+    for back in range(0, 32):
+        day = today - dt.timedelta(days=back)
+        until = add_one_month(day)
+        if today <= until:
+            out.append((day, daily_code_for(data_key, day), until))
+    return out
+
+
 def load_data():
     """
     Historisch gemakslaagje: geeft (boeken, orders) samen terug. Boeken en orders
