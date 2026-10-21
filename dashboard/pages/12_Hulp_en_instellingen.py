@@ -3,6 +3,7 @@ pages/12_Hulp_en_instellingen.py — Architectuurschema, handleiding-download,
 supportgegevens en de instellingen voor het druppelsysteem.
 """
 
+import datetime as dt
 import json
 import re
 from pathlib import Path
@@ -13,6 +14,8 @@ import streamlit as st
 from dropbox_files import fetch_help_file
 from common import (
     _get_secret,
+    active_daily_codes,
+    AMSTERDAM_TZ,
     delete_placeholder_uploads,
     find_placeholder_uploads,
     get_all_images,
@@ -280,6 +283,55 @@ if st.button("Opslaan", key="save_shipping_costs"):
         st.success("Opgeslagen.")
         if shipping_briefpost > shipping_pakketpost:
             st.warning("Let op: briefpost is nu duurder dan pakketpost. Klopt dat? Zo niet, dan staan ze mogelijk verwisseld.")
+
+
+# ---------- Dagcode voor klanten ----------
+
+DAILY_SETTING = "webshop_daily_code"
+
+st.divider()
+st.header("Dagcode voor klanten")
+st.caption(
+    "Elke dag verzint het systeem één code van vier tekens (zonder I, O, 1 en 0). Klanten die die dag een bestelling betalen krijgen die code "
+    "in de bevestigingsmail, met een percentage korting op hun volgende boeken. Elke code is een maand geldig. Je kunt de code van vandaag "
+    "hier opzoeken om hem zelf aan een klant te geven, bijvoorbeeld via Boekwinkeltjes. De codes zijn voor de webshop-server altijd direct geldig."
+)
+
+try:
+    _daily_cfg = json.loads(get_setting(DAILY_SETTING, "{}") or "{}")
+    if not isinstance(_daily_cfg, dict):
+        _daily_cfg = {}
+except ValueError:
+    _daily_cfg = {}
+_daily_active_now = bool(_daily_cfg.get("active", True))
+try:
+    _daily_pct_now = max(1, min(100, int(round(float(_daily_cfg.get("percent", 15))))))
+except (TypeError, ValueError):
+    _daily_pct_now = 15
+
+_daily_left, _daily_right = st.columns(2)
+daily_active = _daily_left.checkbox("Dagcode in de bevestigingsmail zetten", value=_daily_active_now, key="daily_active")
+daily_pct = _daily_right.number_input("Percentage korting", min_value=1, max_value=100, value=_daily_pct_now, step=1, key="daily_pct")
+if st.button("Dagcode-instelling opslaan", key="save_daily_code"):
+    set_setting(DAILY_SETTING, json.dumps({"active": bool(daily_active), "percent": int(daily_pct)}))
+    st.success("Opgeslagen. De mails en de webshop gebruiken dit na de eerstvolgende catalogus-update (binnen een half uur). "
+               "Let op: het percentage geldt voor alle codes die nog geldig zijn.")
+
+_data_key = (_get_secret("WEBSHOP_DATA_KEY") or "").strip()
+if not _data_key:
+    st.info("Om de codes hier te kunnen tonen is de sleutel nodig: zet in de secrets van Streamlit WEBSHOP_DATA_KEY "
+            "(dezelfde waarde als het geheim WEBSHOP_DATA_KEY in GitHub).")
+else:
+    _codes = active_daily_codes(_data_key)
+    _today, _today_code, _today_until = _codes[0]
+    st.markdown(f"**Code van vandaag ({_today.strftime('%d-%m-%Y')}):**")
+    st.code(_today_code, language=None)
+    st.caption(f"Geldig tot en met {_today_until.strftime('%d-%m-%Y')}. Een klant die vandaag betaalt, krijgt deze code in de mail.")
+    with st.expander("Alle codes die nu nog geldig zijn"):
+        st.dataframe(
+            pd.DataFrame([{"Uitgegeven op": d.strftime("%d-%m-%Y"), "Code": c, "Geldig tot en met": u.strftime("%d-%m-%Y")} for d, c, u in _codes]),
+            hide_index=True, width="stretch",
+        )
 
 
 # ---------- Kortingscodes webshop ----------
