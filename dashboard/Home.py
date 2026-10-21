@@ -29,6 +29,7 @@ from common import (
     queued_counts,
     current_user_short_name,
     load_orders,
+    load_revenue_history,
     format_price,
     format_order_status,
     format_datetime_nl,
@@ -524,23 +525,37 @@ PLATFORM_COLORS = {"Boekwinkeltjes": "#F5C518", "Bol": "#0068C9", "Webshop": "#8
 NO_REVENUE_STATUSES = {"CANCELLED", "CANCELLATION_REQUESTED", "no_response", "sold_or_unavailable", "return_received"}
 
 
-def _gross_revenue_chart(orders_df, months=12):
-    """Gestapelde staaf per maand: bruto boekprijs (zonder verzendkosten) per platform, met het maandtotaal erboven."""
+def _gross_revenue_chart(orders_df, history=None, months=12):
+    """
+    Gestapelde staaf per maand: bruto boekprijs (zonder verzendkosten) per platform, met het maandtotaal erboven.
+    history = aangeleverde bedragen uit het verleden (month, platform, amount): voor zo'n maand en platform geldt dat bedrag
+    in plaats van de som van de orders. months=None toont alle maanden.
+    """
     df = orders_df[~orders_df["status"].isin(NO_REVENUE_STATUSES)].dropna(subset=["order_date"]).copy()
-    if df.empty:
+    sums = {}
+    if not df.empty:
+        df["maand"] = df["order_date"].dt.to_period("M")
+        df["platform"] = df["platform"].fillna("BW").map({"BW": "Boekwinkeltjes", "Bol": "Bol", "Webshop": "Webshop"}).fillna("Boekwinkeltjes")
+        sums = {k: float(v) for k, v in df.groupby(["maand", "platform"])["book_price"].sum().fillna(0).items()}
+    if history is not None and not history.empty:
+        for _, h in history.iterrows():
+            try:
+                period = pd.Period(str(h["month"]), freq="M")
+            except Exception:
+                continue
+            name = {"BW": "Boekwinkeltjes", "Bol": "Bol", "Webshop": "Webshop"}.get(h["platform"], h["platform"])
+            sums[(period, name)] = float(h["amount"])
+    if not sums:
         return None
-    df["maand"] = df["order_date"].dt.to_period("M")
-    last = max(df["maand"].max(), pd.Period(dt.datetime.now(AMSTERDAM_TZ).strftime("%Y-%m"), freq="M"))
-    all_months = pd.period_range(end=last, periods=months, freq="M")
-    df = df[df["maand"].isin(all_months)]
-    df["platform"] = df["platform"].fillna("BW").map({"BW": "Boekwinkeltjes", "Bol": "Bol", "Webshop": "Webshop"}).fillna("Boekwinkeltjes")
-    sums = df.groupby(["maand", "platform"])["book_price"].sum().fillna(0)
+    this_month = pd.Period(dt.datetime.now(AMSTERDAM_TZ).strftime("%Y-%m"), freq="M")
+    first, last = min(k[0] for k in sums), max(max(k[0] for k in sums), this_month)
+    all_months = pd.period_range(start=first, end=last, freq="M") if months is None else pd.period_range(end=last, periods=months, freq="M")
     labels = [p.strftime("%m-%Y") for p in all_months]
     long_rows, totals = [], []
     for period, label in zip(all_months, labels):
         total = 0.0
         for platform in PLATFORM_COLORS:
-            value = round(float(sums.get((period, platform), 0.0)))
+            value = round(sums.get((period, platform), 0.0))
             total += value
             long_rows.append({"maand": label, "platform": platform, "omzet": value, "label": "€ " + _nl_number(value) if value else ""})
         totals.append(total)
@@ -555,16 +570,20 @@ def _gross_revenue_chart(orders_df, months=12):
 
 
 st.subheader("Bruto omzet per maand")
-if orders.empty:
+try:
+    revenue_history = load_revenue_history()
+except Exception:
+    revenue_history = None   # een ontbrekende of onleesbare geschiedenis mag de grafiek nooit stoppen
+revenue_period = st.radio("Periode omzet", ["Laatste 12 maanden", "Alles"], index=0, horizontal=True,
+                          key="revenue_period", label_visibility="collapsed")
+revenue_fig = _gross_revenue_chart(orders, revenue_history, months=12 if revenue_period == "Laatste 12 maanden" else None)
+if revenue_fig is None:
     st.info("Nog geen orders om te tonen.")
 else:
-    revenue_fig = _gross_revenue_chart(orders)
-    if revenue_fig is None:
-        st.info("Nog geen orders om te tonen.")
-    else:
-        st.plotly_chart(revenue_fig, width="stretch")
-        st.caption("Prijs van de boeken per orderdatum, zonder verzendkosten en zonder aftrek van commissie of andere kosten. "
-                   "Geannuleerde orders, orders zonder reactie en retouren tellen niet mee. De laatste staaf is de lopende maand.")
+    st.plotly_chart(revenue_fig, width="stretch")
+    st.caption("Prijs van de boeken per orderdatum, zonder verzendkosten en zonder aftrek van commissie of andere kosten. "
+               "Geannuleerde orders, orders zonder reactie en retouren tellen niet mee. Voor maanden met een aangeleverd bedrag "
+               "uit het verleden geldt dat bedrag. De laatste staaf is de lopende maand.")
 
 st.divider()
 

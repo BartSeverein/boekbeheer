@@ -600,6 +600,23 @@ def load_orders(include_tests=False):
     return orders
 
 
+@st.cache_data(ttl=300)
+def load_revenue_history():
+    """Handmatig aangeleverde bruto omzet per maand en platform (tabel revenue_history), met kolommen month, platform, amount.
+    Leeg als de tabel nog niet bestaat."""
+    conn = psycopg2.connect(get_db_url())
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT to_regclass('revenue_history')")
+            if cur.fetchone()[0] is None:
+                return pd.DataFrame(columns=["month", "platform", "amount"])
+        data = pd.read_sql("SELECT month, platform, amount FROM revenue_history", conn)
+    finally:
+        conn.close()
+    data["amount"] = data["amount"].astype(float)
+    return data
+
+
 def load_data():
     """
     Historisch gemakslaagje: geeft (boeken, orders) samen terug. Boeken en orders
