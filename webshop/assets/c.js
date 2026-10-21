@@ -93,6 +93,15 @@
       var m = $('added'); if (m) m.hidden = false;
     });
     refresh();
+    // De pagina kan een tijdje oud zijn (de winkel wordt 's nachts opnieuw gebouwd): vraag de actuele voorraad op.
+    var buyBox = $('buy'), soldBox = $('soldmsg');
+    if (buyBox && soldBox) {
+      fetch('/stock.php?id=' + encodeURIComponent(d.id)).then(function (r) { return r.ok ? r.json() : null; }).then(function (r) {
+        if (!r || typeof r.amount !== 'number') return;
+        if (r.amount <= 0) { buyBox.hidden = true; soldBox.hidden = false; }
+        else if (r.amount < +d.max) { d.max = r.amount; refresh(); }
+      }).catch(function () {});
+    }
   }
 
   // --- Winkelwagenpagina ---
