@@ -394,15 +394,30 @@ def pull_books():
     return count
 
 
+def _first_value(source, *names):
+    """Eerste ingevulde waarde uit een dict onder een van de gegeven sleutelnamen (de API-veldnamen verschillen soms per bron)."""
+    for name in names:
+        value = (source or {}).get(name)
+        if value not in (None, ""):
+            return value
+    return None
+
+
 def pull_orders():
     conn = get_connection()
     count = 0
+    keys_logged = False
     try:
         with conn.cursor() as cur:
             for order in api_client.iter_all_orders():
                 book = order.get("book") or {}
                 buyer = order.get("buyer") or {}
                 address = buyer.get("address") or {}
+                if not keys_logged:
+                    # Alleen de veldnamen (geen gegevens) in het logboek, om te zien welke velden Boekwinkeltjes meestuurt.
+                    keys_logged = True
+                    print(f"  Boekwinkeltjes-orderveldnamen: buyer {sorted(buyer.keys())}; address {sorted(address.keys())}; "
+                          f"order {sorted(order.keys())}")
 
                 cur.execute(
                     """
@@ -446,13 +461,14 @@ def pull_orders():
                         "first_name": buyer.get("firstName"),
                         "last_name": buyer.get("lastName"),
                         "name": buyer.get("name"),
-                        "phone": buyer.get("phone") or buyer.get("phoneNumber"),
-                        "email": buyer.get("email"),
+                        "phone": _first_value(buyer, "phone", "phoneNumber", "telephone", "mobile") or _first_value(address, "phone", "phoneNumber"),
+                        "email": _first_value(buyer, "email", "emailAddress", "mail", "eMail") or _first_value(address, "email", "emailAddress"),
                         "language": buyer.get("language"),
                         "street": address.get("street"),
                         "number": address.get("number"),
                         "number_extra": address.get("numberExtra"),
-                        "zip_code": address.get("zipCode"),
+                        "zip_code": _first_value(address, "zipCode", "zipcode", "zip", "postalCode", "postcode", "postCode", "postal_code")
+                                    or _first_value(buyer, "zipCode", "zip", "postalCode", "postcode"),
                         "city": address.get("city"),
                         "country": address.get("country"),
                         "company": address.get("company"),
