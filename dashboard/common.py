@@ -574,13 +574,26 @@ def load_books():
         conn.close()
 
 
+WEBSHOP_ID_BASE = 3_000_000_000   # zelfde als in webshop/orders.py: orders.id = -(BASE + webshopnummer * 1000 + eenheid_nr)
+WEBSHOP_FIRST_REAL_ORDER = 2050   # webshopbestellingen met een lager nummer waren tests en tellen nergens mee
+
+
+def _webshop_order_number(order_id):
+    """Het webshopbestelnummer (bijvoorbeeld 2050) dat in een orders.id van de webshop zit."""
+    return (-int(order_id) - WEBSHOP_ID_BASE) // 1000
+
+
 @st.cache_data(ttl=300)
-def load_orders():
+def load_orders(include_tests=False):
     conn = psycopg2.connect(get_db_url())
     try:
         orders = pd.read_sql("SELECT * FROM orders", conn)
     finally:
         conn.close()
+    if not orders.empty and not include_tests:
+        is_test = (orders["platform"].fillna("BW") == "Webshop") & (orders["id"] < 0) & (
+            orders["id"].map(lambda i: _webshop_order_number(i) < WEBSHOP_FIRST_REAL_ORDER))
+        orders = orders[~is_test].reset_index(drop=True)
     if not orders.empty:
         orders["order_date"] = pd.to_datetime(orders["order_date"], errors="coerce")
         orders["revenue"] = orders["book_price"].fillna(0) + orders["book_shipping_cost"].fillna(0)
@@ -2916,6 +2929,57 @@ def _gsc_credentials_info():
     if isinstance(raw, str):
         return json.loads(raw)
     return dict(raw)
+
+
+MOLLIE_STATUS_NL = {
+    "paid": "Betaald", "open": "Open", "pending": "In behandeling", "authorized": "Geautoriseerd",
+    "failed": "Mislukt", "canceled": "Geannuleerd", "expired": "Verlopen",
+}
+MOLLIE_METHOD_NL = {
+    "ideal": "iDEAL", "banktransfer": "Overboeking (SEPA)", "creditcard": "Creditcard", "paypal": "PayPal",
+    "bancontact": "Bancontact", "applepay": "Apple Pay", "eps": "EPS", "belfius": "Belfius", "kbc": "KBC",
+}
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def get_mollie_payments(limit=100):
+    """
+    De laatste betalingen volgens Mollie als tabel (nieuwste eerst): datum, bedrag, status, omschrijving, methode en betaler.
+    Testbestellingen (webshopnummer lager dan WEBSHOP_FIRST_REAL_ORDER) worden weggelaten. Geeft None als de sleutel nog niet is
+    ingesteld (secret MOLLIE_API_KEY); bij een storing een uitzondering met een leesbare melding.
+    """
+    key = _get_secret("MOLLIE_API_KEY")
+    if not key:
+        return None
+    resp = requests.get("https://api.mollie.com/v2/payments", params={"limit": min(int(limit), 250)},
+                        headers={"Authorization": f"Bearer {key}"}, timeout=20)
+    if resp.status_code != 200:
+        try:
+            detail = resp.json().get("detail", "")
+        except Exception:
+            detail = resp.text[:200]
+        raise RuntimeError(f"Mollie antwoordde met {resp.status_code}: {detail}")
+    rows = []
+    for p in resp.json().get("_embedded", {}).get("payments", []):
+        description = p.get("description") or ""
+        m = re.search(r"#(\d+)", description)
+        if m and int(m.group(1)) < WEBSHOP_FIRST_REAL_ORDER:
+            continue
+        created = pd.to_datetime(p.get("createdAt"), utc=True, errors="coerce")
+        status = MOLLIE_STATUS_NL.get(p.get("status"), p.get("status") or "")
+        refunded = float((p.get("amountRefunded") or {}).get("value") or 0)
+        if refunded > 0:
+            status += f" (terugbetaald € {refunded:.2f})".replace(".", ",")
+        rows.append({
+            "moment": created.tz_convert(AMSTERDAM_TZ) if pd.notna(created) else pd.NaT,
+            "bedrag": float((p.get("amount") or {}).get("value") or 0),
+            "status": status,
+            "paid": p.get("status") == "paid",
+            "omschrijving": description,
+            "methode": MOLLIE_METHOD_NL.get(p.get("method"), (p.get("method") or "").title()),
+            "betaler": (p.get("details") or {}).get("consumerName") or "",
+        })
+    return pd.DataFrame(rows, columns=["moment", "bedrag", "status", "paid", "omschrijving", "methode", "betaler"])
 
 
 @st.cache_data(ttl=1800, show_spinner=False)

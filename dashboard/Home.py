@@ -45,6 +45,8 @@ from common import (
     require_login,
     get_database_size_mb,
     get_search_console_data,
+    get_mollie_payments,
+    WEBSHOP_FIRST_REAL_ORDER,
     GSC_PERIODS,
     get_bol_condition_rows,
     get_weekly_stock_snapshots,
@@ -427,6 +429,11 @@ st.divider()
 
 # ---------- Wekelijks aanbod: titels en exemplaren, met het deel dat ook op Bol staat ----------
 
+def _euro(value):
+    """Bedrag als € 1.234,50 (Nederlandse schrijfwijze)."""
+    return "€ " + f"{float(value):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
 def _nl_number(value):
     """Nederlandse schrijfwijze van een heel getal: punt als duizendtalscheiding, maar pas vanaf 10.000 (dus 3400, 12.345)."""
     value = int(round(float(value)))
@@ -506,6 +513,58 @@ with week_right:
     else:
         st.plotly_chart(_weekly_stock_chart(weekly_snapshots, "bw_value", "bol_value", "verkoopwaarde (€)", money=True), width="stretch")
         st.caption("Prijs Boekwinkeltjes x voorraad van alle boeken met voorraad boven 0. Het donkere deel staat ook op Bol.")
+
+st.divider()
+
+# ---------- Bruto omzet per maand en platform ----------
+
+# Kleuren als de bolletjes in "Laatste orders": Boekwinkeltjes geel, Bol blauw, eigen webshop paars.
+PLATFORM_COLORS = {"Boekwinkeltjes": "#F5C518", "Bol": "#0068C9", "Webshop": "#8E5BD9"}
+# Orders die niet tot omzet leiden: geannuleerd, geen reactie, niet te vinden, retour.
+NO_REVENUE_STATUSES = {"CANCELLED", "CANCELLATION_REQUESTED", "no_response", "sold_or_unavailable", "return_received"}
+
+
+def _gross_revenue_chart(orders_df, months=12):
+    """Gestapelde staaf per maand: bruto boekprijs (zonder verzendkosten) per platform, met het maandtotaal erboven."""
+    df = orders_df[~orders_df["status"].isin(NO_REVENUE_STATUSES)].dropna(subset=["order_date"]).copy()
+    if df.empty:
+        return None
+    df["maand"] = df["order_date"].dt.to_period("M")
+    last = max(df["maand"].max(), pd.Period(dt.datetime.now(AMSTERDAM_TZ).strftime("%Y-%m"), freq="M"))
+    all_months = pd.period_range(end=last, periods=months, freq="M")
+    df = df[df["maand"].isin(all_months)]
+    df["platform"] = df["platform"].fillna("BW").map({"BW": "Boekwinkeltjes", "Bol": "Bol", "Webshop": "Webshop"}).fillna("Boekwinkeltjes")
+    sums = df.groupby(["maand", "platform"])["book_price"].sum().fillna(0)
+    labels = [p.strftime("%m-%Y") for p in all_months]
+    long_rows, totals = [], []
+    for period, label in zip(all_months, labels):
+        total = 0.0
+        for platform in PLATFORM_COLORS:
+            value = round(float(sums.get((period, platform), 0.0)))
+            total += value
+            long_rows.append({"maand": label, "platform": platform, "omzet": value, "label": "€ " + _nl_number(value) if value else ""})
+        totals.append(total)
+    fig = px.bar(pd.DataFrame(long_rows), x="maand", y="omzet", color="platform", text="label",
+                 category_orders={"maand": labels, "platform": list(PLATFORM_COLORS)}, color_discrete_map=PLATFORM_COLORS)
+    fig.update_traces(texttemplate="%{text}", hovertemplate="%{x}<br>%{fullData.name}: %{text}<extra></extra>")
+    fig.update_layout(barmode="stack", xaxis_title=None, yaxis_title="bruto omzet (€)", legend_title_text=None, separators=",.")
+    fig.update_yaxes(tickformat=",.0f" if max(totals) >= 10000 else ".0f", tickprefix="€ ")
+    fig.add_scatter(x=labels, y=totals, mode="text", text=["€ " + _nl_number(t) for t in totals],
+                    textposition="top center", showlegend=False, hoverinfo="skip")
+    return fig
+
+
+st.subheader("Bruto omzet per maand")
+if orders.empty:
+    st.info("Nog geen orders om te tonen.")
+else:
+    revenue_fig = _gross_revenue_chart(orders)
+    if revenue_fig is None:
+        st.info("Nog geen orders om te tonen.")
+    else:
+        st.plotly_chart(revenue_fig, width="stretch")
+        st.caption("Prijs van de boeken per orderdatum, zonder verzendkosten en zonder aftrek van commissie of andere kosten. "
+                   "Geannuleerde orders, orders zonder reactie en retouren tellen niet mee. De laatste staaf is de lopende maand.")
 
 st.divider()
 
@@ -651,3 +710,42 @@ def search_console_section():
 
 
 search_console_section()
+
+
+# ---------- Betalingen volgens Mollie ----------
+
+st.divider()
+
+
+@st.fragment
+def mollie_section():
+    st.subheader("Betalingen in Mollie")
+    try:
+        payments = get_mollie_payments()
+    except Exception as error:
+        st.info(f"De betalingen konden nu niet worden opgevraagd bij Mollie ({error}).")
+        return
+    if payments is None:
+        st.info("Nog niet gekoppeld. Zet in de secrets MOLLIE_API_KEY (dezelfde Mollie-sleutel als WEBSHOP_MOLLIE_API_KEY in GitHub).")
+        return
+    if payments.empty:
+        st.info("Nog geen betalingen.")
+        return
+    paid = payments[payments["paid"]]
+    m1, m2 = st.columns(2)
+    m1.metric("Betaald in deze lijst", _euro(paid["bedrag"].sum()))
+    m2.metric("Aantal betaalde betalingen", len(paid))
+    shown = pd.DataFrame({
+        "Datum": payments["moment"].apply(lambda t: t.strftime("%d-%m-%Y %H:%M") if pd.notna(t) else ""),
+        "Bedrag": payments["bedrag"].apply(_euro),
+        "Status": payments["status"],
+        "Omschrijving": payments["omschrijving"],
+        "Methode": payments["methode"],
+        "Betaler": payments["betaler"],
+    })
+    st.dataframe(shown, hide_index=True, width="stretch")
+    st.caption("Bron: Mollie, de laatste 100 betalingen (nieuwste eerst), elke 5 minuten ververst. "
+               f"Testbestellingen vóór webshopbestelling #{WEBSHOP_FIRST_REAL_ORDER} worden niet getoond.")
+
+
+mollie_section()
