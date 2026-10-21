@@ -236,3 +236,14 @@ ALTER TABLE app_users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE book_activity_log ENABLE ROW LEVEL SECURITY;
 ALTER TABLE isbn_prefix_observations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE weekly_stock_snapshots ENABLE ROW LEVEL SECURITY;
+
+
+-- Bruto omzet per maand en platform uit de tijd dat de orders nog niet in het systeem stonden (bijvoorbeeld Bol, dat maar een maand terug geeft).
+-- Voor een maand met een bedrag hier gebruikt de omzetgrafiek dit bedrag in plaats van de som van de orders. Bedrag = boekprijs zonder verzendkosten.
+CREATE TABLE IF NOT EXISTS revenue_history (
+    month       TEXT NOT NULL,      -- 'JJJJ-MM'
+    platform    TEXT NOT NULL,      -- 'BW', 'Bol' of 'Webshop'
+    amount      NUMERIC NOT NULL,
+    PRIMARY KEY (month, platform)
+);
+ALTER TABLE revenue_history ENABLE ROW LEVEL SECURITY;
