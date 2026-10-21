@@ -62,7 +62,9 @@ st.set_page_config(page_title="Boekbeheersysteem", page_icon="📚", layout="wid
 PLATFORM_EMOJI = {"BW": "🟡", "Bol": "🔵", "Webshop": "🟣"}
 
 render_logo(Path(__file__).parent / "assets" / "logo_mail.png")
-require_login()
+current_user = require_login()
+# Omzetcijfers en betalingen zijn alleen voor beheerders (Gebruikersbeheer); zonder gebruikers (opstartfase) is alles zichtbaar.
+can_see_finance = current_user is None or current_user.get("role") == "beheerder"
 
 st.title("📚 Boekbeheersysteem")
 
@@ -569,23 +571,23 @@ def _gross_revenue_chart(orders_df, history=None, months=12):
     return fig
 
 
-st.subheader("Bruto omzet per maand")
-try:
-    revenue_history = load_revenue_history()
-except Exception:
-    revenue_history = None   # een ontbrekende of onleesbare geschiedenis mag de grafiek nooit stoppen
-revenue_period = st.radio("Periode omzet", ["Laatste 12 maanden", "Alles"], index=0, horizontal=True,
-                          key="revenue_period", label_visibility="collapsed")
-revenue_fig = _gross_revenue_chart(orders, revenue_history, months=12 if revenue_period == "Laatste 12 maanden" else None)
-if revenue_fig is None:
-    st.info("Nog geen orders om te tonen.")
-else:
-    st.plotly_chart(revenue_fig, width="stretch")
-    st.caption("Prijs van de boeken per orderdatum, zonder verzendkosten en zonder aftrek van commissie of andere kosten. "
-               "Geannuleerde orders, orders zonder reactie en retouren tellen niet mee. Voor maanden met een aangeleverd bedrag "
-               "uit het verleden geldt dat bedrag. De laatste staaf is de lopende maand.")
-
-st.divider()
+if can_see_finance:
+    st.subheader("Bruto omzet per maand")
+    try:
+        revenue_history = load_revenue_history()
+    except Exception:
+        revenue_history = None   # een ontbrekende of onleesbare geschiedenis mag de grafiek nooit stoppen
+    revenue_period = st.radio("Periode omzet", ["Laatste 12 maanden", "Alles"], index=0, horizontal=True,
+                              key="revenue_period", label_visibility="collapsed")
+    revenue_fig = _gross_revenue_chart(orders, revenue_history, months=12 if revenue_period == "Laatste 12 maanden" else None)
+    if revenue_fig is None:
+        st.info("Nog geen orders om te tonen.")
+    else:
+        st.plotly_chart(revenue_fig, width="stretch")
+        st.caption("Prijs van de boeken per orderdatum, zonder verzendkosten en zonder aftrek van commissie of andere kosten. "
+                   "Geannuleerde orders, orders zonder reactie en retouren tellen niet mee. Voor maanden met een aangeleverd bedrag "
+                   "uit het verleden geldt dat bedrag. De laatste staaf is de lopende maand.")
+    st.divider()
 
 # ---------- Categorie-overzicht ----------
 
@@ -733,7 +735,8 @@ search_console_section()
 
 # ---------- Betalingen volgens Mollie ----------
 
-st.divider()
+if can_see_finance:
+    st.divider()
 
 
 @st.fragment
@@ -767,4 +770,5 @@ def mollie_section():
                f"Testbestellingen vóór webshopbestelling #{WEBSHOP_FIRST_REAL_ORDER} worden niet getoond.")
 
 
-mollie_section()
+if can_see_finance:
+    mollie_section()
