@@ -3,6 +3,7 @@
 // de eigen administratie staan. POST t=<sleutel> ids=<bestelnummers, komma-gescheiden>.
 // - Betaalde bestelling in 'ids': alleen gewist als de klantmail en eigenaarmail zijn verstuurd (mailed = 3) en, als Intime aan staat,
 //   de zending daar is aangemaakt. Anders blijft hij staan tot de volgende keer.
+// - Vangnet: ook zonder die voorwaarden 14 dagen na betaling.
 // - Niet-betaalde bestellingen (afgebroken of mislukte betalingen) worden na 7 dagen gewist, ongeacht 'ids'.
 // Bestelnummer, bedragen, regels, status en Intime-id blijven staan (nodig voor reservering en terugkoppeling).
 require __DIR__ . '/lib.php';
@@ -22,7 +23,12 @@ try {
     $st = $db->prepare("UPDATE orders SET $blank WHERE id = ? AND status = 'paid' AND mailed >= 3"
         . ($needIntime ? " AND COALESCE(intime_id, '') <> ''" : '') . " AND COALESCE(email, '') <> ''");
     foreach ($ids as $id) { $st->execute([$id]); $n += $st->rowCount(); }
-    $st = $db->prepare("UPDATE orders SET $blank WHERE status <> 'paid' AND created_at < ? AND COALESCE(email, '') <> ''");
+    // Vangnet: een betaalde bestelling die in de eigen administratie staat, verdwijnt 14 dagen na betaling hoe dan ook
+    // (ook als een mail of de Intime-zending nooit is gelukt, of de bestelling niet wordt verzonden).
+    $st = $db->prepare("UPDATE orders SET $blank WHERE id = ? AND status = 'paid' AND COALESCE(paid_at, created_at) < CAST(? AS INTEGER) AND COALESCE(email, '') <> ''");
+    $cut = time() - 14 * 86400;
+    foreach ($ids as $id) { $st->execute([$id, $cut]); $n += $st->rowCount(); }
+    $st = $db->prepare("UPDATE orders SET $blank WHERE status <> 'paid' AND created_at < CAST(? AS INTEGER) AND COALESCE(email, '') <> ''");
     $st->execute([time() - 7 * 86400]);
     $m = $st->rowCount();
     // Waarom bleef een betaalde bestelling met gegevens staan? (alleen aantallen, voor in het log)
