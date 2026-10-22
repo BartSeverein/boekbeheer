@@ -463,7 +463,7 @@ class Site:
             f'<label>{esc(t("f_note"))}<textarea name="note" rows="2" maxlength="300"></textarea></label>'
             f'<div class="hp" aria-hidden="true"><label>{esc(t("f_website"))}<input name="website" tabindex="-1" autocomplete="off"></label></div>'
             f'<p>{agree}</p>'
-            f'<button type="submit">{icon("lock")}{esc(t("f_pay"))}</button><p id="msg" class="msg" hidden role="status"></p></form>'
+            f'<button type="submit">{icon("cart_heart")}{esc(t("f_pay"))}</button><p id="msg" class="msg" hidden role="status"></p></form>'
         )
         return self.layout(title=t("p_checkout"), desc=t("p_checkout"), path="/afrekenen/", body=body, robots="noindex,nofollow")
 
