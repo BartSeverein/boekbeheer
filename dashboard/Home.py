@@ -312,7 +312,7 @@ with orders_tab:
             selected_order_id = int(orders_sorted.iloc[selected_rows[0]]["id"])
             st.session_state["preselect_order_id"] = selected_order_id
             del st.session_state["orders_overview_table"]
-            st.switch_page("pages/7_Orderdetails.py")
+            st.switch_page("pages/5_Orderdetails.py")
 
 with sync_tab:
     conn = psycopg2.connect(get_db_url())

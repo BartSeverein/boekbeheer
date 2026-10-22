@@ -3893,3 +3893,71 @@ def get_cron_job_status():
         return [], f"Netwerkfout: {e}"
 
 
+
+
+# ---------- Auteursteksten (webshop: korte tekst bovenaan een auteurspagina) ----------
+
+def _webshop_authors_module():
+    """webshop/authors.py (dezelfde groepering als de webshop gebruikt), ook vanuit het dashboard te importeren."""
+    import sys
+    from pathlib import Path
+    root = str(Path(__file__).resolve().parent.parent)
+    if root not in sys.path:
+        sys.path.insert(0, root)
+    from webshop import authors as webshop_authors
+    return webshop_authors
+
+
+@st.cache_data(ttl=300)
+def get_webshop_authors():
+    """
+    Auteurs die nu een eigen pagina in de webshop hebben (minstens 3 boeken te koop): lijst van {"slug", "name", "count"}, meeste
+    boeken eerst. Zelfde regels als de webshop (webshop/authors.py en de selectie van boeken in webshop/build.py).
+    """
+    df = load_books()
+    if df.empty:
+        return []
+    for col, default in (("pending_create", False), ("queued", False)):
+        if col not in df.columns:
+            df[col] = default
+    ok = (
+        (df["amount"].fillna(0) > 0) & ~df["pending_create"].fillna(False).astype(bool) & ~df["queued"].fillna(False).astype(bool)
+        & df["price"].notna() & (df["price"] > 0) & df["title"].fillna("").astype(str).str.strip().ne("")
+    )
+    books = [{"id": int(r["id"]), "author": r["author"]} for _, r in df[ok].iterrows()]
+    _more, pages = _webshop_authors_module().build_authors(books)
+    return sorted(({"slug": p["slug"], "name": p["name"], "count": len(p["books"])} for p in pages),
+                  key=lambda a: (-a["count"], a["name"].lower()))
+
+
+def get_author_texts():
+    """{slug: {"name", "text"}} van alle bewaarde auteursteksten (ook van auteurs die nu geen pagina hebben)."""
+    conn = psycopg2.connect(get_db_url())
+    try:
+        with conn.cursor() as cur:
+            try:
+                cur.execute("SELECT slug, COALESCE(name, ''), COALESCE(text, '') FROM author_texts")
+            except Exception:
+                conn.rollback()
+                return None   # tabel bestaat nog niet (auteursteksten.sql)
+            return {r[0]: {"name": r[1], "text": r[2]} for r in cur.fetchall()}
+    finally:
+        conn.close()
+
+
+def save_author_text(slug, name, text):
+    """Bewaart (of wist, bij lege tekst) de tekst van een auteur. De rij blijft bestaan, zodat de naam bewaard blijft."""
+    text = " ".join((text or "").split())
+    conn = psycopg2.connect(get_db_url())
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO author_texts (slug, name, text, updated_at) VALUES (%(slug)s, %(name)s, %(text)s, now())
+                ON CONFLICT (slug) DO UPDATE SET name = excluded.name, text = excluded.text, updated_at = now()
+                """,
+                {"slug": slug, "name": name, "text": text},
+            )
+        conn.commit()
+    finally:
+        conn.close()
