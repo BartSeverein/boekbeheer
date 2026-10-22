@@ -25,7 +25,11 @@ try {
     $st = $db->prepare("UPDATE orders SET $blank WHERE status <> 'paid' AND created_at < ? AND COALESCE(email, '') <> ''");
     $st->execute([time() - 7 * 86400]);
     $m = $st->rowCount();
-    echo json_encode(['ok' => true, 'paid' => $n, 'unpaid' => $m]);
+    // Waarom bleef een betaalde bestelling met gegevens staan? (alleen aantallen, voor in het log)
+    $wait_mail = (int)$db->query("SELECT COUNT(*) FROM orders WHERE status = 'paid' AND COALESCE(email, '') <> '' AND mailed < 3")->fetchColumn();
+    $wait_intime = $needIntime ? (int)$db->query("SELECT COUNT(*) FROM orders WHERE status = 'paid' AND COALESCE(email, '') <> '' AND mailed >= 3 AND COALESCE(intime_id, '') = ''")->fetchColumn() : 0;
+    $left_unpaid = (int)$db->query("SELECT COUNT(*) FROM orders WHERE status <> 'paid' AND COALESCE(email, '') <> ''")->fetchColumn();
+    echo json_encode(['ok' => true, 'paid' => $n, 'unpaid' => $m, 'wait_mail' => $wait_mail, 'wait_intime' => $wait_intime, 'left_unpaid' => $left_unpaid]);
 } catch (Throwable $e) {
     error_log('purge.php: ' . $e->getMessage());
     http_response_code(500);
