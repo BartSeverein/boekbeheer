@@ -44,6 +44,8 @@ from common import (
     lookup_abebooks_lowest_price,
     abebooks_box_line,
     get_top_category_pairs,
+    set_web_extra,
+    MAX_WEB_EXTRA,
 )
 from categories import CATEGORY1_OPTIONS, CATEGORY2_OPTIONS, category1_label_for_value, category2_label_for_value
 
@@ -312,6 +314,14 @@ else:
                 "**Alle foto's** — klik op 🔍 voor een groter afbeelding en op 🗑️ om hem te verwijderen. "
                 "De voorkant kies je bij het uploaden (onder 'Boek bewerken')."
             )
+            n_web_extra = sum(1 for im in images[1:] if im.get("web_extra"))
+            if n_web_extra:
+                st.caption(f"Op de webshop: de voorkant en {n_web_extra} extra {'foto' if n_web_extra == 1 else 'foto' + chr(39) + 's'} (hoogstens {MAX_WEB_EXTRA}).")
+            else:
+                st.caption("Op de webshop: de eerste drie foto's. Wijs hieronder met 'Ook op webshop' zelf de (hoogstens twee) extra foto's aan.")
+            _webextra_msg = st.session_state.pop(f"webextra_msg_{chosen_id}", None)
+            if _webextra_msg:
+                st.warning(_webextra_msg)
             thumbs_per_row = 5
             for row_start in range(0, len(images), thumbs_per_row):
                 row_images = images[row_start : row_start + thumbs_per_row]
@@ -335,6 +345,16 @@ else:
                             is_current_main = bool(main_image_url) and main_image_url in image_identity_urls(img)
                         if is_current_main:
                             st.markdown("<div style='text-align:center;'>⭐ Voorkant</div>", unsafe_allow_html=True)
+                        if i == 0:
+                            st.markdown("<div style='text-align:center;font-size:0.85em;'>op de webshop</div>", unsafe_allow_html=True)
+                        else:
+                            on_web = bool(img.get("web_extra"))
+                            if st.button("✔ Op webshop" if on_web else "Ook op webshop", key=f"webextra_btn_{chosen_id}_{i}",
+                                         type="primary" if on_web else "secondary", use_container_width=True):
+                                ok, msg = set_web_extra(chosen_id, img["source"], img["ref_id"], not on_web)
+                                if not ok:
+                                    st.session_state[f"webextra_msg_{chosen_id}"] = msg
+                                st.rerun()
                         b1, b2 = st.columns([1, 1])
                         with b1:
                             if st.button("🔍", key=f"thumb_btn_{chosen_id}_{i}"):
@@ -671,8 +691,15 @@ else:
                         "en de app kan die niet meer wijzigen, dus een nieuwe voorkant kan hier niet. Nieuwe foto's "
                         "kun je wel toevoegen bij 'Overige foto's'."
                     )
+                new_web_files = st.file_uploader(
+                    "Extra foto's voor de webshop (hoogstens 2, naast de voorkant)",
+                    type=["jpg", "jpeg", "png"],
+                    accept_multiple_files=True,
+                    key=f"{edit_prefix}_web_upload",
+                    help="Bijvoorbeeld de achterkant. Deze foto's staan ook op de webshop; de overige foto's alleen bij Boekwinkeltjes en Bol.",
+                )
                 new_uploaded_files = st.file_uploader(
-                    "Overige foto's",
+                    "Overige foto's (alleen Boekwinkeltjes en Bol)",
                     type=["jpg", "jpeg", "png"],
                     accept_multiple_files=True,
                     key=f"{edit_prefix}_images_upload",
@@ -752,11 +779,22 @@ else:
                     ):
                         st.warning("De voorkant is niet opgeslagen: er staan inmiddels foto's van dit boek bij Boekwinkeltjes.")
 
-                if new_uploaded_files:
-                    images_to_save = [
-                        {"data": f.getvalue(), "content_type": f.type or "image/jpeg", "is_main": False}
-                        for f in new_uploaded_files
-                    ]
+                already_extra = sum(1 for im in images[1:] if im.get("web_extra"))
+                room = max(0, MAX_WEB_EXTRA - already_extra)
+                web_files = list(new_web_files or [])
+                if web_files and len(web_files) > room:
+                    st.warning(
+                        f"Er is nog ruimte voor {room} extra foto('s) op de webshop; de overige {len(web_files) - room} "
+                        "zijn als gewone foto toegevoegd."
+                    )
+                images_to_save = [
+                    {"data": f.getvalue(), "content_type": f.type or "image/jpeg", "is_main": False, "web_extra": n < room}
+                    for n, f in enumerate(web_files)
+                ] + [
+                    {"data": f.getvalue(), "content_type": f.type or "image/jpeg", "is_main": False}
+                    for f in (new_uploaded_files or [])
+                ]
+                if images_to_save:
                     save_uploaded_images(chosen_id, images_to_save)
 
                 load_books.clear()

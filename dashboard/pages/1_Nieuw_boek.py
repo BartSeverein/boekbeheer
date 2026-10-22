@@ -551,7 +551,7 @@ with col_b:
 st.divider()
 st.subheader("📷 Afbeeldingen")
 st.caption(
-    "Kies de voorkant en eventueel overige foto's. De voorkant gaat als eerste naar Boekwinkeltjes en wordt daar de "
+    "Kies de voorkant en eventueel twee extra foto's voor de webshop en overige foto's. De voorkant gaat als eerste naar Boekwinkeltjes en wordt daar de "
     "hoofdafbeelding. Daar hoef je na het opslaan dus niets meer aan te doen."
 )
 
@@ -566,7 +566,10 @@ def collect_images():
         front = {"data": front_file.getvalue(), "content_type": front_file.type or "image/jpeg", "label": front_file.name}
     elif external:
         front = external[0]
-    others = [{"data": f.getvalue(), "content_type": f.type or "image/jpeg", "label": f.name} for f in other_files]
+    web_files = st.session_state.get(k("web_upload")) or []
+    web = [{"data": f.getvalue(), "content_type": f.type or "image/jpeg", "label": f.name, "web_extra": n < 2}
+           for n, f in enumerate(web_files)]
+    others = web + [{"data": f.getvalue(), "content_type": f.type or "image/jpeg", "label": f.name} for f in other_files]
     return front, others, ([front] if front else []) + others, external
 
 
@@ -581,7 +584,16 @@ def image_section():
         key=k("front_upload"),
     )
     st.file_uploader(
-        "Overige foto's",
+        "Extra foto's voor de webshop (hoogstens 2, naast de voorkant)",
+        type=["jpg", "jpeg", "png"],
+        accept_multiple_files=True,
+        key=k("web_upload"),
+        help="Bijvoorbeeld de achterkant. Deze foto's staan ook op de webshop; de overige foto's alleen bij Boekwinkeltjes en Bol.",
+    )
+    if len(st.session_state.get(k("web_upload")) or []) > 2:
+        st.caption("Alleen de eerste twee gaan naar de webshop; de rest wordt een gewone foto.")
+    st.file_uploader(
+        "Overige foto's (alleen Boekwinkeltjes en Bol)",
         type=["jpg", "jpeg", "png"],
         accept_multiple_files=True,
         key=k("images_upload"),
@@ -678,7 +690,7 @@ if st.button(button_label, key="new_book_submit"):
         if all_images:
             # De gekozen hoofdfoto vooraan: de volgorde bepaalt wat Boekwinkeltjes als eerste krijgt.
             images_to_save = order_main_first(
-                [{"data": img["data"], "content_type": img["content_type"]} for img in all_images],
+                [{"data": img["data"], "content_type": img["content_type"], "web_extra": bool(img.get("web_extra"))} for img in all_images],
                 0,
             )
             save_uploaded_images(temp_id, images_to_save)
