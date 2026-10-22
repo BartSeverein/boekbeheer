@@ -104,6 +104,7 @@ CREATE TABLE IF NOT EXISTS book_images (
 );
 
 CREATE INDEX IF NOT EXISTS idx_book_images_book_id ON book_images (book_id);
+ALTER TABLE book_images ADD COLUMN IF NOT EXISTS web_extra BOOLEAN NOT NULL DEFAULT FALSE;  -- 'ook op de webshop' (max. 2 per boek, naast de voorkant)
 
 CREATE TABLE IF NOT EXISTS book_uploaded_images (
     id                          BIGSERIAL PRIMARY KEY,
@@ -117,6 +118,7 @@ CREATE TABLE IF NOT EXISTS book_uploaded_images (
 );
 
 CREATE INDEX IF NOT EXISTS idx_book_uploaded_images_book_id ON book_uploaded_images (book_id);
+ALTER TABLE book_uploaded_images ADD COLUMN IF NOT EXISTS web_extra BOOLEAN NOT NULL DEFAULT FALSE;
 
 CREATE TABLE IF NOT EXISTS bol_offer_mapping (
     ean             TEXT PRIMARY KEY,

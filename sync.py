@@ -1551,6 +1551,24 @@ def pull_uploaded_book_images():
                 # Nog niet verwerkt door Boekwinkeltjes — volgende keer opnieuw proberen
                 continue
 
+            # 'Ook op de webshop'-tekens van de eigen uploads meenemen naar de bevestigde foto's. Boekwinkeltjes geeft de foto's
+            # terug in de volgorde waarin we ze pushten: eerst de reeds bevestigde, daarna de nieuwe uploads in volgorde. Klopt het
+            # aantal niet, dan zetten we niets over (en melden dat), liever dan het verkeerde plaatje te kiezen.
+            flagged_new_ids, flag_note = [], None
+            try:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT web_extra FROM book_uploaded_images WHERE book_id = %(id)s ORDER BY position, id",
+                                {"id": book_id})
+                    up_flags = [bool(r["web_extra"]) for r in cur.fetchall()]
+                    cur.execute("SELECT COUNT(*) AS n FROM book_images WHERE book_id = %(id)s AND image_id <> -1", {"id": book_id})
+                    n_before = int(cur.fetchone()["n"])
+                if any(up_flags):
+                    if len(images) == n_before + len(up_flags):
+                        flagged_new_ids = [images[n_before + j].get("id") for j, f in enumerate(up_flags) if f]
+                    else:
+                        flag_note = f"boek {book_id}: webshop-foto's niet overgezet (aantal klopt niet: {len(images)} bij BW, {n_before}+{len(up_flags)} bij ons)"
+            except Exception:   # kolom web_extra bestaat nog niet (foto_webshop.sql): dan is er ook niets over te zetten
+                conn.rollback()
             with conn.cursor() as cur:
                 for position, img in enumerate(images):
                     large_bytes = None
@@ -1589,6 +1607,11 @@ def pull_uploaded_book_images():
                             "now": _now(),
                         },
                     )
+                for new_id in flagged_new_ids:
+                    cur.execute("UPDATE book_images SET web_extra = TRUE WHERE book_id = %(b)s AND image_id = %(i)s",
+                                {"b": book_id, "i": new_id})
+                if flag_note:
+                    print(flag_note)
                 # Eigen geüploade originelen weg — we hebben nu de bevestigde versie
                 cur.execute("DELETE FROM book_uploaded_images WHERE book_id = %(id)s", {"id": book_id})
             conn.commit()
