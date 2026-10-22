@@ -79,6 +79,17 @@ def category_labels():
     return c1, c2
 
 
+def load_author_texts(conn):
+    """{slug: tekst} uit de tabel author_texts (dashboard, pagina Auteursbeheer). Zonder tabel of bij een fout: leeg."""
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT slug, text FROM author_texts WHERE COALESCE(text, '') <> ''")
+            return {r["slug"]: " ".join((r["text"] or "").split()) for r in cur.fetchall()}
+    except Exception:
+        conn.rollback()
+        return {}
+
+
 def load_from_postgres(conn):
     """
     Leest alle boeken die te koop zijn plus hun afbeeldingen (zonder de bytes) en de al verwerkte webshop-orders.
@@ -576,7 +587,7 @@ def _write_server_files(out_dir, cfg, data_dir):
 
 
 def build_site(raw_books, out_dir, cfg=None, *, mode="full", imported_order_ids=(), known_images=(), known_pages=None,
-               fetch_image=None, process_images=True, image_deadline=None, translator=None, log=print):
+               fetch_image=None, process_images=True, image_deadline=None, translator=None, author_texts=None, log=print):
     cfg = cfg or shop_config()
     if not cfg["data_key"] or len(cfg["data_key"]) < 12 or not all(c.isalnum() for c in cfg["data_key"]):
         raise RuntimeError("WEBSHOP_DATA_KEY ontbreekt of is te kort (minimaal 12 letters/cijfers, geen andere tekens).")
@@ -662,13 +673,17 @@ def build_site(raw_books, out_dir, cfg=None, *, mode="full", imported_order_ids=
         with Image.open(logo_file) as im:
             logo = (lname, im.size[0], im.size[1])
 
+    # 'Meer van deze auteur' + auteurspagina's (>= 3 boeken), een keer berekend voor alle talen
+    author_more, author_pages = build_authors(books)
+    author_texts = {ap["slug"]: author_texts[ap["slug"]] for ap in author_pages if (author_texts or {}).get(ap["slug"])}
+
     # ---- vertalen (DeepL, met geheugen); nieuwste boeken eerst, zodat een beperkt budget daar het meest oplevert
     tr = translator
     if tr and foreign:
         labels = sorted({b["c1_label"] for b in books + sold} | {b["c2_label"] for b in books + sold if b["c2_label"]})
         _lab = {x.strip().lower() for x in labels}
         intros = sorted({v for k, v in CAT_INTROS.items() if k.split(" > ")[-1] in _lab})
-        tr.ensure(labels + intros + ([cfg["tagline"]] if cfg["tagline_custom"] else []), foreign)
+        tr.ensure(labels + intros + sorted(set(author_texts.values())) + ([cfg["tagline"]] if cfg["tagline_custom"] else []), foreign)
         keys = (("short",) if cfg["translate_short"] else ()) + (("long",) if cfg["translate_books"] else ())
         if keys:
             _tb = books + sold
@@ -711,7 +726,6 @@ def build_site(raw_books, out_dir, cfg=None, *, mode="full", imported_order_ids=
 
     urls = []
     count_pages = 0
-    author_more, author_pages = build_authors(books)   # 'Meer van deze auteur' + auteurspagina's (>= 3 boeken), een keer berekend voor alle talen
     for lang in langs:
         # Knoppen onder de zoekbalk: heeft een hoofdcategorie subcategorieën, dan tonen we die (bijv. Fotografie) en niet
         # de hoofdcategorie zelf (Hobby). Boeken zonder subcategorie houden een knop met de hoofdcategorie.
@@ -820,13 +834,21 @@ def build_site(raw_books, out_dir, cfg=None, *, mode="full", imported_order_ids=
             emit(b["path"], site.book(b, _book_loc(b, lang, book_tr, cat_label), chain, more_by=author_more.get(b["id"])))
             urls.append(site.L(b["path"]))
 
+        def author_intro(slug, lang=lang):
+            """Eigen tekst over de auteur (Auteursbeheer); in een andere taal alleen als de vertaling er is."""
+            text = author_texts.get(slug)
+            if not text or lang == "nl":
+                return text or ""
+            return (tr.get(text, lang) if tr else None) or ""
+
         for ap in author_pages:
             base = f"/auteur/{ap['slug']}/"
             n_pages = max(1, -(-len(ap["books"]) // PER_PAGE))
             for page in range(1, n_pages + 1):
                 chunk = ap["books"][(page - 1) * PER_PAGE: page * PER_PAGE]
                 emit(base if page == 1 else f"{base}pagina/{page}/",
-                     site.author_page(name=ap["name"], slug=ap["slug"], books=chunk, page=page, pages=n_pages, total=len(ap["books"])))
+                     site.author_page(name=ap["name"], slug=ap["slug"], books=chunk, page=page, pages=n_pages, total=len(ap["books"]),
+                                      intro=author_intro(ap["slug"], lang)))
             urls.append(site.L(base))
 
         for b in sold:
@@ -882,7 +904,7 @@ def build_site(raw_books, out_dir, cfg=None, *, mode="full", imported_order_ids=
     _write_server_files(out_dir, cfg, data_dir)
     write_catalog(out_dir / data_dir / "catalog.sqlite", books, imported_order_ids, cfg, built_at)
 
-    stats.update(pages=count_pages, new_images=new_imgs, failed_images=failed_imgs, keep=sorted(used_images),
+    stats.update(author_pages=len(author_pages), pages=count_pages, new_images=new_imgs, failed_images=failed_imgs, keep=sorted(used_images),
                  seconds=round(time.time() - t0, 1))
     return stats
 

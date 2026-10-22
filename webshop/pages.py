@@ -269,14 +269,16 @@ class Site:
         return self.layout(title=self.t("p_cat_title", label=f"{label} {suffix}".strip(), total=total),
                            desc=desc, path=path, body=body, ld=ld)
 
-    def author_page(self, *, name, slug, books, page, pages, total):
+    def author_page(self, *, name, slug, books, page, pages, total, intro=""):
         base = f"/auteur/{slug}/"
+        if page > 1:
+            intro = ""   # de tekst over de auteur staat alleen op de eerste pagina
         crumbs = [(self.t("p_home"), "/"), (name, base)]
         nav = self._crumbs(crumbs)
         suffix = " " + self.t("p_page_n", n=page) if page > 1 else ""
         path = base if page == 1 else f"{base}pagina/{page}/"
         h1 = self.t("p_author_h1", author=name)
-        body = nav + f"<h1>{esc(h1)}{esc(suffix)}</h1><p>{esc(self.t('p_author_intro', total=total, author=name))}</p>" + \
+        body = nav + f"<h1>{esc(h1)}{esc(suffix)}</h1><p>{esc((intro + ' ') if intro else '')}{esc(self.t('p_author_intro', total=total, author=name))}</p>" + \
             self.grid(books) + self.pager(base, page, pages)
         ld = [{
             "@context": "https://schema.org", "@type": "BreadcrumbList",
@@ -286,8 +288,11 @@ class Site:
             "inLanguage": self.lang, "about": {"@type": "Person", "name": name},
             "isPartOf": {"@type": "WebSite", "name": self.cfg["name"], "url": self.url(self.L("/"))},
         }]
+        desc = self.t("p_author_desc", author=name, total=total, suffix=suffix, shop=self.cfg["name"])
+        if intro:
+            desc = trim(f"{intro} {desc}", 158)
         return self.layout(title=self.t("p_author_title", author=name + suffix, total=total),
-                           desc=self.t("p_author_desc", author=name, total=total, suffix=suffix, shop=self.cfg["name"]),
+                           desc=desc,
                            path=path, body=body, ld=ld)
 
     def book(self, b, loc, category_chain, sold=False, similar=None, more_by=None):
