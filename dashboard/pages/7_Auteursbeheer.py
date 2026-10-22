@@ -14,10 +14,10 @@ import streamlit as st
 
 from common import render_logo, require_login, get_webshop_authors, get_author_texts, save_author_text
 
-st.set_page_config(page_title="Auteursbeheer", page_icon="✍", layout="wide")
+st.set_page_config(page_title="Auteursbeheer", page_icon="✍️", layout="wide")
 render_logo(Path(__file__).parent.parent / "assets" / "logo_mail.png")
 require_login()
-st.title("✍ Auteursbeheer")
+st.title("✍️ Auteursbeheer")
 st.caption(
     "Schrijf een paar zinnen over een auteur. Die komen op de auteurspagina in de webshop, vóór de zin "
     "\"Er zijn 3 boeken van … in mijn webshop.\" Schrijf in het Nederlands; de webshop vertaalt de tekst zelf. "
