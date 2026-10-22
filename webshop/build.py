@@ -34,6 +34,18 @@ from .pages import Site
 HERE = Path(__file__).parent
 PER_PAGE = 48
 MAX_IMAGES = 3
+
+
+def web_images(images):
+    """
+    Welke foto's gaan naar de webshop? Heeft het boek foto's die als 'ook op de webshop' zijn aangewezen, dan: de voorkant
+    (eerste foto) plus die foto's (hoogstens twee). Anders de oude regel: de eerste drie.
+    """
+    images = list(images or [])
+    extra = [im for im in images[1:] if im.get("web_extra")][:MAX_IMAGES - 1]
+    if extra:
+        return images[:1] + extra
+    return images[:MAX_IMAGES]
 DETAIL_PX = 640
 THUMB_PX = 240
 LANG_CODES = {
@@ -100,12 +112,23 @@ def load_from_postgres(conn):
         except Exception:   # verkochte boeken zijn een extraatje: een fout hier mag de bouw nooit stoppen
             conn.rollback()
             sold_rows = []
-        cur.execute(
-            """
-            SELECT book_id, image_id, position, url_large, url_medium, (image_large_data IS NOT NULL) AS has_data
-            FROM book_images WHERE image_id <> -1 ORDER BY book_id, position, image_id
-            """
-        )
+        try:
+            cur.execute(
+                """
+                SELECT book_id, image_id, position, url_large, url_medium, (image_large_data IS NOT NULL) AS has_data,
+                       web_extra
+                FROM book_images WHERE image_id <> -1 ORDER BY book_id, position, image_id
+                """
+            )
+        except Exception:   # kolom web_extra bestaat nog niet (foto_webshop.sql): dan de oude regel (eerste drie foto's)
+            conn.rollback()
+            cur.execute(
+                """
+                SELECT book_id, image_id, position, url_large, url_medium, (image_large_data IS NOT NULL) AS has_data,
+                       FALSE AS web_extra
+                FROM book_images WHERE image_id <> -1 ORDER BY book_id, position, image_id
+                """
+            )
         images = {}
         for r in cur.fetchall():
             images.setdefault(r["book_id"], []).append(r)
@@ -120,7 +143,7 @@ def load_from_postgres(conn):
             "amount": int(r["amount"]), "category1": r["category1"], "category2": r["category2"],
             "listing_date": r["listing_date"],
             "images": [{"image_id": i["image_id"], "url_large": i["url_large"], "url_medium": i["url_medium"],
-                        "has_data": bool(i["has_data"])} for i in images.get(int(r["id"]), [])],
+                        "has_data": bool(i["has_data"]), "web_extra": bool(i.get("web_extra"))} for i in images.get(int(r["id"]), [])],
         }})
 
     import threading
@@ -196,7 +219,7 @@ def prepare_images(books, out_dir, known_images, fetch_image, process, log, dead
 
     def work(b):
         result = []
-        for n, img in enumerate(b["images"][:MAX_IMAGES]):
+        for n, img in enumerate(web_images(b["images"])):
             key = (b["id"], n, _hash8(b["id"], img))
             have = index.get(key, {})
             d = have.get("d")
