@@ -33,6 +33,8 @@ def _purge_personal_data(shop_db, cfg, log):
         if r.ok:
             d = r.json()
             log(f"Persoonsgegevens op de server gewist: {d.get('paid', 0)} betaalde, {d.get('unpaid', 0)} niet-betaalde bestelling(en).")
+            if d.get("wait_mail") or d.get("wait_intime") or d.get("left_unpaid"):
+                log(f"Nog met gegevens op de server: {d.get('wait_mail', 0)} betaald zonder verzonden mails, {d.get('wait_intime', 0)} betaald zonder Intime-zending, {d.get('left_unpaid', 0)} niet-betaald (jonger dan 7 dagen).")
         else:
             log(f"Persoonsgegevens wissen: server antwoordde HTTP {r.status_code} (purge.php staat er misschien nog niet; volgende run opnieuw).")
     except Exception as exc:  # nooit de run laten mislukken
