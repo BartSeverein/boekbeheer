@@ -1090,6 +1090,55 @@ def find_main_image_index(images, main_image_url):
     return 0
 
 
+MAX_WEB_EXTRA = 2   # naast de voorkant gaan er hoogstens twee foto's extra naar de webshop
+
+
+@st.cache_data(ttl=600)
+def _has_web_extra_column():
+    """Bestaat de kolom web_extra al? (foto_webshop.sql in Supabase.) Zonder die kolom werkt alles als vroeger."""
+    try:
+        conn = psycopg2.connect(get_db_url())
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT COUNT(*) FROM information_schema.columns WHERE table_name IN ('book_images', 'book_uploaded_images') "
+                    "AND column_name = 'web_extra'"
+                )
+                return cur.fetchone()[0] == 2
+        finally:
+            conn.close()
+    except Exception:
+        return False
+
+
+def set_web_extra(book_id, source, ref_id, value):
+    """
+    Zet een foto wel/niet 'ook op de webshop'. Geeft (gelukt, melding) terug. Hoogstens MAX_WEB_EXTRA foto's per boek; de
+    voorkant (eerste foto) staat er altijd al op en kan niet worden aangewezen.
+    """
+    if not _has_web_extra_column():
+        return False, "De database mist nog de kolom web_extra (voer foto_webshop.sql uit in Supabase)."
+    images = get_all_images(book_id)
+    if images and images[0]["source"] == source and images[0]["ref_id"] == ref_id:
+        return False, "De voorkant staat altijd op de webshop."
+    if value and sum(1 for i in images[1:] if i.get("web_extra")) >= MAX_WEB_EXTRA:
+        return False, f"Er staan al {MAX_WEB_EXTRA} extra foto's op de webshop. Haal eerst een andere weg."
+    conn = psycopg2.connect(get_db_url())
+    try:
+        with conn.cursor() as cur:
+            if source == "uploaded":
+                cur.execute("UPDATE book_uploaded_images SET web_extra = %(v)s WHERE id = %(id)s AND book_id = %(b)s",
+                            {"v": bool(value), "id": ref_id, "b": int(book_id)})
+            else:
+                cur.execute("UPDATE book_images SET web_extra = %(v)s WHERE image_id = %(id)s AND book_id = %(b)s",
+                            {"v": bool(value), "id": ref_id, "b": int(book_id)})
+        conn.commit()
+    finally:
+        conn.close()
+    get_all_images.clear()
+    return True, ""
+
+
 @st.cache_data(ttl=300)
 def get_all_images(book_id):
     """
@@ -1102,19 +1151,22 @@ def get_all_images(book_id):
     """
     book_id = int(book_id)
     results = []
+    has_extra = _has_web_extra_column()
+    extra_up = "web_extra" if has_extra else "FALSE"
+    extra_bi = "web_extra" if has_extra else "FALSE"
     conn = psycopg2.connect(get_db_url())
     try:
         with conn.cursor() as cur:
             # Eigen geüploade originelen die nog niet (bevestigd) gepusht zijn
             cur.execute(
                 """
-                SELECT id, image_data, content_type, pushed_to_boekwinkeltjes FROM book_uploaded_images
+                SELECT id, image_data, content_type, pushed_to_boekwinkeltjes, """ + extra_up + """ FROM book_uploaded_images
                 WHERE book_id = %(book_id)s
                 ORDER BY position ASC, id ASC
                 """,
                 {"book_id": book_id},
             )
-            for row_id, image_data, content_type, pushed in cur.fetchall():
+            for row_id, image_data, content_type, pushed, up_extra in cur.fetchall():
                 raw_bytes = bytes(image_data)
                 data_uri = f"data:{content_type};base64,{base64.b64encode(raw_bytes).decode('ascii')}"
                 results.append(
@@ -1126,6 +1178,7 @@ def get_all_images(book_id):
                         "source": "uploaded",
                         "ref_id": row_id,
                         "pushed": bool(pushed),
+                        "web_extra": bool(up_extra),
                         "is_placeholder": check_cover_image(raw_bytes) == "placeholder",
                     }
                 )
@@ -1134,14 +1187,14 @@ def get_all_images(book_id):
             # of anders de URL van Boekwinkeltjes zelf (bestaande boeken)
             cur.execute(
                 """
-                SELECT image_id, url_large, url_medium, url_small, image_large_data, image_medium_data
+                SELECT image_id, url_large, url_medium, url_small, image_large_data, image_medium_data, """ + extra_bi + """
                 FROM book_images
                 WHERE book_id = %(book_id)s AND image_id != -1
                 ORDER BY position ASC
                 """,
                 {"book_id": book_id},
             )
-            for image_id, url_large, url_medium, url_small, large_data, medium_data in cur.fetchall():
+            for image_id, url_large, url_medium, url_small, large_data, medium_data, bi_extra in cur.fetchall():
                 real_urls = [u for u in (url_large, url_medium, url_small) if u]
                 if large_data or medium_data:
                     large_src = (
@@ -1162,6 +1215,7 @@ def get_all_images(book_id):
                             "real_urls": real_urls,
                             "source": "confirmed",
                             "ref_id": image_id,
+                            "web_extra": bool(bi_extra),
                         }
                     )
                 else:
@@ -1173,6 +1227,7 @@ def get_all_images(book_id):
                             "real_urls": real_urls,
                             "source": "confirmed",
                             "ref_id": image_id,
+                            "web_extra": bool(bi_extra),
                         }
                     )
     finally:
@@ -1229,11 +1284,11 @@ def save_uploaded_images(book_id, images):
             start_position = cur.fetchone()[0]
             for offset, img in enumerate(images):
                 position = start_position + offset
+                extra = bool(img.get("web_extra")) and _has_web_extra_column()
                 cur.execute(
-                    """
-                    INSERT INTO book_uploaded_images (book_id, image_data, content_type, is_main, position, pushed_to_boekwinkeltjes)
-                    VALUES (%(book_id)s, %(data)s, %(ct)s, %(main)s, %(pos)s, FALSE)
-                    """,
+                    "INSERT INTO book_uploaded_images (book_id, image_data, content_type, is_main, position, "
+                    "pushed_to_boekwinkeltjes" + (", web_extra" if extra else "") + ") "
+                    "VALUES (%(book_id)s, %(data)s, %(ct)s, %(main)s, %(pos)s, FALSE" + (", TRUE" if extra else "") + ")",
                     {
                         "book_id": int(book_id),
                         "data": psycopg2.Binary(img["data"]),
