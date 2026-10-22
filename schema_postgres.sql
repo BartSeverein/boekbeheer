@@ -249,3 +249,13 @@ CREATE TABLE IF NOT EXISTS revenue_history (
     PRIMARY KEY (month, platform)
 );
 ALTER TABLE revenue_history ENABLE ROW LEVEL SECURITY;
+
+-- Korte tekst per auteurspagina van de webshop (beheer: dashboard, pagina Auteursbeheer)
+CREATE TABLE IF NOT EXISTS author_texts (
+    slug        TEXT PRIMARY KEY,           -- zoals in het adres: /auteur/<slug>/
+    name        TEXT,                       -- naam zoals op het moment van opslaan (alleen voor het overzicht)
+    text        TEXT NOT NULL DEFAULT '',   -- Nederlandse tekst; de webshop vertaalt hem zelf
+    updated_at  TIMESTAMPTZ DEFAULT now()
+);
+-- Teksten worden nooit automatisch gewist: ook niet als een auteur tijdelijk onder de 3 boeken komt en zijn pagina verdwijnt.
+ALTER TABLE author_texts ENABLE ROW LEVEL SECURITY;
