@@ -1,1 +1,4 @@
-
+# Huisstijlkleur van de webshop (paars) voor knoppen, keuzerondjes, vinkjes en schuiven in het dashboard.
+[theme]
+base = "light"
+primaryColor = "#8a78ee"
