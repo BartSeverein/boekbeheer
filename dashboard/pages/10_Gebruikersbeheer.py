@@ -190,7 +190,7 @@ if my_user:
         log_df["periode"] = log_df["tijdstip"].dt.to_period("M").dt.to_timestamp()
         toelichting = "laatste 12 maanden"
     index = pd.date_range(start, nu, freq="D" if periode == "Dag" else ("7D" if periode == "Week" else "MS"))
-    st.caption(f"Alleen jij kan je invoergrafiek zien. Aantal ingevoerde boeken per {periode.lower()}, {toelichting}.")
+    st.caption(f"Aantal toegevoegde boeken, {toelichting}. Alleen jij kan deze grafiek zien.")
 
     for u in [my_user]:
         mine = log_df[log_df["user"] == u["short_name"]]
