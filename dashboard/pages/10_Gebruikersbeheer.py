@@ -195,4 +195,4 @@ if my_user:
         counts = mine.groupby("periode").size().reindex(index, fill_value=0)
         totaal = int(counts.sum())
         st.markdown(f"**{u['full_name']}** ({u['short_name']}) — {totaal} in deze periode")
-        st.bar_chart(counts.rename("Boeken"), height=180, color="#7c4dcc")
+        st.line_chart(counts.rename("Boeken"), height=220, color="#83C9FF")
