@@ -25,12 +25,13 @@ class EmailError(Exception):
     pass
 
 
-def send_email(subject, body, attachments=None):
+def send_email(subject, body, attachments=None, to=None):
     """
     Verstuurt een e-mail. 'attachments' is een optionele lijst van
-    (bestandsnaam, bytes, mime_type)-tupels.
+    (bestandsnaam, bytes, mime_type)-tupels. 'to' overschrijft de standaardontvanger (SMTP_TO).
     """
-    if not SMTP_USERNAME or not SMTP_PASSWORD or not SMTP_TO:
+    recipient = to or SMTP_TO
+    if not SMTP_USERNAME or not SMTP_PASSWORD or not recipient:
         raise EmailError(
             "SMTP_USERNAME, SMTP_PASSWORD en/of SMTP_TO ontbreken in de omgeving — e-mail niet verstuurd."
         )
@@ -38,7 +39,7 @@ def send_email(subject, body, attachments=None):
     msg = EmailMessage()
     msg["Subject"] = subject
     msg["From"] = SMTP_USERNAME
-    msg["To"] = SMTP_TO
+    msg["To"] = recipient
     msg.set_content(body)
 
     for filename, data, mime_type in attachments or []:

@@ -25,6 +25,7 @@ Gebruik:
     python main.py compare-main-images [aantal]   # alleen lezen: vergelijkt eerdere en huidige foto's per boek, schrijft hoofdafbeelding_controle.csv
     python main.py webshop-publish <full|catalog> [ja] [max_minuten]   # webshop: orders overnemen, site bouwen, via SFTP uploaden (zonder 'ja' een proefrun)
     python main.py send-daily-csv-export  # stuurt een e-mail met boeken.csv en orders.csv als back-up
+    python main.py send-daily-todo        # stuurt de dagelijkse mail "Vandaag te doen in de boekwinkel" (met actuele aantallen)
 """
 
 import re
@@ -213,6 +214,10 @@ def main():
     elif command == "send-daily-csv-export":
         sync.send_daily_csv_export()
         print("Dagelijkse CSV-back-up klaar (Dropbox, of anders per e-mail; zie 'Laatste sync-runs' op Home).")
+    elif command == "send-daily-todo":
+        import daily_todo
+        daily_todo.run()
+        print("Dagelijkse to-do-mail verstuurd.")
     else:
         print(f"Onbekend commando: {command}")
         print(__doc__)

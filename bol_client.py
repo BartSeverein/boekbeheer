@@ -868,3 +868,15 @@ def get_orders(status="ALL", fulfilment_method="ALL", max_pages=20):
             break
         page += 1
     return all_orders
+
+
+def get_open_invoice_requests():
+    """
+    Open factuuraanvragen (Bestellingen > Factuuraanvragen in het Bol-portaal): lijst van dicts met o.a. 'shipmentId' en 'orderId'.
+    Bol: GET /shipments/invoices/requests?state=OPEN (v10). Een upload-fout telt hier niet mee; dat zijn andere aanvragen.
+    """
+    resp = _send("GET", f"{BASE_URL}/shipments/invoices/requests", headers=_headers(), params={"state": "OPEN"}, timeout=20)
+    if not resp.ok:
+        raise BolAPIError(f"Factuuraanvragen ophalen mislukt ({resp.status_code}): {_error_detail(resp)}", resp.status_code)
+    data = resp.json() or {}
+    return data.get("invoiceRequests") or []
