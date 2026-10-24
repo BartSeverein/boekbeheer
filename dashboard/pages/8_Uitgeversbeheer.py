@@ -28,7 +28,7 @@ st.markdown("")
 
 st.caption(
     "Gebruik altijd dit formaat: uitgeversnaam ; adres huisnummer - postcode - plaats - NL ; contactadres  \n"
-    "De puntkomma's zijn cruciaal voor de juiste werking!"
+    "De puntkomma's zijn cruciaal voor de juiste werking en uitgevers die het niet hebben worden in de vroege ochtend automatisch verwijderd."
 )
 
 known_publishers = get_known_publishers()
