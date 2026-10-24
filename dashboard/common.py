@@ -294,7 +294,8 @@ def get_users_with_stats():
                     u.id, u.full_name, u.short_name, u.email, u.password_plain, u.role,
                     u.last_location, u.last_login_at,
                     COALESCE(SUM(CASE WHEN l.action = 'created' THEN 1 ELSE 0 END), 0) AS aantal_toegevoegd,
-                    COALESCE(SUM(CASE WHEN l.action = 'edited' THEN 1 ELSE 0 END), 0) AS aantal_aangepast
+                    COALESCE(SUM(CASE WHEN l.action = 'edited' THEN 1 ELSE 0 END), 0) AS aantal_aangepast,
+                    COALESCE(SUM(CASE WHEN l.action = 'created' AND l.occurred_at >= now() - interval '7 days' THEN 1 ELSE 0 END), 0) AS aantal_toegevoegd_7d
                 FROM app_users u
                 LEFT JOIN book_activity_log l ON l.user_short_name = u.short_name
                 GROUP BY u.id, u.full_name, u.short_name, u.email, u.password_plain, u.role,
