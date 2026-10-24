@@ -136,18 +136,27 @@ def build_items(counts, weekday):
     return items, spare
 
 
+WEEKDAYS_NL = ["maandag", "dinsdag", "woensdag", "donderdag", "vrijdag", "zaterdag", "zondag"]
+
+
+def _end(text):
+    """Elk punt eindigt met leesteken, zodat mailprogramma's er geen regels van samenvoegen."""
+    text = text.rstrip()
+    return text if text[-1:] in ".?!" else text + "."
+
+
 def build_body(counts, weekday):
     items, spare = build_items(counts, weekday)
     lines = [
         "Goedemorgen Mijzelf!",
         "",
-        "Dit is je dagelijkse stok achter de deur. Wat is er vandaag in ieder geval te doen in de boekwinkel?",
+        f"Dit is je dagelijkse stok achter de deur. Het is {WEEKDAYS_NL[weekday]}. Wat is er vandaag in ieder geval te doen in de boekwinkel?",
         "",
     ]
-    lines += [f"{MARK} {t}" for t in items]
+    lines += [f"{MARK} {_end(t)}" for t in items]
     if spare:
         lines += ["", "Als je tijd over hebt:", ""]
-        lines += [f"{MARK} {t}" for t in spare]
+        lines += [f"{MARK} {_end(t)}" for t in spare]
     lines += ["", "Succes vandaag!", "", "Groet,", "", "Ik", ""]
     return "\n".join(lines)
 
