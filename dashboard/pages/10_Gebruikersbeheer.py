@@ -168,7 +168,7 @@ if my_user:
     periode = st.radio("Per", ["Dag", "Week", "Maand"], horizontal=True, key="added_period")
 
     log_rows = get_books_added_log()
-    log_df = pd.DataFrame(log_rows, columns=["user", "tijdstip"]) if log_rows else pd.DataFrame(columns=["user", "tijdstip"])
+    log_df = pd.DataFrame([{"user": r["user_short_name"], "tijdstip": r["tijdstip"]} for r in log_rows], columns=["user", "tijdstip"])
     log_df["tijdstip"] = pd.to_datetime(log_df["tijdstip"])
 
     nu = pd.Timestamp.now(tz="Europe/Amsterdam").tz_localize(None).normalize()
