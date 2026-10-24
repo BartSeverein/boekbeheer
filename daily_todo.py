@@ -2,7 +2,7 @@
 daily_todo.py — De dagelijkse e-mail "Vandaag te doen in de boekwinkel" (stok achter de deur).
 
 Elke ochtend (om 7:15, via cron-job.org en de workflow 'Dagelijkse to-do-mail') komt er een e-mail met wat er vandaag in ieder geval te
-doen is, met actuele aantallen uit de database. Regels waar niets te doen is (aantal 0) worden weggelaten. Per dag van de week komen er
+doen is, met actuele aantallen uit de database. Regels waar niets te doen is (aantal 0) worden weggelaten. Ook ruimt de mail dagelijks de uitgeverslijst op (zie clean_publishers). Per dag van de week komen er
 vaste punten bij (zie DAY_ITEMS hieronder). De ontvanger staat in TODO_MAIL_TO (standaard bart@severein.nl).
 """
 
@@ -103,13 +103,6 @@ def build_items(counts, weekday):
         items.append(
             f"Er zijn {n} auteurspagina's die een goede omschrijving van de auteur nodig hebben." if n != 1
             else "Er is 1 auteurspagina die een goede omschrijving van de auteur nodig heeft."
-        )
-
-    n = counts.get("publishers_without_semicolon")
-    if n:
-        items.append(
-            f"Er zijn {n} uitgevers in uitgeversbeheer die geen puntkomma hebben en dus waarschijnlijk opgeruimd kunnen worden." if n != 1
-            else "Er is 1 uitgever in uitgeversbeheer die geen puntkomma heeft en dus waarschijnlijk opgeruimd kan worden."
         )
 
     items.append("Zijn alle e-mails beantwoord?")
@@ -213,8 +206,6 @@ def collect_counts(conn, today=None, log=print):
 
     with conn.cursor() as cur:
         attempt("queued", lambda: _count(cur, "SELECT count(*) AS n FROM books WHERE COALESCE(queued, FALSE) = TRUE"))
-        attempt("publishers_without_semicolon", lambda: _count(
-            cur, "SELECT count(*) AS n FROM known_publishers WHERE COALESCE(value, '') <> '' AND value NOT LIKE '%%;%%'"))
         # Te verzenden: Boekwinkeltjes (wait_for_shipping), Bol (OPEN) en webshop (wait_for_shipping, zonder de tests van voor #2050).
         attempt("ship_bw", lambda: _count(
             cur, "SELECT count(*) AS n FROM orders WHERE status = 'wait_for_shipping' AND COALESCE(platform, 'BW') = 'BW'"))
@@ -256,6 +247,23 @@ def collect_counts(conn, today=None, log=print):
     return counts
 
 
+def clean_publishers(conn, log=print):
+    """Verwijdert uit de uitgeverslijst alle uitgevers zonder puntkomma. Geeft het aantal terug (None bij een fout)."""
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM known_publishers WHERE COALESCE(value, '') <> '' AND value NOT LIKE '%%;%%' RETURNING value"
+            )
+            gone = [r["value"] for r in cur.fetchall()]
+        conn.commit()
+        log(f"Uitgevers opgeruimd: {len(gone)}" + (f" ({'; '.join(gone[:20])}{' …' if len(gone) > 20 else ''})" if gone else ""))
+        return len(gone)
+    except Exception as exc:
+        conn.rollback()
+        log(f"Uitgevers opruimen mislukt ({exc}).")
+        return None
+
+
 def run(log=print):
     """Telt, bouwt de mail en verstuurt hem. Geeft de tekst terug (handig bij testen)."""
     import notifications
@@ -264,6 +272,7 @@ def run(log=print):
     now = dt.datetime.now(TZ)
     conn = get_connection()
     try:
+        clean_publishers(conn, log=log)
         counts = collect_counts(conn, today=now.date(), log=log)
     finally:
         conn.close()
