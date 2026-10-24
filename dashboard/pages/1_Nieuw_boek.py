@@ -82,8 +82,12 @@ def k(name):
     return f"new_book_{name}_v{v}"
 
 
-if "new_book_success_msg" in st.session_state and not st.session_state.get("new_book_just_saved"):
-    del st.session_state["new_book_success_msg"]
+# Bevestiging van het zojuist opgeslagen boek: één keer bovenaan tonen en daarna weghalen, zodat hij nooit blijft staan
+# terwijl je al aan het volgende boek werkt.
+_saved_msg = st.session_state.pop("new_book_success_msg", None)
+st.session_state.pop("new_book_just_saved", None)
+if _saved_msg:
+    st.success(_saved_msg)
 
 # ---------- ISBN eerst: marktinfo + voorinvullen van een paar velden ----------
 
@@ -638,16 +642,8 @@ def image_section():
 
 image_section()
 
-just_saved = st.session_state.get("new_book_just_saved", False)
-button_label = "Nog een boek toevoegen" if just_saved else "Boek toevoegen"
-
-if st.button(button_label, key="new_book_submit"):
-    if just_saved:
-        # Terug naar de normale knop-tekst; het formulier is al leeg sinds het opslaan
-        st.session_state["new_book_just_saved"] = False
-        st.session_state.pop("new_book_success_msg", None)
-        st.rerun()
-    elif not title or price <= 0:
+if st.button("Boek toevoegen", key="new_book_submit"):
+    if not title or price <= 0:
         st.error("Titel en een prijs groter dan €0 zijn verplicht.")
     elif st.session_state.get(k("category1"), "(leeg)") in ("(leeg)", ""):
         st.error("Categorie 1 is verplicht: zonder categorie is het boek in de webshop niet te vinden via de categorieën.")
@@ -707,18 +703,14 @@ if st.button(button_label, key="new_book_submit"):
 
         if push_enabled_choice == "Push naar de webshop, Boekwinkeltjes en eventueel Bol":
             st.session_state["new_book_success_msg"] = (
-                f"Het boek is klaargezet (tijdelijk id {temp_id}) en komt online:\n"
+                f"✅ \"{title}\" is opgeslagen (tijdelijk id {temp_id}) en komt online:\n"
                 "- Bij de webshop aan het einde van de komende nacht.\n"
                 "- Bij Boekwinkeltjes gedurende de eerstvolgende druppeltijd.\n"
                 "- Eventueel bij Bol na de eerstvolgende synchronisatie."
             )
         else:
             st.session_state["new_book_success_msg"] = (
-                f"Boek lokaal opgeslagen (tijdelijk id {temp_id}) met 'Geen push' — "
+                f"✅ \"{title}\" is lokaal opgeslagen (tijdelijk id {temp_id}) met 'Geen push' — "
                 "dit boek wordt niet naar Boekwinkeltjes gestuurd totdat je dat aanpast."
             )
-        st.session_state["new_book_just_saved"] = True
         st.rerun()
-
-if just_saved and "new_book_success_msg" in st.session_state:
-    st.success(st.session_state["new_book_success_msg"])
