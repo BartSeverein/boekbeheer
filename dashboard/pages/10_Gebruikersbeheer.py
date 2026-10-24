@@ -63,7 +63,7 @@ if users:
             "last_location": "Laatste locatie",
             "last_login_at": "Laatst ingelogd",
             "aantal_toegevoegd": "Boeken toegevoegd",
-            "aantal_aangepast": "Boeken aangepast",
+            "aantal_toegevoegd_7d": "Boeken toegevoegd laatste 7 dagen",
         }
     )[
         [
@@ -75,9 +75,11 @@ if users:
             "Laatst ingelogd",
             "Laatste locatie",
             "Boeken toegevoegd",
-            "Boeken aangepast",
+            "Boeken toegevoegd laatste 7 dagen",
         ]
     ]
+    if not is_admin:   # privacy: alleen de beheerder ziet de aantallen
+        df = df.drop(columns=["Boeken toegevoegd", "Boeken toegevoegd laatste 7 dagen"])
     st.dataframe(df, width="stretch")
 else:
     st.info("Nog geen gebruikers aangemaakt.")
