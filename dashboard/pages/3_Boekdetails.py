@@ -68,6 +68,11 @@ render_logo(Path(__file__).parent.parent / "assets" / "logo_mail.png")
 require_login()
 st.title("📖 Boekdetails")
 
+# Bevestiging van het zojuist opgeslagen boek: één keer tonen en daarna weghalen.
+_saved_msg = st.session_state.pop("book_saved_msg", None)
+if _saved_msg:
+    st.success(_saved_msg)
+
 books_all, orders = load_books(), load_orders()
 
 # De vier weergaven: welke boeken je ziet, gebaseerd op voorraad en of het boek
@@ -833,7 +838,27 @@ else:
                         st.session_state["pending_view_mode"] = "📒 Voorradig, nog niet op BW"
                     else:
                         st.session_state["pending_view_mode"] = "📗 Voorradig"
-                st.success("Opgeslagen! Wordt bij de eerstvolgende sync naar Boekwinkeltjes gestuurd.")
+                _lines = [f"✅ \"{edit_title}\" is opgeslagen (id {chosen_id})."]
+                if edit_queued:
+                    _lines.append("- Het boek staat in de wachtrij en gaat nergens naartoe totdat je dat op 'Nee' zet.")
+                elif not edit_push_enabled:
+                    _lines.append("- Synchronisatie staat uit ('Geen push'): het boek gaat niet naar Boekwinkeltjes, de webshop of Bol.")
+                else:
+                    if int(edit_amount) <= 0:
+                        _lines.append("- Niet op de webshop want er is geen voorraad.")
+                    else:
+                        _lines.append("- Op de webshop: prijs en voorraad bij de eerstvolgende catalogus-run, de rest aan het einde van de komende nacht.")
+                    if chosen_id < 0:
+                        _lines.append("- Bij Boekwinkeltjes gedurende de eerstvolgende druppeltijd.")
+                    else:
+                        _lines.append("- Bij Boekwinkeltjes bij de eerstvolgende sync.")
+                    if not isbn_present:
+                        _lines.append("- Niet bij Bol want er is geen ISBN.")
+                    elif bol_unsuitable:
+                        _lines.append("- Niet bij Bol want het boek is daarvoor ongeschikt.")
+                    else:
+                        _lines.append("- Bij Bol na de eerstvolgende synchronisatie.")
+                st.session_state["book_saved_msg"] = "\n".join(_lines).replace("\n- ", "\n\n- ", 1)
                 st.rerun()
 
         st.divider()
