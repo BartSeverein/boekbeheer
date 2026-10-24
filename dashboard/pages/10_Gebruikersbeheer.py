@@ -20,6 +20,7 @@ from common import (
     render_logo,
     require_login,
     get_users_with_stats,
+    get_books_added_log,
     create_user,
     update_user,
     delete_user,
@@ -157,3 +158,41 @@ if users:
                 delete_user(chosen_user["id"])
                 st.success(f"Gebruiker '{chosen_user['full_name']}' verwijderd.")
                 st.rerun()
+
+
+# ---------- Boeken toegevoegd: ieders eigen grafiek (niemand ziet die van een ander) ----------
+my_user = next((u for u in users if u["short_name"] == my_short_name), None) if users else None
+if my_user:
+    st.divider()
+    st.subheader("Boeken toegevoegd")
+    periode = st.radio("Per", ["Dag", "Week", "Maand"], horizontal=True, key="added_period")
+
+    log_rows = get_books_added_log()
+    log_df = pd.DataFrame(log_rows, columns=["user", "tijdstip"]) if log_rows else pd.DataFrame(columns=["user", "tijdstip"])
+    log_df["tijdstip"] = pd.to_datetime(log_df["tijdstip"])
+
+    nu = pd.Timestamp.now(tz="Europe/Amsterdam").tz_localize(None).normalize()
+    if periode == "Dag":
+        freq, aantal = "D", 30
+        start = nu - pd.Timedelta(days=aantal - 1)
+        log_df["periode"] = log_df["tijdstip"].dt.normalize()
+        toelichting = "laatste 30 dagen"
+    elif periode == "Week":
+        freq, aantal = "W-MON", 12
+        start = (nu - pd.Timedelta(days=nu.weekday())) - pd.Timedelta(weeks=aantal - 1)
+        log_df["periode"] = log_df["tijdstip"].dt.normalize() - pd.to_timedelta(log_df["tijdstip"].dt.weekday, unit="D")
+        toelichting = "laatste 12 weken (per maandag)"
+    else:
+        freq, aantal = "MS", 12
+        start = nu.replace(day=1) - pd.DateOffset(months=aantal - 1)
+        log_df["periode"] = log_df["tijdstip"].dt.to_period("M").dt.to_timestamp()
+        toelichting = "laatste 12 maanden"
+    index = pd.date_range(start, nu, freq="D" if periode == "Dag" else ("7D" if periode == "Week" else "MS"))
+    st.caption(f"Alleen jij kan je invoergrafiek zien. Aantal ingevoerde boeken per {periode.lower()}, {toelichting}.")
+
+    for u in [my_user]:
+        mine = log_df[log_df["user"] == u["short_name"]]
+        counts = mine.groupby("periode").size().reindex(index, fill_value=0)
+        totaal = int(counts.sum())
+        st.markdown(f"**{u['full_name']}** ({u['short_name']}) — {totaal} in deze periode")
+        st.bar_chart(counts.rename("Boeken"), height=180, color="#7c4dcc")
