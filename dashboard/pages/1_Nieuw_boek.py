@@ -90,6 +90,18 @@ st.session_state.pop("new_book_just_saved", None)
 if _saved_msg:
     st.success(_saved_msg)
 
+    import time as _t
+    import streamlit.components.v1 as _components
+    # Na het opslaan naar boven springen, zodat de bevestiging meteen in beeld is.
+    _components.html(
+        "<script>/*" + str(_t.time()) + "*/(function(){var d=window.parent.document;"
+        "var els=[d.querySelector('[data-testid=stMain]'),d.querySelector('section.main'),"
+        "d.querySelector('[data-testid=stAppViewContainer]'),d.scrollingElement,d.documentElement];"
+        "els.forEach(function(e){if(e){try{e.scrollTo({top:0,behavior:'instant'});}catch(x){e.scrollTop=0;}}});"
+        "window.parent.scrollTo(0,0);})();</script>",
+        height=0,
+    )
+
 # ---------- ISBN eerst: marktinfo + voorinvullen van een paar velden ----------
 
 ean_typed = st.text_input("ISBN", key=k("ean"))
