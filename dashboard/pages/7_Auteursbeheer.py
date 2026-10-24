@@ -41,6 +41,18 @@ st.markdown(
     f"en **{len(authors) - len(with_text)}** zonder."
 )
 
+import csv
+import io
+
+_buf = io.StringIO()
+_w = csv.writer(_buf, delimiter=";")
+_w.writerow(["slug", "naam", "aantal_boeken", "voorbeeldtitels"])
+for a in authors:
+    if a["slug"] not in with_text:
+        _w.writerow([a["slug"], a["name"], a["count"], " | ".join(t for t in a.get("titles", []) if t)])
+st.download_button("⬇️ Lijst auteurs zonder tekst (CSV)", _buf.getvalue().encode("utf-8-sig"),
+                   file_name="auteurs_zonder_tekst.csv", mime="text/csv")
+
 only_missing = st.checkbox("Alleen auteurs zonder tekst tonen", value=True)
 search = st.text_input("Zoek een auteur", placeholder="bijvoorbeeld Manara").strip().lower()
 shown = [
