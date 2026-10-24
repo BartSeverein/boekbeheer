@@ -76,18 +76,21 @@ VIEW_OPTIONS = {
     "📒 Voorradig, nog niet op BW": "voorradig_nog_niet_bw",
     "📕 Niet voorradig": "niet_voorradig",
     "📘 Alles": "alles",
+    "🏷️ Zonder categorie": "zonder_categorie",
 }
 SEARCH_LABELS = {
     "voorradig": "🔎 Zoek op titel, auteur, ISBN of locatie (bijv. 0412) in alle voorradige boeken.",
     "voorradig_nog_niet_bw": "🔎 Zoek op titel, auteur, ISBN of locatie (bijv. 0412) in voorradige boeken die nog wachten op het druppelsysteem.",
     "niet_voorradig": "🔎 Zoek op titel, auteur, ISBN of locatie (bijv. 0412) in alle boeken die ooit zijn ingevoerd, maar niet meer voorradig zijn.",
     "alles": "🔎 Zoek op titel, auteur, ISBN of locatie (bijv. 0412) in álle boeken: voorradig en niet voorradig.",
+    "zonder_categorie": "🔎 Zoek op titel, auteur, ISBN of locatie (bijv. 0412) in voorradige boeken zonder Categorie 1.",
 }
 EMPTY_MESSAGES = {
     "voorradig": "Nog geen voorradige boeken om te tonen.",
     "voorradig_nog_niet_bw": "Geen boeken die wachten op het druppelsysteem — alles staat al op Boekwinkeltjes.",
     "niet_voorradig": "Geen niet-voorradige boeken om te tonen.",
     "alles": "Nog geen boeken om te tonen.",
+    "zonder_categorie": "Alle voorradige boeken hebben een categorie. 👍",
 }
 
 preselect_id = st.session_state.pop("preselect_book_id", None)
@@ -136,6 +139,9 @@ elif mode == "voorradig":
     books = books_all[(books_all["amount"].fillna(0) > 0) & (books_all["id"] > 0)]
 elif mode == "voorradig_nog_niet_bw":
     books = books_all[(books_all["amount"].fillna(0) > 0) & (books_all["id"] < 0)]
+elif mode == "zonder_categorie":
+    # Voorradig (ook de boeken die nog niet op Boekwinkeltjes staan) en zonder Categorie 1; nieuwste bovenaan.
+    books = books_all[(books_all["amount"].fillna(0) > 0) & books_all["category1"].fillna("").astype(str).str.strip().eq("")]
 else:
     books = books_all[books_all["amount"].fillna(0) == 0]
 
@@ -150,7 +156,7 @@ else:
 
     search = st.text_input(SEARCH_LABELS[mode], default_search, key="book_search_input")
 
-    if search:
+    if search or mode == "zonder_categorie":
         s = search.strip().lower()
         # Locatie: alles wat met de zoekterm begint (0412 vindt 0412, 0412A, 0412B...); spaties negeren we, dus "0111 a" vindt "0111A".
         s_loc = s.replace(" ", "")
@@ -167,15 +173,27 @@ else:
                 | books["ean"].astype(str).str.contains(s, na=False)
                 | (loc_norm.str.startswith(s_loc) if s_loc else False)
             )
-        filtered = books[mask]
-        if loc_norm[mask].str.startswith(s_loc).any():
+        filtered = books[mask] if search else books
+        if search and loc_norm[mask].str.startswith(s_loc).any():
             # Staat er een locatie bij de resultaten, dan eerst op locatie sorteren (daarna titel), handig voor "alles van 0412".
             filtered = filtered.assign(_loc=loc_norm[mask]).sort_values(["_loc", "title"], na_position="last").drop(columns="_loc")
+
+        if mode == "zonder_categorie":
+            # Nieuwste bovenaan: boeken die nog niet bij Boekwinkeltjes staan (negatief id, nog aan te maken) eerst, daarna het hoogste boeknummer.
+            _is_new = filtered["id"] < 0
+            _fresh = filtered[_is_new].assign(_upd=pd.to_datetime(filtered[_is_new]["local_updated_at"], errors="coerce", utc=True)).sort_values(
+                ["_upd", "id"], ascending=False, na_position="last").drop(columns="_upd")
+            _rest = filtered[~_is_new].assign(_num=pd.to_numeric(filtered[~_is_new]["book_number"], errors="coerce").fillna(0)).sort_values(
+                ["_num", "id"], ascending=False).drop(columns="_num")
+            filtered = pd.concat([_fresh, _rest])
 
         if filtered.empty:
             st.warning("Geen boeken gevonden voor deze zoekterm.")
         else:
-            st.caption(f"{len(filtered)} resultaat/resultaten")
+            st.caption(
+                f"{len(filtered)} boeken zonder categorie, nieuwste bovenaan." if (mode == "zonder_categorie" and not search)
+                else f"{len(filtered)} resultaat/resultaten"
+            )
             book_options = {
                 f"{row['title']} — {row['author']} — ISBN {format_isbn(row['ean'])}"
                 + (f" — locatie {row['location']}" if pd.notna(row.get("location")) and str(row.get("location")).strip() else ""): row["id"]
@@ -707,6 +725,10 @@ else:
 
                 submitted = st.form_submit_button("Opslaan")
 
+            if submitted and int(edit_amount) > 0 and not (edit_category1 or "").strip():
+                st.error("Categorie 1 is verplicht voor een voorradig boek: zonder categorie is het boek in de webshop niet te vinden via de categorieën.")
+                submitted = False
+
             if submitted:
                 final_publisher = new_publisher_text.strip() or chosen_publisher_option
                 if new_publisher_text.strip():
@@ -799,7 +821,7 @@ else:
 
                 load_books.clear()
                 get_all_images.clear()
-                if mode != "alles":
+                if mode not in ("alles", "zonder_categorie"):
                     if int(edit_amount) <= 0:
                         st.session_state["pending_view_mode"] = "📕 Niet voorradig"
                     elif chosen_id < 0:

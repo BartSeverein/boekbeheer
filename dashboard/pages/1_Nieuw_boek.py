@@ -525,7 +525,7 @@ with col_b:
         if quick_by_label:
             st.radio("Snelkeuze categorie (de meest gebruikte)", list(quick_by_label), index=None, horizontal=True,
                      key=k("quick_category"), on_change=_apply_quick_category)
-        chosen_cat1_label = st.selectbox("Categorie 1", CAT1_LABELS, key=k("category1"))
+        chosen_cat1_label = st.selectbox("Categorie 1 *", CAT1_LABELS, key=k("category1"))
         cat1_value = CAT1_VALUES[CAT1_LABELS.index(chosen_cat1_label)]
         if cat1_value in CATEGORY2_OPTIONS:
             st.selectbox("Categorie 2", [label for _, label in CATEGORY2_OPTIONS[cat1_value]], key=k(f"category2_dd_{cat1_value}"))
@@ -649,6 +649,8 @@ if st.button(button_label, key="new_book_submit"):
         st.rerun()
     elif not title or price <= 0:
         st.error("Titel en een prijs groter dan €0 zijn verplicht.")
+    elif st.session_state.get(k("category1"), "(leeg)") in ("(leeg)", ""):
+        st.error("Categorie 1 is verplicht: zonder categorie is het boek in de webshop niet te vinden via de categorieën.")
     else:
         if chosen_publisher_option == NEW_PUBLISHER_SENTINEL and publisher.strip():
             add_known_publisher(publisher)
