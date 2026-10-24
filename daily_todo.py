@@ -8,9 +8,8 @@ vaste punten bij (zie DAY_ITEMS hieronder). De ontvanger staat in TODO_MAIL_TO (
 
 import datetime as dt
 import os
+import re
 from zoneinfo import ZoneInfo
-
-import pandas as pd
 
 TZ = ZoneInfo("Europe/Amsterdam")
 SUBJECT = "Vandaag te doen in de boekwinkel"
@@ -155,6 +154,23 @@ def build_body(counts, weekday):
 
 # ---------- aantallen uit de database ----------
 
+def _parse_date(text):
+    """'Te koop sinds' als datum: 2025-03-14 (ook met tijd erachter) of 14-03-2025 / 14/03/2025. Onleesbaar: None."""
+    text = str(text or "").strip()
+    m = re.match(r"^(\d{4})-(\d{1,2})-(\d{1,2})", text)
+    if m:
+        y, mo, d = map(int, m.groups())
+    else:
+        m = re.match(r"^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})", text)
+        if not m:
+            return None
+        d, mo, y = map(int, m.groups())
+    try:
+        return dt.date(y, mo, d)
+    except ValueError:
+        return None
+
+
 def _count(cur, sql, params=None):
     cur.execute(sql, params or {})
     row = cur.fetchone()
@@ -198,9 +214,9 @@ def collect_counts(conn, today=None, log=print):
                 "SELECT listing_date FROM books WHERE id > 0 AND COALESCE(queued, FALSE) = FALSE AND COALESCE(amount, 0) > 0 "
                 "AND COALESCE(listing_date, '') <> ''"
             )
-            dates = pd.to_datetime([r["listing_date"] for r in cur.fetchall()], errors="coerce")
-            cutoff = pd.Timestamp(today) - pd.Timedelta(days=365)
-            return int((dates <= cutoff).sum())
+            cutoff = today - dt.timedelta(days=365)
+            parsed = (_parse_date(r["listing_date"]) for r in cur.fetchall())
+            return sum(1 for d in parsed if d is not None and d <= cutoff)
         attempt("slow_movers", slow)
 
         def authors():
