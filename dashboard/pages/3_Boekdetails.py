@@ -261,7 +261,7 @@ else:
                     previous_values={"push_enabled": False},
                 )
                 load_books.clear()
-                st.success("Synchronisatie weer aangezet. Wordt bij de eerstvolgende sync opnieuw geprobeerd.")
+                st.success("Synchronisatie weer aangezet. Wordt bij de eerstvolgende synchronisatie opnieuw geprobeerd.")
                 st.rerun()
 
         # Per ongeluk dubbel opgeslagen? Een boek dat nog NIET bij Boekwinkeltjes staat kan hier worden verwijderd.
@@ -864,7 +864,7 @@ else:
                     if chosen_id < 0:
                         _lines.append("- Bij Boekwinkeltjes gedurende de eerstvolgende druppeltijd.")
                     else:
-                        _lines.append("- Bij Boekwinkeltjes bij de eerstvolgende sync.")
+                        _lines.append("- Bij Boekwinkeltjes na de eerstvolgende synchronisatie.")
                     if not isbn_present:
                         _lines.append("- Niet bij Bol want er is geen ISBN.")
                     elif bol_unsuitable:
