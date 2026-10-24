@@ -307,6 +307,23 @@ def get_users_with_stats():
         conn.close()
 
 
+def get_books_added_log():
+    """Alle 'toegevoegd'-registraties als lijst van (korte naam, tijdstip in Nederlandse tijd), voor de grafieken in Gebruikersbeheer."""
+    conn = _dict_connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT user_short_name, (occurred_at AT TIME ZONE 'Europe/Amsterdam') AS tijdstip
+                FROM book_activity_log
+                WHERE action = 'created' AND user_short_name IS NOT NULL
+                """
+            )
+            return cur.fetchall()
+    finally:
+        conn.close()
+
+
 def create_user(full_name, short_name, email, password):
     """Nieuwe gebruikers krijgen altijd de rol 'gebruiker' — 'beheerder' wordt niet via de UI uitgedeeld."""
     digest, salt = _hash_password(password)
