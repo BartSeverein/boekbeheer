@@ -861,11 +861,16 @@ else:
                         _lines.append("- Niet op de webshop want er is geen voorraad.")
                     else:
                         _lines.append("- Op de webshop: prijs en voorraad bij de eerstvolgende catalogus-run, de rest aan het einde van de komende nacht.")
-                    if chosen_id < 0:
+                    _both = chosen_id >= 0 and isbn_present and not bol_unsuitable
+                    if _both:
+                        _lines.append("- Bij Bol en Boekwinkeltjes na de eerstvolgende synchronisatie.")
+                    elif chosen_id < 0:
                         _lines.append("- Bij Boekwinkeltjes gedurende de eerstvolgende druppeltijd.")
                     else:
                         _lines.append("- Bij Boekwinkeltjes na de eerstvolgende synchronisatie.")
-                    if not isbn_present:
+                    if _both:
+                        pass
+                    elif not isbn_present:
                         _lines.append("- Niet bij Bol want er is geen ISBN.")
                     elif bol_unsuitable:
                         _lines.append("- Niet bij Bol want het boek is daarvoor ongeschikt.")
