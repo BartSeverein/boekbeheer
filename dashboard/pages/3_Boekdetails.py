@@ -22,6 +22,7 @@ from common import (
     front_upload_allowed,
     save_front_image,
     format_isbn,
+    normalize_isbn,
     save_book_edits,
     get_known_publishers,
     add_known_publisher,
@@ -406,7 +407,11 @@ else:
             # een st.form niet, die update pas na op 'Opslaan' te klikken).
             isbn_col, bol_col = st.columns(2)
             with isbn_col:
-                edit_ean = st.text_input("ISBN", value=_s(b["ean"]), key=f"{edit_prefix}_ean")
+                edit_ean_typed = st.text_input("ISBN", value=_s(b["ean"]), key=f"{edit_prefix}_ean")
+                # Een ISBN-10 wordt automatisch een ISBN-13 (ook bij het opslaan); alles hieronder gebruikt het ISBN-13.
+                edit_ean = normalize_isbn(edit_ean_typed.strip()) if edit_ean_typed.strip() else edit_ean_typed
+                if edit_ean_typed.strip() and edit_ean != edit_ean_typed.strip():
+                    st.caption(f"ISBN-10 omgezet naar ISBN-13: {edit_ean}")
             isbn_present = len(re.sub(r"\D", "", edit_ean.strip())) >= 10
             with bol_col:
                 if isbn_present:

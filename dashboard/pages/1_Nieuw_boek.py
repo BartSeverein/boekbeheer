@@ -62,6 +62,7 @@ from common import (
     lookup_bol_category_names,
     find_matching_category,
     clean_boekwinkeltjes_title_and_bijz,
+    normalize_isbn,
     get_top_category_pairs,
 )
 from categories import CATEGORY1_OPTIONS, CATEGORY2_OPTIONS, category1_label_for_value, category2_label_for_value
@@ -91,7 +92,11 @@ if _saved_msg:
 
 # ---------- ISBN eerst: marktinfo + voorinvullen van een paar velden ----------
 
-ean = st.text_input("ISBN", key=k("ean"))
+ean_typed = st.text_input("ISBN", key=k("ean"))
+# Een ISBN-10 wordt automatisch een ISBN-13 (zoals ook bij 'Toevoegen in bulk'); alles hieronder gebruikt het ISBN-13.
+ean = normalize_isbn(ean_typed.strip()) if ean_typed.strip() else ean_typed
+if ean != ean_typed.strip() and ean_typed.strip():
+    st.caption(f"ISBN-10 omgezet naar ISBN-13: {ean}")
 
 isbn_clean = ean.strip()
 isbn_is_valid = len(re.sub(r"\D", "", isbn_clean)) >= 10
