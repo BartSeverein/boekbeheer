@@ -838,7 +838,8 @@ else:
                         st.session_state["pending_view_mode"] = "📒 Voorradig, nog niet op BW"
                     else:
                         st.session_state["pending_view_mode"] = "📗 Voorradig"
-                _lines = [f"✅ \"{edit_title}\" is opgeslagen (id {chosen_id})."]
+                _online = not edit_queued and edit_push_enabled
+                _lines = [f"✅ \"{edit_title}\" is aangepast en opgeslagen (id {chosen_id})" + (" en komt online:" if _online else ":")]
                 if edit_queued:
                     _lines.append("- Het boek staat in de wachtrij en gaat nergens naartoe totdat je dat op 'Nee' zet.")
                 elif not edit_push_enabled:
@@ -858,7 +859,7 @@ else:
                         _lines.append("- Niet bij Bol want het boek is daarvoor ongeschikt.")
                     else:
                         _lines.append("- Bij Bol na de eerstvolgende synchronisatie.")
-                st.session_state["book_saved_msg"] = "\n".join(_lines).replace("\n- ", "\n\n- ", 1)
+                st.session_state["book_saved_msg"] = "\n".join(_lines)
                 st.rerun()
 
         st.divider()
