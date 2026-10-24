@@ -114,6 +114,13 @@ def build_items(counts, weekday):
 
     items.append("Zijn alle e-mails beantwoord?")
 
+    n = counts.get("bw_new_orders")
+    if n:
+        items.append(
+            f'Er staan {n} boeken op "Nieuwe bestelling" bij Boekwinkeltjes. Controleer of er een betaallink is gestuurd.' if n != 1
+            else 'Er staat 1 boek op "Nieuwe bestelling" bij Boekwinkeltjes. Controleer of er een betaallink is gestuurd.'
+        )
+
     bol, bw, shop = counts.get("ship_bol") or 0, counts.get("ship_bw") or 0, counts.get("ship_webshop") or 0
     total = bol + bw + shop
     if total:
@@ -211,6 +218,8 @@ def collect_counts(conn, today=None, log=print):
         # Te verzenden: Boekwinkeltjes (wait_for_shipping), Bol (OPEN) en webshop (wait_for_shipping, zonder de tests van voor #2050).
         attempt("ship_bw", lambda: _count(
             cur, "SELECT count(*) AS n FROM orders WHERE status = 'wait_for_shipping' AND COALESCE(platform, 'BW') = 'BW'"))
+        attempt("bw_new_orders", lambda: _count(
+            cur, "SELECT count(*) AS n FROM orders WHERE status = 'new_order' AND COALESCE(platform, 'BW') = 'BW'"))
         attempt("ship_bol", lambda: _count(cur, "SELECT count(*) AS n FROM orders WHERE status = 'OPEN' AND platform = 'Bol'"))
         attempt("ship_webshop", lambda: _count(
             cur,
