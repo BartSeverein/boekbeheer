@@ -3944,7 +3944,9 @@ def get_webshop_authors():
     )
     books = [{"id": int(r["id"]), "author": r["author"]} for _, r in df[ok].iterrows()]
     _more, pages = _webshop_authors_module().build_authors(books)
-    return sorted(({"slug": p["slug"], "name": p["name"], "count": len(p["books"])} for p in pages),
+    titles = {int(r["id"]): str(r["title"]) for _, r in df[ok].iterrows()}
+    return sorted(({"slug": p["slug"], "name": p["name"], "count": len(p["books"]),
+                    "titles": [titles.get(int(b if not isinstance(b, dict) else b.get("id")), "") for b in p["books"][:3]]} for p in pages),
                   key=lambda a: (-a["count"], a["name"].lower()))
 
 
