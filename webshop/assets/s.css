@@ -102,3 +102,5 @@ input[type=search]{-webkit-appearance:none;appearance:none}
 input[type=search]::-webkit-search-decoration,input[type=search]::-webkit-search-cancel-button,input[type=search]::-webkit-search-results-button,input[type=search]::-webkit-search-results-decoration{display:none;-webkit-appearance:none}
 @media(max-width:640px){.hc{display:flex;flex-direction:column}.hc>.catbox{order:-1}}
 .similar{margin-top:2rem}
+
+main>section[lang]{margin:0 0 1.75rem}
