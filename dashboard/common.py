@@ -526,18 +526,22 @@ def render_logo(path):
             width: auto !important;
         }
         /* Opvallende "bezig"-melding bovenin: alleen zolang Streamlit aan het werk is, en pas na een halve seconde
-           (zodat snelle acties niet flitsen). Het standaard rennende mannetje blijft gewoon bestaan. */
+           (zodat snelle acties niet flitsen). Het standaard rennende mannetje is verborgen. */
         body:has([data-testid="stStatusWidget"])::after {
-            content: "⏳ Even geduld, bezig…";
+            content: "Even geduld, bezig…";
             position: fixed; top: 0.7rem; left: 50%; transform: translateX(-50%);
-            z-index: 999999; padding: 0.55rem 1.4rem; border-radius: 2rem;
-            background: #7c4dcc; color: #fff; font-weight: 600; font-size: 1rem;
+            z-index: 999999; padding: 0.55rem 1.4rem 0.55rem 3.4rem; border-radius: 2rem;
+            background-color: #7c4dcc; color: #fff; font-weight: 600; font-size: 1rem;
+            background-image: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='-14 0 28 24'><path d='M0 4L-12 6V20L0 18Z' fill='%23fff' opacity='.85'/><path d='M0 4L12 6V20L0 18Z' fill='%23fff' opacity='.5'/><g><animateTransform attributeName='transform' type='scale' values='1 1;0.02 1;-1 1;-1 1;1 1' keyTimes='0;0.3;0.6;0.85;1' dur='1.3s' repeatCount='indefinite'/><path d='M0 4L12 6V20L0 18Z' fill='%23fff'/></g><path d='M0 4V18' stroke='%237c4dcc' stroke-width='.8'/></svg>");
+            background-repeat: no-repeat; background-position: 1.1rem center; background-size: 1.9rem 1.6rem;
             box-shadow: 0 4px 14px rgba(0,0,0,0.35);
             opacity: 0; pointer-events: none;
             animation: bezig-in 0.2s ease-out 0.6s forwards, bezig-puls 1.4s ease-in-out 0.8s infinite;
         }
+        /* Het standaard rennende mannetje van Streamlit is niet nodig. */
+        [data-testid="stStatusWidget"] { visibility: hidden !important; }
         @keyframes bezig-in { to { opacity: 1; } }
-        @keyframes bezig-puls { 50% { background: #a47be0; } }
+        @keyframes bezig-puls { 50% { background-color: #a47be0; } }
         </style>
         """,
         unsafe_allow_html=True,
