@@ -634,6 +634,10 @@ def build_site(raw_books, out_dir, cfg=None, *, mode="full", imported_order_ids=
     langs = cfg["langs"]
     foreign = [l for l in langs if l != "nl"]
     css_name, js_name = _write_assets(out_dir, cfg)
+    # Uitleg over het herroepingsrecht (pdf): staat als vast bestand in de hoofdmap, de voorwaarden linken ernaar.
+    herroeping_file = HERE / "assets" / "herroeping_severein.pdf"
+    if herroeping_file.exists():
+        _write(out_dir, "herroeping_severein.pdf", herroeping_file.read_bytes())
     # favicon (Google toont dit icoon naast de zoekresultaten): vaste adressen in de hoofdmap
     icon_file = HERE / "assets" / "icon.png"
     if icon_file.exists():
