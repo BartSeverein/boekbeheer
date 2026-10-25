@@ -122,10 +122,7 @@ class Site:
                 f'data-def="{cfg["default_shipping_cents"]}" data-p="{esc(paths)}" data-rt="{esc(cs)}"')
         cats = ""
         if show_cats and self.categories:
-            cats = f'<nav class="cats" aria-label="{esc(self.t("p_cats"))}"><ul class="cats" style="display:contents;list-style:none;padding:0;margin:0">' + "".join(
-                self._cat_li(c) for c in self.categories
-            ) + (f'<li><a class="more il" href="{self.L("/overige-categorieen/")}">{icon("list")}{esc(self.t("p_more_cats"))}</a></li>'
-                 if self.more_cats else "") + "</ul></nav>"
+            cats = self.cats_nav()
             # Op mobiel achter een knop (alleen CSS: selectievakje + label, werkt zonder JavaScript); op een computer staat de wolk gewoon open.
             cats = (f'<div class="catbox"><input type="checkbox" id="catt" class="sr"><label for="catt" class="il">{icon("list")}'
                     f'{esc(self.t("p_browse_cats"))}</label>{cats}</div>')
@@ -216,6 +213,13 @@ class Site:
         return self.layout(title=self.t("p_home_title"), desc=self.tagline, path="/", body=body, ld=ld,
                            show_cats=True, image=("/" + self.logo[0]) if self.logo else None)
 
+    def cats_nav(self):
+        """De categorieknoppen (in de taal van deze pagina) als losse navigatie."""
+        return (f'<nav class="cats" aria-label="{esc(self.t("p_cats"))}"><ul class="cats" style="display:contents;list-style:none;padding:0;margin:0">' + "".join(
+            self._cat_li(c) for c in self.categories
+        ) + (f'<li><a class="more il" href="{self.L("/overige-categorieen/")}">{icon("list")}{esc(self.t("p_more_cats"))}</a></li>'
+             if self.more_cats else "") + "</ul></nav>")
+
     def _cat_li(self, c):
         """Knop voor een categorie; leidt hij naar subcategorieën, dan staat het lijst-icoon ervoor."""
         href = self.L(c.get("href") or "/categorie/" + c["slug"] + "/")
@@ -285,7 +289,7 @@ class Site:
             "itemListElement": [{"@type": "ListItem", "position": i + 1, "name": t, "item": self.url(self.L(u))} for i, (t, u) in enumerate(crumbs)],
         }, {
             "@context": "https://schema.org", "@type": "CollectionPage", "name": f"{h1}{suffix}", "url": self.url(self.L(path)),
-            "inLanguage": self.lang, "about": {"@type": "Person", "name": name},
+            "inLanguage": self.lang, "about": ({"@type": "Person", "name": name, "description": intro} if intro else {"@type": "Person", "name": name}),
             "isPartOf": {"@type": "WebSite", "name": self.cfg["name"], "url": self.url(self.L("/"))},
         }]
         desc = self.t("p_author_desc", author=name, total=total, suffix=suffix, shop=self.cfg["name"])
@@ -480,14 +484,19 @@ class Site:
     def content_page(self, title, path, inner):
         return self.layout(title=title, desc=title, path=path, body=f"<h1>{esc(title)}</h1>{inner}", scripts=True)
 
-    def not_found(self):
-        """Eén 404-pagina voor alle talen (de server kent maar één ErrorDocument)."""
+    def not_found(self, sites=None):
+        """Eén 404-pagina voor alle talen (de server kent maar één ErrorDocument): per taal de uitleg met daaronder de categorieën in die taal."""
+        sites = sites or {self.lang: self}
         photo = ""
         if self.err_img:
             n, w, h = self.err_img
             photo = f'<p><img class="err" src="/{n}" width="{w}" height="{h}" alt="{esc(i18n.t("p_404_alt", "nl"))}"></p>'
-        # Eerst de foto, dan de titel en de uitleg in alle talen, daaronder de categorieën.
-        body = photo + f"<h1>{esc(i18n.t('p_404_title', 'nl'))}</h1>" + "".join(
-            f'<p lang="{l}">{esc(i18n.t("p_404_text", l))}</p>' for l in i18n.LANGS if l in self.langs) + "<!--CATS-->"
+        parts = []
+        for l in i18n.LANGS:
+            if l not in self.langs:
+                continue
+            nav = sites[l].cats_nav() if l in sites and sites[l].categories else ""
+            parts.append(f'<section lang="{l}"><p>{esc(i18n.t("p_404_text", l))}</p>{nav}</section>')
+        body = photo + f"<h1>{esc(i18n.t('p_404_title', 'nl'))}</h1>" + "".join(parts)
         return self.layout(title=i18n.t("p_404_title", "nl"), desc=i18n.t("p_404_title", "nl"), path="/404.html", body=body,
-                           robots="noindex", show_cats=True)
+                           robots="noindex", show_cats=False)

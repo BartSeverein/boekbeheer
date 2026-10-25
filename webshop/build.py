@@ -730,6 +730,7 @@ def build_site(raw_books, out_dir, cfg=None, *, mode="full", imported_order_ids=
 
     urls = []
     count_pages = 0
+    sites_by_lang = {}   # per taal de pagina-opbouwer: de 404-pagina toont de categorieën in alle talen
     for lang in langs:
         # Knoppen onder de zoekbalk: heeft een hoofdcategorie subcategorieën, dan tonen we die (bijv. Fotografie) en niet
         # de hoofdcategorie zelf (Hobby). Boeken zonder subcategorie houden een knop met de hoofdcategorie.
@@ -881,8 +882,9 @@ def build_site(raw_books, out_dir, cfg=None, *, mode="full", imported_order_ids=
             tpl = _content_template(slug, lang)
             emit(f"/{slug}/", site.content_page(i18n.t(key, lang), f"/{slug}/", _fill(tpl, cfg, lang)))
             urls.append(site.L(f"/{slug}/"))
-        if lang == "nl":
-            _write(out_dir, "404.html", site.not_found())
+        sites_by_lang[lang] = site
+    if "nl" in sites_by_lang:
+        _write(out_dir, "404.html", sites_by_lang["nl"].not_found(sites_by_lang))
 
     # ---- productfeed voor Google Merchant Center (Nederlandse pagina's, verzending naar Nederland)
     _write(out_dir, "feed.txt", _merchant_feed(books, cfg, book_tr, cat_label))
