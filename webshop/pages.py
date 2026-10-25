@@ -496,7 +496,8 @@ class Site:
             if l not in self.langs:
                 continue
             nav = sites[l].cats_nav() if l in sites and sites[l].categories else ""
-            parts.append(f'<section lang="{l}"><p>{esc(i18n.t("p_404_text", l))}</p>{nav}</section>')
+            flag = {"nl": "🇳🇱", "en": "🇬🇧", "de": "🇩🇪", "fr": "🇫🇷"}.get(l, "")
+            parts.append(f'<section lang="{l}"><p>{flag + " " if flag else ""}{esc(i18n.t("p_404_text", l))}</p>{nav}</section>')
         body = photo + f"<h1>{esc(i18n.t('p_404_title', 'nl'))}</h1>" + "".join(parts)
         return self.layout(title=i18n.t("p_404_title", "nl"), desc=i18n.t("p_404_title", "nl"), path="/404.html", body=body,
                            robots="noindex", show_cats=False)
