@@ -525,6 +525,19 @@ def render_logo(path):
             height: 63px !important;
             width: auto !important;
         }
+        /* Opvallende "bezig"-melding bovenin: alleen zolang Streamlit aan het werk is, en pas na een halve seconde
+           (zodat snelle acties niet flitsen). Het standaard rennende mannetje blijft gewoon bestaan. */
+        body:has([data-testid="stStatusWidget"])::after {
+            content: "⏳ Even geduld, bezig…";
+            position: fixed; top: 0.7rem; left: 50%; transform: translateX(-50%);
+            z-index: 999999; padding: 0.55rem 1.4rem; border-radius: 2rem;
+            background: #7c4dcc; color: #fff; font-weight: 600; font-size: 1rem;
+            box-shadow: 0 4px 14px rgba(0,0,0,0.35);
+            opacity: 0; pointer-events: none;
+            animation: bezig-in 0.2s ease-out 0.6s forwards, bezig-puls 1.4s ease-in-out 0.8s infinite;
+        }
+        @keyframes bezig-in { to { opacity: 1; } }
+        @keyframes bezig-puls { 50% { background: #a47be0; } }
         </style>
         """,
         unsafe_allow_html=True,
