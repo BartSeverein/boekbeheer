@@ -883,6 +883,7 @@ else:
 
         current_push_status = "Push" if (pd.isna(b["push_enabled"]) or b["push_enabled"]) else "Geen push"
         st.caption(f"Synchronisatiestatus: **{current_push_status}**")
+        st.caption(f"Laatst gesynchroniseerd met Boekwinkeltjes: {format_datetime_nl(b['last_synced_at'])}")
 
         activity_rows = get_book_activity(chosen_id)
         if activity_rows:
@@ -910,4 +911,3 @@ else:
                     f"{row['user_short_name']} — {action_label} — {format_datetime_nl(row['occurred_at'])}"
                 )
 
-        st.caption(f"Laatst gesynchroniseerd met Boekwinkeltjes: {format_datetime_nl(b['last_synced_at'])}")
