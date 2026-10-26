@@ -492,7 +492,8 @@ class Site:
 
         def block(ic, title, lines):
             body = "".join(f"<p>{x}</p>" for x in lines if x)
-            return f'<section class="cblock"><span class="cic">{icon(ic).replace(" width=\"20\" height=\"20\"", " width=\"32\" height=\"32\"")}</span><div><h2>{esc(title)}</h2>{body}</div></section>'
+            svg = icon(ic).replace(' width="20" height="20"', ' width="32" height="32"')
+            return f'<section class="cblock"><span class="cic">{svg}</span><div><h2>{esc(title)}</h2>{body}</div></section>'
 
         name = cfg.get("copyright_name") or cfg.get("owner_name") or cfg["name"]
         company = [f"<strong>{esc(name)}</strong>"]
