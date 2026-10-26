@@ -104,3 +104,9 @@ input[type=search]::-webkit-search-decoration,input[type=search]::-webkit-search
 .similar{margin-top:2rem}
 
 main>section[lang]{margin:0 0 1.75rem}
+.cblock{display:flex;gap:1rem;align-items:flex-start;margin:1.75rem 0}
+.cblock .cic{flex:none;color:var(--acct);line-height:0;padding-top:.2rem}
+.cblock .cic svg{fill:currentColor;width:2rem;height:2rem}
+.cblock>div{min-width:0}
+.cblock h2{margin:0 0 .5rem}
+.cblock p{margin:.25rem 0}
