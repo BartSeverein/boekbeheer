@@ -365,7 +365,7 @@ def _fill(template, cfg, lang="nl"):
         "kvk": line(kvk_t.format(cfg["kvk"])) if cfg["kvk"] else "", "btw": line(vat_t.format(cfg["vat"])) if cfg["vat"] else "",
         "telefoon": line(tel_t.format(cfg["phone"])) if cfg["phone"] else "", "email": cfg["contact_email"] or "info@example.invalid",
         "landen": ", ".join(i18n.country_name(c, lang) for c in cfg["countries"]), "toeslag": extra, "gratis": free,
-        "buitenland": abroad,
+        "buitenland": abroad, "contact": i18n.localize("/contact/", lang),
     }
     for k, v in values.items():
         template = template.replace("{{" + k + "}}", v)
@@ -878,10 +878,12 @@ def build_site(raw_books, out_dir, cfg=None, *, mode="full", imported_order_ids=
         emit("/winkelwagen/", site.cart_page())
         emit("/afrekenen/", site.checkout_page())
         emit("/bedankt/", site.thanks_page())
-        for slug, key in (("voorwaarden", "p_terms"), ("privacy", "p_privacy")):
+        for slug, key in (("voorwaarden", "p_terms"), ("klachten", "p_complaints"), ("privacy", "p_privacy")):
             tpl = _content_template(slug, lang)
             emit(f"/{slug}/", site.content_page(i18n.t(key, lang), f"/{slug}/", _fill(tpl, cfg, lang)))
             urls.append(site.L(f"/{slug}/"))
+        emit("/contact/", site.contact_page())
+        urls.append(site.L("/contact/"))
         sites_by_lang[lang] = site
     if "nl" in sites_by_lang:
         _write(out_dir, "404.html", sites_by_lang["nl"].not_found(sites_by_lang))

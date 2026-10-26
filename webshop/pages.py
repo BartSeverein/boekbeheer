@@ -151,8 +151,9 @@ class Site:
         )
         footer = (
             f'</main><footer><a href="{self.L("/voorwaarden/")}" class="il">{icon("info")}{esc(self.t("p_terms"))}</a>'
+            f'<a href="{self.L("/klachten/")}" class="il">{icon("gauge_low")}{esc(self.t("p_complaints"))}</a>'
             f'<a href="{self.L("/privacy/")}" class="il">{icon("privacy")}{esc(self.t("p_privacy"))}</a>'
-            + (f'<a href="mailto:{esc(cfg["contact_email"])}" class="il">{icon("mail")}{esc(cfg["contact_email"])}</a>' if cfg["contact_email"] else "")
+            + f'<a href="{self.L("/contact/")}" class="il">{icon("account_details")}{esc(self.t("p_contact"))}</a>'
             + f'<span class="il">{icon("copyright")}2001-{cfg["year"]}, {esc(cfg["copyright_name"])}</span>'
             + "</footer>"
         )
@@ -483,6 +484,40 @@ class Site:
 
     def content_page(self, title, path, inner):
         return self.layout(title=title, desc=title, path=path, body=f"<h1>{esc(title)}</h1>{inner}", scripts=True)
+
+    def contact_page(self):
+        """Contactpagina: bedrijfsgegevens en hoe je mij bereikt, in blokjes met een icoon in de kantlijn."""
+        cfg = self.cfg
+        lang = self.lang
+
+        def block(ic, title, lines):
+            body = "".join(f"<p>{x}</p>" for x in lines if x)
+            return f'<section class="cblock"><span class="cic">{icon(ic).replace(" width=\"20\" height=\"20\"", " width=\"32\" height=\"32\"")}</span><div><h2>{esc(title)}</h2>{body}</div></section>'
+
+        name = cfg.get("copyright_name") or cfg.get("owner_name") or cfg["name"]
+        company = [f"<strong>{esc(name)}</strong>"]
+        if cfg.get("address"):
+            company.append(f'{esc(self.t("p_ct_postal"))}: ' + esc(cfg["address"]).replace("\n", "<br>"))
+            company.append(f'<em>{esc(self.t("p_ct_notvisit"))}</em>')
+        if cfg.get("kvk"):
+            company.append(f'{esc(self.t("p_ct_kvk"))}: {esc(cfg["kvk"])}')
+        if cfg.get("vat"):
+            company.append(f'{esc(self.t("p_ct_vat"))}: {esc(cfg["vat"])}')
+        if cfg.get("iban"):
+            company.append(f'IBAN: {esc(cfg["iban"])}')
+        reach = []
+        if cfg.get("contact_email"):
+            reach.append(f'E-mail: <a href="mailto:{esc(cfg["contact_email"])}">{esc(cfg["contact_email"])}</a>')
+        phone = (cfg.get("phone") or "").strip()
+        if phone:
+            digits = re.sub(r"\D", "", phone)
+            intl = ("+31" + digits[1:]) if (digits.startswith("0") and not phone.startswith("+")) else ("+" + digits)
+            reach.append(f'{esc(self.t("p_ct_phone"))}: {esc(phone if lang == "nl" else intl)}')
+            reach.append(f'WhatsApp: <a href="https://wa.me/{intl.lstrip("+")}" rel="noopener">{esc(self.t("p_ct_click"))}</a>')
+        title = self.t("p_contact")
+        body = (f"<h1>{esc(title)}</h1>" + block("bookshelf", self.t("p_ct_company"), company)
+                + block("card_mail", self.t("p_ct_reach"), reach))
+        return self.layout(title=title, desc=title, path="/contact/", body=body, scripts=True)
 
     def not_found(self, sites=None):
         """Eén 404-pagina voor alle talen (de server kent maar één ErrorDocument): per taal de uitleg met daaronder de categorieën in die taal."""
