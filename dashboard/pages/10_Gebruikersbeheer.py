@@ -12,6 +12,7 @@ Rechten:
 """
 
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import streamlit as st
@@ -21,6 +22,9 @@ from common import (
     require_login,
     get_users_with_stats,
     get_books_added_log,
+    get_todo_extras,
+    add_todo_extra,
+    delete_todo_extra,
     create_user,
     update_user,
     delete_user,
@@ -198,3 +202,48 @@ if my_user:
         totaal = int(counts.sum())
         st.markdown(f"**{u['full_name']}** ({u['short_name']}) — {totaal} in deze periode")
         st.line_chart(counts.rename("Boeken"), height=220, color="#83C9FF")
+
+
+# ---------- Stokken achter de deur: handmatige taken voor de dagelijkse to-do-mail ----------
+import datetime as _dt
+
+st.divider()
+st.subheader("Stokken achter de deur")
+st.write(
+    'Elke ochtend om 7:15 krijgt de beheerder een e-mail met taken die op die dag gedaan moeten worden. '
+    'Een aantal taken liggen vast, zoals pakjes inpakken. Maar soms zijn er taken die het ook waard zijn om de beheerder '
+    'op het hart te drukken. Dat zijn de "stokken achter de deur" die je hier kunt toevoegen.'
+)
+_flash = st.session_state.pop("todo_extra_flash", None)
+if _flash:
+    st.success(_flash)
+
+_vandaag = _dt.datetime.now(ZoneInfo("Europe/Amsterdam")).date()
+_dagen = ["ma", "di", "wo", "do", "vr", "za", "zo"]
+with st.form("todo_extra_form", clear_on_submit=True):
+    c1, c2 = st.columns([1, 4])
+    with c1:
+        extra_date = st.date_input("Datum", value=_vandaag + _dt.timedelta(days=1), min_value=_vandaag, format="DD-MM-YYYY")
+    with c2:
+        extra_text = st.text_input("Taak (een korte regel)", max_chars=200)
+    if st.form_submit_button("Toevoegen"):
+        if not extra_text.strip():
+            st.error("Vul een tekst in.")
+        else:
+            add_todo_extra(extra_date, extra_text, my_short_name)
+            st.session_state["todo_extra_flash"] = f"Toegevoegd voor {_dagen[extra_date.weekday()]} {extra_date.strftime('%d-%m-%Y')}."
+            st.rerun()
+
+_extras = get_todo_extras()
+if _extras:
+    st.caption("Klaar om meegestuurd te worden, eerstvolgende bovenaan. Na het versturen verdwijnt een taak vanzelf uit de lijst.")
+    for e in _extras:
+        d = e["due_date"]
+        c1, c2, c3 = st.columns([2, 10, 1])
+        c1.write(f"{_dagen[d.weekday()]} {d.strftime('%d-%m-%Y')}" + (" (gaat mee met de eerstvolgende mail)" if d < _vandaag else ""))
+        c2.write(e["text"])
+        if c3.button("🗑️", key=f"del_extra_{e['id']}", help="Verwijderen"):
+            delete_todo_extra(e["id"])
+            st.rerun()
+else:
+    st.info("Er staan geen taken klaar.")
