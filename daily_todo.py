@@ -107,6 +107,13 @@ def build_items(counts, weekday):
 
     items.append("Zijn alle e-mails beantwoord?")
 
+    n = counts.get("bw_questions")
+    if n:
+        items.append(
+            f"Er staan {n} klantvragen open bij Boekwinkeltjes. Beantwoord ze en archiveer ze." if n != 1
+            else "Er staat 1 klantvraag open bij Boekwinkeltjes. Beantwoord hem en archiveer hem."
+        )
+
     n = counts.get("bw_new_orders")
     if n:
         items.append(
@@ -204,6 +211,11 @@ def collect_counts(conn, today=None, log=print):
         import bol_client
         return len(bol_client.get_open_invoice_requests())
     attempt("bol_invoice_requests", bol_requests)
+
+    def bw_questions():
+        import api_client
+        return len(api_client.get_open_questions())
+    attempt("bw_questions", bw_questions)
 
     with conn.cursor() as cur:
         attempt("queued", lambda: _count(cur, "SELECT count(*) AS n FROM books WHERE COALESCE(queued, FALSE) = TRUE"))

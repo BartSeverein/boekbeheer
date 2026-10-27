@@ -184,6 +184,18 @@ def delete_book(book_id):
     return _request("DELETE", f"/books/{book_id}")
 
 
+# ---------- Vragen van klanten ----------
+
+def get_open_questions():
+    """
+    Openstaande klantvragen (GET /questions; de niet-gearchiveerde berichten). Geeft een lijst terug zonder lege items.
+    Het antwoord is {"status": ..., "data": [...]}.
+    """
+    data = _request("GET", "/questions", on_404=None)
+    items = data.get("data") if isinstance(data, dict) else data
+    return [q for q in (items or []) if q]
+
+
 # ---------- Orders ----------
 
 def get_orders_page(page=1, **filters):
