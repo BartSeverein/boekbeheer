@@ -2,7 +2,7 @@
 pages/7_Auteursbeheer.py — Korte tekst per auteur voor de auteurspagina's van de webshop.
 
 Een auteur krijgt in de webshop een eigen pagina zodra er minstens 3 boeken van hem of haar te koop staan. Hier kun je per
-auteur een paar zinnen over de schrijver invullen; die komen op de pagina vóór de zin "Er zijn 3 boeken van … in mijn webshop."
+auteur een paar zinnen over de schrijver invullen; die komen op de pagina vóór een zin als "Er zijn 3 boeken van … in mijn webshop."
 De tekst gaat mee met de eerstvolgende volledige webshop-run en wordt daar ook in het Engels, Duits en Frans gezet.
 De teksten blijven bewaard, ook als een auteur door verkoop onder de 3 boeken komt en zijn pagina tijdelijk verdwijnt.
 """
@@ -19,7 +19,7 @@ render_logo(Path(__file__).parent.parent / "assets" / "logo_mail.png")
 require_login()
 st.title("✍️ Auteursbeheer")
 st.caption(
-    "Schrijf een paar zinnen over een auteur. Die komen op de auteurspagina in de webshop, vóór de zin "
+    "Schrijf een paar zinnen over een auteur. Die komen op de auteurspagina in de webshop, vóór een zin als "
     "\"Er zijn 3 boeken van … in mijn webshop.\" Schrijf in het Nederlands; de webshop vertaalt de tekst zelf. "
     "Een auteur zonder tekst ziet er hetzelfde uit als nu. Wijzigingen staan na de eerstvolgende volledige webshop-run online."
 )
@@ -93,7 +93,7 @@ else:
     )
     st.caption(f"Staat op: /auteur/{slug}/")
     if new_text.strip():
-        st.markdown(f"**Zo komt het op de pagina:** {' '.join(new_text.split())} Er zijn {choice['count']} boeken van {name} in mijn webshop.")
+        st.markdown(f"**Zo komt het op de pagina:** {' '.join(new_text.split())} (Daarna volgt een zin over het aantal boeken van {name}.)")
     if st.button("Opslaan", type="primary", key=f"author_save_{slug}"):
         save_author_text(slug, name, new_text)
         st.success("Opgeslagen. Staat online na de eerstvolgende volledige webshop-run.")
