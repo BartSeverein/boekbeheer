@@ -259,3 +259,12 @@ CREATE TABLE IF NOT EXISTS author_texts (
 );
 -- Teksten worden nooit automatisch gewist: ook niet als een auteur tijdelijk onder de 3 boeken komt en zijn pagina verdwijnt.
 ALTER TABLE author_texts ENABLE ROW LEVEL SECURITY;
+
+-- Handmatige taken voor de dagelijkse to-do-mail ("stokken achter de deur"); worden na het versturen verwijderd.
+CREATE TABLE IF NOT EXISTS todo_extras (
+    id SERIAL PRIMARY KEY,
+    due_date DATE NOT NULL,
+    text TEXT NOT NULL,
+    created_by TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);

@@ -125,6 +125,7 @@ def build_items(counts, weekday):
         )
 
     items.extend(DAY_ITEMS.get(weekday, []))
+    items.extend(e["text"] for e in (counts.get("extras") or []))   # 'stokken achter de deur' uit Gebruikersbeheer
 
     n = counts.get("slow_movers")
     if n:
@@ -244,6 +245,15 @@ def collect_counts(conn, today=None, log=print):
                 have = set()
             return sum(1 for p in pages if p["slug"] not in have)
         attempt("authors_without_text", authors)
+
+        def extras():
+            # Handmatige taken uit Gebruikersbeheer die voor vandaag (of eerder, mocht een mail zijn gemist) bedoeld zijn.
+            cur.execute(TODO_EXTRAS_DDL)
+            cur.execute("SELECT id, text FROM todo_extras WHERE due_date <= %(d)s ORDER BY due_date, id", {"d": today})
+            rows = [{"id": int(r["id"]), "text": r["text"]} for r in cur.fetchall()]
+            conn.commit()
+            return rows
+        attempt("extras", extras)
     return counts
 
 
@@ -264,6 +274,35 @@ def clean_publishers(conn, log=print):
         return None
 
 
+TODO_EXTRAS_DDL = """
+CREATE TABLE IF NOT EXISTS todo_extras (
+    id SERIAL PRIMARY KEY,
+    due_date DATE NOT NULL,
+    text TEXT NOT NULL,
+    created_by TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+)
+"""
+
+
+def delete_sent_extras(ids, log=print):
+    """Haalt de taken die in de mail hebben gestaan uit de lijst."""
+    if not ids:
+        return
+    from db import get_connection
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM todo_extras WHERE id = ANY(%(ids)s)", {"ids": list(ids)})
+        conn.commit()
+        log(f"To-do-mail: {len(ids)} 'stok(ken) achter de deur' uit de lijst gehaald.")
+    except Exception as exc:
+        conn.rollback()
+        log(f"To-do-mail: stokken achter de deur verwijderen mislukt ({exc}).")
+    finally:
+        conn.close()
+
+
 def run(log=print):
     """Telt, bouwt de mail en verstuurt hem. Geeft de tekst terug (handig bij testen)."""
     import notifications
@@ -279,5 +318,6 @@ def run(log=print):
     body = build_body(counts, now.weekday())
     to = os.environ.get("TODO_MAIL_TO") or DEFAULT_TO
     notifications.send_email(SUBJECT, body, to=to)
+    delete_sent_extras([e["id"] for e in (counts.get("extras") or [])], log=log)   # pas na het versturen
     log(f"To-do-mail verstuurd naar {to}: {counts}")
     return body
