@@ -13,6 +13,7 @@ from pathlib import Path
 
 from common import (
     load_books,
+    get_long_description,
     load_orders,
     find_main_image_index,
     get_all_images,
@@ -242,6 +243,8 @@ else:
 
     if chosen_id is not None and chosen_id in books["id"].values:
         b = books[books["id"] == chosen_id].iloc[0]
+        b = b.copy()
+        b["long_description"] = get_long_description(int(chosen_id))   # load_books laat deze zware kolom weg
 
         st.markdown(f"## {b['title']}")
 

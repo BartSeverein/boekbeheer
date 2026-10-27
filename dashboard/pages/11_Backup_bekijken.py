@@ -160,7 +160,7 @@ with tab_compare:
     if backup_books is None:
         st.info("Geen boekenbestand in deze back-up.")
     else:
-        now_books = load_books()
+        now_books = load_books(full=True)
         only_backup, only_now, diffs = compare_books(backup_books, now_books)
         diffs = add_titles(diffs, backup_books, now_books)
         changed_books = diffs["id"].nunique() if not diffs.empty else 0
@@ -251,7 +251,7 @@ with tab_bw:
             source = st.radio("Vergelijken met", ["App nu (database)", "De geopende back-up"], horizontal=True,
                               key="bw_source")
             if source == "App nu (database)":
-                left_books, left_orders, left_name = load_books(), load_orders(include_tests=True), "App"
+                left_books, left_orders, left_name = load_books(full=True), load_orders(include_tests=True), "App"
             else:
                 left_books, left_orders, left_name = backup_books, backup_orders, "Back-up"
             if left_books is None:
