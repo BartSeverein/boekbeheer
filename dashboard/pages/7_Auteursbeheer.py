@@ -50,8 +50,21 @@ _w.writerow(["slug", "naam", "aantal_boeken", "voorbeeldtitels"])
 for a in authors:
     if a["slug"] not in with_text:
         _w.writerow([a["slug"], a["name"], a["count"], " | ".join(t for t in a.get("titles", []) if t)])
-st.download_button("⬇️ Lijst auteurs zonder tekst (CSV)", _buf.getvalue().encode("utf-8-sig"),
-                   file_name="auteurs_zonder_tekst.csv", mime="text/csv")
+# Bewaarde teksten van auteurs die nu geen pagina hebben
+current_slugs = {a["slug"] for a in authors}
+parked = {s: v for s, v in texts.items() if s not in current_slugs and (v.get("text") or "").strip()}
+
+_buf2 = io.StringIO()
+_w2 = csv.writer(_buf2, delimiter=";")
+_w2.writerow(["slug", "naam", "tekst"])
+for _s, _v in sorted(parked.items(), key=lambda kv: (kv[1]["name"] or kv[0]).lower()):
+    _w2.writerow([_s, _v["name"] or _s, _v["text"]])
+
+_b1, _b2, _ = st.columns([1, 1, 2])
+_b1.download_button("⬇️ Lijst auteurpagina's zonder tekst", _buf.getvalue().encode("utf-8-sig"),
+                    file_name="auteurs_zonder_tekst.csv", mime="text/csv")
+_b2.download_button("⬇️ Lijst teksten zonder auteurspagina", _buf2.getvalue().encode("utf-8-sig"),
+                    file_name="teksten_zonder_auteurspagina.csv", mime="text/csv")
 
 only_missing = st.checkbox("Alleen auteurs zonder tekst tonen", value=True)
 search = st.text_input("Zoek een auteur", placeholder="bijvoorbeeld Manara").strip().lower()
@@ -85,9 +98,6 @@ else:
         st.success("Opgeslagen. Staat online na de eerstvolgende volledige webshop-run.")
         st.rerun()
 
-# Bewaarde teksten van auteurs die nu geen pagina hebben
-current_slugs = {a["slug"] for a in authors}
-parked = {s: v for s, v in texts.items() if s not in current_slugs and (v.get("text") or "").strip()}
 if parked:
     st.divider()
     st.subheader("Bewaarde teksten zonder pagina")
@@ -95,7 +105,26 @@ if parked:
         "Van deze auteurs staan nu minder dan 3 boeken in de webshop, dus er is geen pagina. De tekst blijft bewaard en komt "
         "terug zodra er weer 3 boeken te koop staan."
     )
-    st.dataframe(
-        pd.DataFrame([{"Auteur": v["name"] or s, "Tekst": v["text"]} for s, v in sorted(parked.items(), key=lambda kv: (kv[1]["name"] or kv[0]).lower())]),
-        hide_index=True, use_container_width=True,
+    _flash = st.session_state.pop("parked_saved", None)
+    if _flash:
+        st.success(_flash)
+    _df = pd.DataFrame(
+        [{"slug": s, "Auteur": v["name"] or s, "Tekst": v["text"]} for s, v in sorted(parked.items(), key=lambda kv: (kv[1]["name"] or kv[0]).lower())]
+    ).set_index("slug")
+    st.caption("Klik op een tekst om hem aan te passen. Maak de tekst leeg om hem te wissen.")
+    _edited = st.data_editor(
+        _df, hide_index=True, width="stretch", key="parked_editor", disabled=["Auteur"],
+        column_config={"Auteur": st.column_config.TextColumn(width="small"), "Tekst": st.column_config.TextColumn(width="large")},
     )
+    if st.button("Wijzigingen opslaan", type="primary", key="parked_save"):
+        _n = 0
+        for _slug, _row in _edited.iterrows():
+            _new = " ".join(str(_row["Tekst"] or "").split())
+            if _new != " ".join(str(_df.loc[_slug, "Tekst"]).split()):
+                save_author_text(_slug, parked[_slug]["name"], _new)
+                _n += 1
+        if _n:
+            st.session_state["parked_saved"] = f"{_n} tekst(en) opgeslagen."
+            st.rerun()
+        else:
+            st.info("Er is niets gewijzigd.")
