@@ -10,6 +10,7 @@ De beschrijvingen van boeken en de categorienamen gaan via DeepL (translate.py).
 """
 
 import re
+import zlib
 
 LANGS = ("nl", "en", "de", "fr")
 IDX = {l: i for i, l in enumerate(LANGS)}
@@ -385,6 +386,110 @@ _LANG_ALIAS.update({
     "tur": "tr", "afr": "af", "ind": "id", "jpn": "ja", "jp": "ja", "chi": "zh", "zho": "zh", "heb": "he", "ara": "ar",
     "gb": "en", "us": "en", "uk": "en", "be": "nl",
 })
+
+# Slotzin van een auteurspagina, in elke taal 19 varianten. De variant hangt af van de auteur (vaste hash van de slug,
+# geen toeval per build), zodat een pagina tussen twee runs identiek blijft: geen onnodige uploads en voor zoekmachines
+# een stabiele pagina. {N} wordt "35" of, bij 10 of meer, "maar liefst 35" (in de eigen taal); {D} is hetzelfde, maar in de
+# derde naamval (alleen Duits verschilt: "ganzen 35"); {a} is de auteursnaam; {de} (Frans) is "de " of "d'" voor een klinker.
+AUTHOR_INTRO = {
+    "nl": (
+        "Er zijn {N} boeken van {a} in mijn webshop.",
+        "Mijn actuele voorraad bevat {N} boeken van {a}.",
+        "Je vindt hier momenteel een aanbod van {N} boeken van {a}.",
+        "Er zijn op dit moment {N} exemplaren van {a} direct leverbaar.",
+        "In mijn boekenkasten staan {N} titels van {a}.",
+        "De webshop beschikt nu over {N} verschillende boeken van {a}.",
+        "In deze categorie staan op dit moment {N} boeken van {a} online.",
+        "Van {a}-boeken heb ik er nu {N} stuks in mijn webshop.",
+        "Ik heb momenteel {N} boeken van {a} in het assortiment.",
+        "Er staan hier nu {N} boeken van {a} klaar voor verzending.",
+        "Ik heb {N} boeken van {a} op voorraad.",
+        "Kies jouw favoriet uit de {N} boeken van {a} die nu online staan.",
+        "Duik in mijn collectie en ontdek {N} prachtige boeken van {a}.",
+        "Je kunt direct aan de slag met een keuze uit {N} boeken van {a}.",
+        "Breid je verzameling uit met een van de {N} {a}-boeken in mijn winkel.",
+        "Welke ontbreekt er nog? Je vindt hier {N} boeken van {a}.",
+        "Neem gerust een kijkje tussen de {N} boeken van {a} die ik voor je klaar heb staan.",
+        "Je hebt hier de keuze uit {N} boeken van {a}.",
+        "Vind precies de {a} die je zoekt tussen deze {N} beschikbare boeken.",
+    ),
+    "en": (
+        "There are {N} books by {a} in my webshop.",
+        "My current stock includes {N} books by {a}.",
+        "You'll currently find {N} books by {a} on offer here.",
+        "Right now, {N} books by {a} are ready for immediate delivery.",
+        "On my bookshelves you'll find {N} titles by {a}.",
+        "The shop currently has {N} different books by {a}.",
+        "At the moment, {N} books by {a} are online in this category.",
+        "I now have {N} {a} books in my webshop.",
+        "I currently have {N} books by {a} in my range.",
+        "There are {N} books by {a} here, ready to ship.",
+        "I have {N} books by {a} in stock.",
+        "Pick your favourite from {N} books by {a} that are online now.",
+        "Dive into my collection and discover {N} wonderful books by {a}.",
+        "You can get started right away with a choice of {N} books by {a}.",
+        "Expand your collection with one of {N} {a} books in my shop.",
+        "Which one are you still missing? Here you'll find {N} books by {a}.",
+        "Feel free to browse through {N} books by {a} that I have ready for you.",
+        "You have a choice of {N} books by {a} here.",
+        "Find exactly the book by {a} you're looking for among {N} available books.",
+    ),
+    "de": (
+        "Es gibt {N} Bücher von {a} in meinem Webshop.",
+        "Mein aktueller Bestand umfasst {N} Bücher von {a}.",
+        "Hier finden Sie derzeit {N} Bücher von {a} im Angebot.",
+        "Aktuell sind {N} Bücher von {a} sofort lieferbar.",
+        "In meinen Bücherregalen stehen {N} Titel von {a}.",
+        "Der Webshop bietet derzeit {N} verschiedene Bücher von {a}.",
+        "In dieser Kategorie sind im Moment {N} Bücher von {a} online.",
+        "Von {a} habe ich jetzt {N} Bücher in meinem Webshop.",
+        "Ich habe derzeit {N} Bücher von {a} im Sortiment.",
+        "Hier stehen jetzt {N} Bücher von {a} versandbereit.",
+        "Ich habe {N} Bücher von {a} auf Lager.",
+        "Wählen Sie Ihren Favoriten unter {D} Büchern von {a}, die jetzt online sind.",
+        "Stöbern Sie in meiner Sammlung und entdecken Sie {N} wunderbare Bücher von {a}.",
+        "Sie können sofort loslegen mit einer Auswahl von {D} Büchern von {a}.",
+        "Erweitern Sie Ihre Sammlung mit einem von {D} Büchern von {a} in meinem Shop.",
+        "Welches fehlt Ihnen noch? Hier finden Sie {N} Bücher von {a}.",
+        "Schauen Sie gern in {N} Bücher von {a} hinein, die ich für Sie bereithalte.",
+        "Hier haben Sie die Wahl aus {D} Büchern von {a}.",
+        "Finden Sie genau das Buch von {a}, das Sie suchen, unter {D} verfügbaren Büchern.",
+    ),
+    "fr": (
+        "Il y a {N} livres {de}{a} dans ma boutique en ligne.",
+        "Mon stock actuel compte {N} livres {de}{a}.",
+        "Vous trouverez ici une offre actuelle de {N} livres {de}{a}.",
+        "Actuellement, {N} livres {de}{a} sont livrables immédiatement.",
+        "Dans mes bibliothèques, il y a {N} titres {de}{a}.",
+        "La boutique propose actuellement {N} livres différents {de}{a}.",
+        "Dans cette catégorie, {N} livres {de}{a} sont en ligne en ce moment.",
+        "Des livres {de}{a}, j'en ai maintenant {N} dans ma boutique en ligne.",
+        "J'ai actuellement {N} livres {de}{a} dans mon assortiment.",
+        "Il y a ici {N} livres {de}{a} prêts à être expédiés.",
+        "J'ai {N} livres {de}{a} en stock.",
+        "Choisissez votre préféré parmi {N} livres {de}{a} actuellement en ligne.",
+        "Plongez dans ma collection et découvrez {N} beaux livres {de}{a}.",
+        "Vous pouvez vous lancer tout de suite avec un choix de {N} livres {de}{a}.",
+        "Enrichissez votre collection avec un livre {de}{a} choisi parmi {N} titres dans ma boutique.",
+        "Lequel vous manque encore ? Vous trouverez ici {N} livres {de}{a}.",
+        "Jetez volontiers un œil à {N} livres {de}{a} que je garde à votre disposition.",
+        "Vous avez ici le choix entre {N} livres {de}{a}.",
+        "Trouvez exactement le livre {de}{a} que vous cherchez parmi {N} livres disponibles.",
+    ),
+}
+AUTHOR_MANY = {"nl": "maar liefst {n}", "en": "as many as {n}", "de": "ganze {n}", "fr": "pas moins de {n}"}
+AUTHOR_MANY_DAT = {"de": "ganzen {n}"}
+
+
+def author_intro(lang, total, author, slug):
+    variants = AUTHOR_INTRO.get(lang) or AUTHOR_INTRO["nl"]
+    tpl = variants[zlib.crc32(slug.encode("utf-8")) % len(variants)]
+    n, d = str(total), str(total)
+    if total >= 10:
+        n = AUTHOR_MANY.get(lang, "{n}").format(n=total)
+        d = AUTHOR_MANY_DAT.get(lang, AUTHOR_MANY.get(lang, "{n}")).format(n=total)
+    de = "d'" if (lang == "fr" and author[:1].lower() in "aeiouyàâéèêëîïôùûœ") else "de "
+    return tpl.replace("{N}", n).replace("{D}", d).replace("{a}", author).replace("{de}", de)
 
 
 def t(key, lang="nl", **kw):

@@ -283,7 +283,7 @@ class Site:
         suffix = " " + self.t("p_page_n", n=page) if page > 1 else ""
         path = base if page == 1 else f"{base}pagina/{page}/"
         h1 = self.t("p_author_h1", author=name)
-        body = nav + f"<h1>{esc(h1)}{esc(suffix)}</h1><p>{esc((intro + ' ') if intro else '')}{esc(self.t('p_author_intro', total=total, author=name))}</p>" + \
+        body = nav + f"<h1>{esc(h1)}{esc(suffix)}</h1><p>{esc((intro + ' ') if intro else '')}{esc(i18n.author_intro(self.lang, total, name, slug))}</p>" + \
             self.grid(books) + self.pager(base, page, pages)
         ld = [{
             "@context": "https://schema.org", "@type": "BreadcrumbList",
