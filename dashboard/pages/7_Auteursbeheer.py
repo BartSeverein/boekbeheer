@@ -60,7 +60,8 @@ _w2.writerow(["slug", "naam", "tekst"])
 for _s, _v in sorted(parked.items(), key=lambda kv: (kv[1]["name"] or kv[0]).lower()):
     _w2.writerow([_s, _v["name"] or _s, _v["text"]])
 
-_b1, _b2, _ = st.columns([1, 1, 2])
+_l, _b1, _b2, _ = st.columns([0.7, 1.4, 1.4, 2], vertical_alignment="center")
+_l.markdown("**Downloads:**")
 _b1.download_button("⬇️ Lijst auteurpagina's zonder tekst", _buf.getvalue().encode("utf-8-sig"),
                     file_name="auteurs_zonder_tekst.csv", mime="text/csv")
 _b2.download_button("⬇️ Lijst teksten zonder auteurspagina", _buf2.getvalue().encode("utf-8-sig"),
