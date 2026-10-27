@@ -325,6 +325,58 @@ def get_books_added_log():
         conn.close()
 
 
+TODO_EXTRAS_DDL = """
+CREATE TABLE IF NOT EXISTS todo_extras (
+    id SERIAL PRIMARY KEY,
+    due_date DATE NOT NULL,
+    text TEXT NOT NULL,
+    created_by TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+)
+"""
+
+
+def get_todo_extras():
+    """'Stokken achter de deur': handmatig toegevoegde taken voor de dagelijkse to-do-mail, eerstvolgende eerst."""
+    conn = _dict_connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(TODO_EXTRAS_DDL)
+            cur.execute("SELECT id, due_date, text, created_by FROM todo_extras ORDER BY due_date, id")
+            rows = cur.fetchall()
+        conn.commit()
+        return rows
+    finally:
+        conn.close()
+
+
+def add_todo_extra(due_date, text, created_by=None):
+    text = (text or "").strip()
+    if not text:
+        return
+    conn = _dict_connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(TODO_EXTRAS_DDL)
+            cur.execute(
+                "INSERT INTO todo_extras (due_date, text, created_by) VALUES (%(d)s, %(t)s, %(u)s)",
+                {"d": due_date, "t": text, "u": created_by},
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def delete_todo_extra(extra_id):
+    conn = _dict_connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM todo_extras WHERE id = %(id)s", {"id": int(extra_id)})
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def create_user(full_name, short_name, email, password):
     """Nieuwe gebruikers krijgen altijd de rol 'gebruiker' — 'beheerder' wordt niet via de UI uitgedeeld."""
     digest, salt = _hash_password(password)
