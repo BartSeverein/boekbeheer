@@ -652,11 +652,45 @@ def get_db_url():
     return os.environ["SUPABASE_DB_URL"]
 
 
+_BOOK_COLS_LIGHT = None   # kolomnamen van books zonder de lange beschrijving (eenmalig opgehaald)
+
+
 @st.cache_data(ttl=300)
-def load_books():
+def load_books(full=False):
+    """
+    Alle boeken. Standaard ZONDER de lange beschrijving: die is het zwaarst en bijna niemand heeft hem nodig, terwijl
+    elke keer dat deze cache vervalt de hele tabel uit de database wordt gehaald (dat telt mee in het dataverbruik van
+    Supabase). Boekdetails haalt de lange tekst van één boek apart op (get_long_description); de back-upvergelijking
+    gebruikt full=True.
+    """
+    global _BOOK_COLS_LIGHT
     conn = psycopg2.connect(get_db_url())
     try:
-        return pd.read_sql("SELECT * FROM books", conn)
+        if full:
+            return pd.read_sql("SELECT * FROM books", conn)
+        if _BOOK_COLS_LIGHT is None:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() "
+                    "AND table_name = 'books' AND column_name <> 'long_description' ORDER BY ordinal_position"
+                )
+                _BOOK_COLS_LIGHT = [r[0] for r in cur.fetchall()]
+        if not _BOOK_COLS_LIGHT:
+            return pd.read_sql("SELECT * FROM books", conn)
+        cols = ", ".join('"' + c + '"' for c in _BOOK_COLS_LIGHT)
+        return pd.read_sql(f"SELECT {cols} FROM books", conn)
+    finally:
+        conn.close()
+
+
+def get_long_description(book_id):
+    """De lange beschrijving van één boek (zie load_books)."""
+    conn = psycopg2.connect(get_db_url())
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT long_description FROM books WHERE id = %(id)s", {"id": int(book_id)})
+            row = cur.fetchone()
+        return (row[0] if row else None) or ""
     finally:
         conn.close()
 
