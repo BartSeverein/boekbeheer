@@ -434,6 +434,9 @@ class Site:
             desc = trim(f"{head_txt} {self.t('p_sold_meta', shop=cfg['name'])}", 158)
         else:
             tail = self.t("p_meta_book", price=self.eur(b["price_cents"]))
+            _isbn = re.sub(r"\D", "", b.get("isbn") or "")
+            if len(_isbn) == 13:   # mensen zoeken vaak op ISBN: in de omschrijving komt het fragment dan vet in het zoekresultaat
+                tail = f"ISBN {_isbn}. {tail}"
             # Middenstuk: de bijzonderheden, anders het begin van de beschrijving; het past precies in wat er van de 158 tekens overblijft.
             mid = short
             if not mid:
