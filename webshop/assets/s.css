@@ -23,6 +23,8 @@ button.ghost:hover:not([disabled]){background:var(--card);color:var(--fg)}
 .ship .i{margin-top:.15rem}
 header #cartlink{text-decoration:none;color:var(--fg);font-weight:600;padding:.4rem .6rem;border-radius:.4rem}
 header #cartlink:hover{background:var(--card)}
+.keur{display:flex;align-items:center;margin-left:.25rem}.keur img{display:block;height:2.4rem;width:auto}.keur .ki{display:none}
+.buyrow{display:flex;align-items:center;gap:.9rem;flex-wrap:wrap}.keur-i img{display:block;height:2.6rem;width:auto}
 button[disabled]{opacity:.55;cursor:default}
 header button{flex:none}
 nav.cats{display:flex;flex-wrap:wrap;gap:.4rem;margin:.5rem 0 1rem;padding:0;list-style:none}
@@ -85,6 +87,7 @@ nav.lang a[aria-current]{font-weight:700;color:var(--fg)}
 header .cn{color:var(--mut);font-weight:600}
 @media(max-width:640px){
 header{flex-wrap:nowrap}
+.keur .kf{display:none}.keur .ki{display:block}
 header form{display:none}
 .sbtn{display:inline-flex;margin-left:auto;padding:.4rem .6rem;border-radius:.4rem;color:var(--fg)}
 .sbtn:hover{background:var(--card)}
