@@ -401,6 +401,40 @@ Alle taken roepen GitHub aan om een workflow te starten. Bij een HTTP-fout is di
 
 st.divider()
 
+# Blauwtinten voor de taarten Boeken per conditie, Boeken per taal en Orders per status: van licht (#83C9FF) naar donker
+# (#00386C), gelijkmatig verdeeld; bij taal en status hoe hoger de waarde hoe lichter.
+_BLUE_SCALE = ["#83C9FF", "#269CFF", "#0068C9", "#00386C"]
+
+
+def _blue_shades(n):
+    """n tinten uit _BLUE_SCALE, gelijkmatig verdeeld van licht naar donker (bij 1 stuk het lichtste)."""
+    if n <= 0:
+        return []
+    if n == 1:
+        return [_BLUE_SCALE[0]]
+    rgb = [tuple(int(c[i:i + 2], 16) for i in (1, 3, 5)) for c in _BLUE_SCALE]
+    out = []
+    for k in range(n):
+        pos = k * (len(rgb) - 1) / (n - 1)
+        lo = int(pos)
+        hi = min(lo + 1, len(rgb) - 1)
+        frac = pos - lo
+        mix = tuple(round(rgb[lo][j] + (rgb[hi][j] - rgb[lo][j]) * frac) for j in range(3))
+        out.append("#%02X%02X%02X" % mix)
+    return out
+
+
+def _blue_pie(df, names, values, grey=()):
+    """Taart waarbij de grootste punt het lichtst is en de kleinste het donkerst; namen in 'grey' (Onbekend, Overig) worden grijs."""
+    df = df.sort_values(values, ascending=False).reset_index(drop=True)
+    colored = [n for n in df[names] if n not in grey]
+    shades = dict(zip(colored, _blue_shades(len(colored))))
+    cmap = {n: shades.get(n, "#9E9E9E") for n in df[names]}
+    fig = px.pie(df, names=names, values=values, color=names, color_discrete_map=cmap)
+    fig.update_traces(sort=False)
+    return fig
+
+
 # ---------- Orderstatus overzicht + Boeken van Rick ----------
 
 left1, right1 = st.columns(2)
@@ -411,7 +445,7 @@ with left1:
     if not orders_bw.empty:
         status_counts = orders_bw["status"].map(format_order_status).value_counts().reset_index()
         status_counts.columns = ["status", "aantal"]
-        fig = px.pie(status_counts, names="status", values="aantal")
+        fig = _blue_pie(status_counts, "status", "aantal")
         st.plotly_chart(fig, width="stretch")
     else:
         st.info("Nog geen orders om te tonen.")
@@ -462,13 +496,8 @@ with left3:
                 values="aantal",
                 category_orders={"conditie": BOL_CONDITION_ORDER},
                 color="conditie",
-                # Tinten blauw uit de rest van de app. 'Als nieuw' en 'Redelijk' zijn het lichtste en donkerste blauw
-                # van de opslaggrafiek hiernaast. 'Goed' ligt precies halverwege; elke stap (D) is even groot in
-                # helderheid, dus 'Nieuw' is D lichter dan 'Als nieuw' en 'Matig' is D donkerder dan 'Redelijk'.
-                color_discrete_map={
-                    "Nieuw": "#E0F1FF", "Als nieuw": "#83C9FF", "Goed": "#269CFF",
-                    "Redelijk": "#0068C9", "Matig": "#00386C", "Onbekend": "#9E9E9E",
-                },
+                # Zelfde blauwtinten als de andere taarten (_blue_shades): 'Nieuw' het lichtst, 'Matig' het donkerst.
+                color_discrete_map={**dict(zip(["Nieuw", "Als nieuw", "Goed", "Redelijk", "Matig"], _blue_shades(5))), "Onbekend": "#9E9E9E"},
             )
             fig_condition.update_traces(sort=False, textinfo="label+percent")
             st.plotly_chart(fig_condition, width="stretch")
@@ -509,7 +538,7 @@ with right3:
                 _counts["Overig (" + str(len(_small)) + " talen)"] = _small.sum()
             _df_lang = _counts.reset_index()
             _df_lang.columns = ["taal", "aantal boeken"]
-            fig_lang = px.pie(_df_lang, names="taal", values="aantal boeken")
+            fig_lang = _blue_pie(_df_lang, "taal", "aantal boeken", grey=("Onbekend",) + tuple(n for n in _df_lang["taal"] if str(n).startswith("Overig")))
             fig_lang.update_traces(textinfo="label+percent")
             st.plotly_chart(fig_lang, width="stretch")
             st.caption("Van de verkoopvoorraad.")
