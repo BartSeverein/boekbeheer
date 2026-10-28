@@ -61,6 +61,7 @@ DAY_ITEMS = {
         PRIMERA_DHL,
         CHECK_BOL,
         "Voer vandaag minimaal 15 boeken in.",
+        "Ruim in Bol de boeken op die verkocht zijn (voorraad=0).",
         "Doe tussen fysio en avondeten max anderhalf uur boekhouding. Drie kwartier 2025, Drie kwartier 2026.",
     ],
 }
