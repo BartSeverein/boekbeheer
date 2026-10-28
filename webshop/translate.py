@@ -55,7 +55,8 @@ class PgStore:
                 """
                 CREATE TABLE IF NOT EXISTS shop_translations (
                     lang TEXT NOT NULL, src_hash TEXT NOT NULL, src TEXT NOT NULL, tgt TEXT NOT NULL,
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT now(), PRIMARY KEY (lang, src_hash))
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now(), PRIMARY KEY (lang, src_hash));
+                ALTER TABLE shop_translations ENABLE ROW LEVEL SECURITY;
                 """
             )
         conn.commit()
