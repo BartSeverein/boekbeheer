@@ -18,6 +18,9 @@ def esc(value):
     return html.escape("" if value is None else str(value), quote=True)
 
 
+KEUR_URL = "https://www.webwinkelkeur.nl/webshop/Severein_1226651"   # eigen pagina bij WebwinkelKeur (alleen in de kop gelinkt)
+
+
 def trim(text, limit):
     text = re.sub(r"\s+", " ", (text or "")).strip()
     if len(text) <= limit:
@@ -37,6 +40,7 @@ class Site:
         self.cfg = cfg
         self.logo = logo  # (bestandsnaam, breedte, hoogte) of None
         self.err_img = None  # foto voor de 404-pagina: (bestandsnaam, breedte, hoogte)
+        self.keur = None  # keurmerk (alleen Nederlands): {"full": (naam, b, h), "icon": (naam, b, h)}
         self.css = css_name
         self.js = js_name
         self.categories = categories  # lijst van dicts: label, slug, count, (href: Nederlands pad)
@@ -140,6 +144,12 @@ class Site:
                 cur = ' aria-current="true"' if l == lang else ""
                 items.append(f'<a href="{href}" hreflang="{l}" lang="{l}" title="{esc(i18n.LANG_NAME[l])}"{cur}>{i18n.LANG_LABEL[l]}</a>')
             switch = f'<nav class="lang" aria-label="{esc(self.t("p_lang"))}">{"".join(items)}</nav>'
+        keur = ""
+        if self.keur:
+            kf, ki = self.keur["full"], self.keur["icon"]
+            keur = (f'<a class="keur" href="{KEUR_URL}" target="_blank" rel="noopener" title="WebwinkelKeur" aria-label="WebwinkelKeur">'
+                    f'<img class="kf" src="/{kf[0]}" width="{kf[1]}" height="{kf[2]}" alt="WebwinkelKeur">'
+                    f'<img class="ki" src="/{ki[0]}" width="{ki[1]}" height="{ki[2]}" alt=""></a>')
         header = (
             f'<body {data}>{promo}{switch}<header><a class="brand" href="{self.L("/")}">{brand}</a>'
             f'<a href="{self.L("/zoeken/")}" id="sbtn" class="sbtn" aria-label="{esc(self.t("p_search"))}" aria-controls="sform" aria-expanded="false">{icon("search")}</a>'
@@ -147,7 +157,7 @@ class Site:
             f'<input type="search" name="q" placeholder="{esc(self.t("p_search_ph"))}" aria-label="{esc(self.t("p_search"))}" minlength="2" required>'
             f'<button type="submit" aria-label="{esc(self.t("p_search_btn"))}" title="{esc(self.t("p_search_btn"))}">{icon("search")}</button>'
             f'<button type="button" class="sclose ghost" aria-label="{esc(self.t("p_close"))}">{icon("close")}</button></form>'
-            f'<a href="{self.L("/winkelwagen/")}" id="cartlink" class="il" rel="nofollow">{icon("cart")}<span id="cartlabel">{esc(self.t("p_cart"))}</span><span id="cartn" class="cn"></span></a></header><main>'
+            f'<a href="{self.L("/winkelwagen/")}" id="cartlink" class="il" rel="nofollow">{icon("cart")}<span id="cartlabel">{esc(self.t("p_cart"))}</span><span id="cartn" class="cn"></span></a>{keur}</header><main>'
         )
         footer = (
             f'</main><footer><a href="{self.L("/voorwaarden/")}" class="il">{icon("info")}{esc(self.t("p_terms"))}</a>'
@@ -337,12 +347,17 @@ class Site:
         stock_note = self.t("p_copies", n=b["amount"]) if b["amount"] > 1 else ""
         free = self.free_amount()
         free_line = f'<p class="small">{esc(self.t("p_free_book", amount=free))}</p>' if free else ""
+        keur_i = ""
+        if self.keur:
+            ki = self.keur["icon"]
+            # Bewust geen link: het is alleen een extra geruststelling, en niemand moet hier per ongeluk heen klikken i.p.v. naar de winkelwagen.
+            keur_i = (f'<span class="keur-i"><img src="/{ki[0]}" width="{ki[1]}" height="{ki[2]}" alt="WebwinkelKeur" title="WebwinkelKeur"></span>')
         buy = (
             f'<p class="price">{self.eur(b["price_cents"])}</p><p class="ship il">{icon("truck")}<span>{esc(self.t("p_in_stock"))}{esc(stock_note)}. '
             f'{esc(self.t("p_ship_line" if len(cfg["countries"]) > 1 else "p_ship_line_one", ship=ship))}</span></p>'
             f'{free_line}'
-            f'<p><button type="button" class="add" data-id="{b["id"]}" data-title="{esc(b["title"])}" data-price="{b["price_cents"]}" '
-            f'data-ship="{b["ship_cents"]}" data-big="{b["big"]}" data-max="{b["amount"]}" data-url="{path}"{thumb_attr}>{icon("cart_plus")}<span>{esc(self.t("p_add"))}</span></button></p>'
+            f'<p class="buyrow"><button type="button" class="add" data-id="{b["id"]}" data-title="{esc(b["title"])}" data-price="{b["price_cents"]}" '
+            f'data-ship="{b["ship_cents"]}" data-big="{b["big"]}" data-max="{b["amount"]}" data-url="{path}"{thumb_attr}>{icon("cart_plus")}<span>{esc(self.t("p_add"))}</span></button>{keur_i}</p>'
             f'<p id="added" hidden><a href="{self.L("/winkelwagen/")}" class="il">{icon("cart")}{esc(self.t("p_view_cart"))}</a></p>'
         )
         cat_href, cat_name = (self.L(category_chain[-1][1]), category_chain[-1][0]) if category_chain else (self.L("/"), cfg["name"])

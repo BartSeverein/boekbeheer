@@ -677,6 +677,18 @@ def build_site(raw_books, out_dir, cfg=None, *, mode="full", imported_order_ids=
         with Image.open(logo_file) as im:
             logo = (lname, im.size[0], im.size[1])
 
+    keur = None   # keurmerk WebwinkelKeur (alleen op de Nederlandse pagina's; voor de andere talen geldt ValuedShops)
+    _kf, _ki = HERE / "assets" / "webkeur.png", HERE / "assets" / "webkeur-icon.png"
+    if _kf.exists() and _ki.exists():
+        from PIL import Image
+        keur = {}
+        for _key, _file, _stem in (("full", _kf, "webkeur"), ("icon", _ki, "webkeur-icon")):
+            _src = _file.read_bytes()
+            _name = f"{_stem}.{hashlib.sha1(_src).hexdigest()[:8]}.png"
+            _write(out_dir, _name, _src)
+            with Image.open(_file) as _im:
+                keur[_key] = (_name, _im.size[0], _im.size[1])
+
     # 'Meer van deze auteur' + auteurspagina's (>= 3 boeken), een keer berekend voor alle talen
     author_more, author_pages = build_authors(books)
     author_texts = {ap["slug"]: author_texts[ap["slug"]] for ap in author_pages if (author_texts or {}).get(ap["slug"])}
@@ -759,6 +771,7 @@ def build_site(raw_books, out_dir, cfg=None, *, mode="full", imported_order_ids=
             tagline = cfg["tagline"] if lang == "nl" else ((tr.get(cfg["tagline"], lang) if tr else None) or cfg["tagline"])
         site = Site(cfg, css_name, js_name, buttons, logo, lang, tagline, more_cats=sum(x['count'] for x in rest_buttons))
         site.err_img = err_img
+        site.keur = keur if lang == "nl" else None
 
         def emit(path, html, site=site):
             nonlocal count_pages
