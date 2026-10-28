@@ -268,3 +268,4 @@ CREATE TABLE IF NOT EXISTS todo_extras (
     created_by TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+ALTER TABLE todo_extras ENABLE ROW LEVEL SECURITY;
