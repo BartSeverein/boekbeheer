@@ -419,12 +419,15 @@ with left1:
 with right1:
     st.subheader("Boeken van Rick")
     if not books.empty:
-        is_rick = books["location"].fillna("").str.contains("r", case=False)
-        rick_counts = is_rick.map({True: "Van Rick", False: "Niet van Rick"}).value_counts().reset_index()
+        _rick_sale = books[(books["amount"].fillna(0) > 0) & (books["id"] > 0)]
+        if "queued" in _rick_sale.columns:
+            _rick_sale = _rick_sale[~_rick_sale["queued"].fillna(False).astype(bool)]
+        is_rick = _rick_sale["location"].fillna("").str.contains("r", case=False)
+        rick_counts = is_rick.map({True: "Wel van Rick", False: "Niet van Rick"}).value_counts().reset_index()
         rick_counts.columns = ["wie", "aantal boeken"]
         fig = px.pie(rick_counts, names="wie", values="aantal boeken")
         st.plotly_chart(fig, width="stretch")
-        st.caption("Gebaseerd op een 'r' (hoofd- of kleine letter) in het locatieveld.")
+        st.caption("Van de verkoopvoorraad.")
     else:
         st.info("Nog geen boeken om te tonen.")
 
@@ -436,7 +439,7 @@ st.divider()
 left3, right3 = st.columns(2)
 
 with left3:
-    st.subheader("Conditie")
+    st.subheader("Boeken per conditie")
     try:
         condition_rows = get_bol_condition_rows()
         condition_error = None
@@ -469,7 +472,7 @@ with left3:
             )
             fig_condition.update_traces(sort=False, textinfo="label+percent")
             st.plotly_chart(fig_condition, width="stretch")
-            st.caption(f"{len(condition_rows)} aanbiedingen met voorraad bij Bol.")
+            st.caption("Van de verkoopvoorraad.")
 
 with right3:
     st.subheader("Boeken per taal")
@@ -509,7 +512,7 @@ with right3:
             fig_lang = px.pie(_df_lang, names="taal", values="aantal boeken")
             fig_lang.update_traces(textinfo="label+percent")
             st.plotly_chart(fig_lang, width="stretch")
-            st.caption(f"{int(_counts.sum())} boeken in de verkoop. Gb, en en English tellen samen als Engels.")
+            st.caption("Van de verkoopvoorraad.")
     else:
         st.info("Nog geen boeken om te tonen.")
 
