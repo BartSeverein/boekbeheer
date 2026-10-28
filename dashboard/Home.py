@@ -428,6 +428,91 @@ with right1:
     else:
         st.info("Nog geen boeken om te tonen.")
 
+
+st.divider()
+
+# ---------- Conditie + Boeken per taal ----------
+
+left3, right3 = st.columns(2)
+
+with left3:
+    st.subheader("Conditie")
+    try:
+        condition_rows = get_bol_condition_rows()
+        condition_error = None
+    except Exception as error:
+        condition_rows = None
+        condition_error = type(error).__name__
+    if condition_error:
+        st.info(f"De conditie van het Bol-aanbod kon nu niet worden opgevraagd ({condition_error}).")
+    elif condition_rows is None:
+        st.info("Nog niet beschikbaar: de conditie wordt bij de eerstvolgende voorraadsync met Bol opgeslagen.")
+    else:
+        condition_counts = bol_condition_counts(condition_rows)
+        if not condition_counts:
+            st.info("Nog geen conditie bekend. Die wordt bij de eerstvolgende voorraadsync met Bol opgeslagen.")
+        else:
+            condition_df = pd.DataFrame(condition_counts, columns=["conditie", "aantal"])
+            fig_condition = px.pie(
+                condition_df,
+                names="conditie",
+                values="aantal",
+                category_orders={"conditie": BOL_CONDITION_ORDER},
+                color="conditie",
+                # Tinten blauw uit de rest van de app. 'Als nieuw' en 'Redelijk' zijn het lichtste en donkerste blauw
+                # van de opslaggrafiek hiernaast. 'Goed' ligt precies halverwege; elke stap (D) is even groot in
+                # helderheid, dus 'Nieuw' is D lichter dan 'Als nieuw' en 'Matig' is D donkerder dan 'Redelijk'.
+                color_discrete_map={
+                    "Nieuw": "#E0F1FF", "Als nieuw": "#83C9FF", "Goed": "#269CFF",
+                    "Redelijk": "#0068C9", "Matig": "#00386C", "Onbekend": "#9E9E9E",
+                },
+            )
+            fig_condition.update_traces(sort=False, textinfo="label+percent")
+            st.plotly_chart(fig_condition, width="stretch")
+            st.caption(f"{len(condition_rows)} aanbiedingen met voorraad bij Bol.")
+
+with right3:
+    st.subheader("Boeken per taal")
+    # Alle boeken in de verkoop (voorraad, niet in de wachtrij). Schrijfwijzen van dezelfde taal tellen samen (gb/en/English -> Engels).
+    _LANG_NAMES = {"nl": "Nederlands", "en": "Engels", "de": "Duits", "fr": "Frans", "es": "Spaans", "it": "Italiaans"}
+    _LANG_ALIASES = {
+        "en": "en", "gb": "en", "uk": "en", "en-gb": "en", "en-us": "en", "us": "en", "eng": "en", "english": "en", "engels": "en",
+        "nl": "nl", "nld": "nl", "dut": "nl", "dutch": "nl", "nederlands": "nl",
+        "de": "de", "deu": "de", "ger": "de", "german": "de", "duits": "de",
+        "fr": "fr", "fra": "fr", "fre": "fr", "french": "fr", "frans": "fr",
+        "es": "es", "spa": "es", "spanish": "es", "spaans": "es",
+        "it": "it", "ita": "it", "italian": "it", "italiaans": "it",
+    }
+    if not books.empty:
+        _sale = books[(books["amount"].fillna(0) > 0) & (books["id"] > 0)]
+        if "queued" in _sale.columns:
+            _sale = _sale[~_sale["queued"].fillna(False).astype(bool)]
+        _raw = _sale["language"].fillna("").astype(str).str.strip().str.lower()
+
+        def _lang_label(value):
+            if not value:
+                return "Onbekend"
+            code = _LANG_ALIASES.get(value, value)
+            return _LANG_NAMES.get(code, value.upper() if len(value) <= 3 else value.capitalize())
+
+        _counts = _raw.map(_lang_label).value_counts()
+        if _counts.empty:
+            st.info("Nog geen boeken om te tonen.")
+        else:
+            # Kleine talen (onder 1%) samenvoegen, anders wordt de taart onleesbaar.
+            _small = _counts[_counts / _counts.sum() < 0.01]
+            _counts = _counts.drop(_small.index)
+            if len(_small):
+                _counts["Overig (" + str(len(_small)) + " talen)"] = _small.sum()
+            _df_lang = _counts.reset_index()
+            _df_lang.columns = ["taal", "aantal boeken"]
+            fig_lang = px.pie(_df_lang, names="taal", values="aantal boeken")
+            fig_lang.update_traces(textinfo="label+percent")
+            st.plotly_chart(fig_lang, width="stretch")
+            st.caption(f"{int(_counts.sum())} boeken in de verkoop. Gb, en en English tellen samen als Engels.")
+    else:
+        st.info("Nog geen boeken om te tonen.")
+
 st.divider()
 
 # ---------- Wekelijks aanbod: titels en exemplaren, met het deel dat ook op Bol staat ----------
@@ -610,7 +695,7 @@ st.divider()
 
 # ---------- Boeken per uitgever + Supabase-opslag ----------
 
-left2, middle2, right2 = st.columns(3)
+left2, right2 = st.columns(2)
 
 with left2:
     st.subheader("Boeken per uitgever (top 20)")
@@ -622,42 +707,6 @@ with left2:
         st.plotly_chart(fig, width="stretch")
     else:
         st.info("Nog geen boeken om te tonen.")
-
-with middle2:
-    st.subheader("Conditie")
-    try:
-        condition_rows = get_bol_condition_rows()
-        condition_error = None
-    except Exception as error:
-        condition_rows = None
-        condition_error = type(error).__name__
-    if condition_error:
-        st.info(f"De conditie van het Bol-aanbod kon nu niet worden opgevraagd ({condition_error}).")
-    elif condition_rows is None:
-        st.info("Nog niet beschikbaar: de conditie wordt bij de eerstvolgende voorraadsync met Bol opgeslagen.")
-    else:
-        condition_counts = bol_condition_counts(condition_rows)
-        if not condition_counts:
-            st.info("Nog geen conditie bekend. Die wordt bij de eerstvolgende voorraadsync met Bol opgeslagen.")
-        else:
-            condition_df = pd.DataFrame(condition_counts, columns=["conditie", "aantal"])
-            fig_condition = px.pie(
-                condition_df,
-                names="conditie",
-                values="aantal",
-                category_orders={"conditie": BOL_CONDITION_ORDER},
-                color="conditie",
-                # Tinten blauw uit de rest van de app. 'Als nieuw' en 'Redelijk' zijn het lichtste en donkerste blauw
-                # van de opslaggrafiek hiernaast. 'Goed' ligt precies halverwege; elke stap (D) is even groot in
-                # helderheid, dus 'Nieuw' is D lichter dan 'Als nieuw' en 'Matig' is D donkerder dan 'Redelijk'.
-                color_discrete_map={
-                    "Nieuw": "#E0F1FF", "Als nieuw": "#83C9FF", "Goed": "#269CFF",
-                    "Redelijk": "#0068C9", "Matig": "#00386C", "Onbekend": "#9E9E9E",
-                },
-            )
-            fig_condition.update_traces(sort=False, textinfo="label+percent")
-            st.plotly_chart(fig_condition, width="stretch")
-            st.caption(f"{len(condition_rows)} aanbiedingen met voorraad bij Bol.")
 
 with right2:
     st.subheader("Supabase-opslag")
