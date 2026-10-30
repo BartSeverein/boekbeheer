@@ -744,6 +744,11 @@ if st.button("Boek toevoegen", key="new_book_submit"):
                    else "- Niet bij Bol want het boek is daarvoor ongeschikt." if bol_unsuitable
                    else "- Bij Bol na de eerstvolgende synchronisatie.")
             )
+        elif not is_admin:
+            st.session_state["new_book_success_msg"] = (
+                f"✅ \"{title}\" is opgeslagen (tijdelijk id {temp_id}) en komt gefaseerd online nadat het boek "
+                "in de opslag ligt en door de beheerder is vrijgegeven."
+            )
         else:
             st.session_state["new_book_success_msg"] = (
                 f"✅ \"{title}\" is lokaal opgeslagen (tijdelijk id {temp_id}) met 'Geen push' — "
