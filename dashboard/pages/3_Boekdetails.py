@@ -66,7 +66,8 @@ def _s(value):
 
 st.set_page_config(page_title="Boekdetails", page_icon="📖", layout="wide")
 render_logo(Path(__file__).parent.parent / "assets" / "logo_mail.png")
-require_login()
+current_user = require_login()
+is_admin = current_user is None or current_user.get("role") == "beheerder"
 st.title("📖 Boekdetails")
 
 # Bevestiging van het zojuist opgeslagen boek: één keer tonen en daarna weghalen.
@@ -265,6 +266,19 @@ else:
                 )
                 load_books.clear()
                 st.success("Synchronisatie weer aangezet. Wordt bij de eerstvolgende synchronisatie opnieuw geprobeerd.")
+                st.rerun()
+        elif not book_push_enabled and not book_queued and chosen_id < 0:
+            # Nieuw boek dat nog niet is vrijgegeven (bijv. omdat het nog bij de invoerder thuis ligt): alleen de beheerder geeft het vrij.
+            st.info("⏳ Dit boek wacht op vrijgave door de beheerder. Het staat nog niet op de webshop, Boekwinkeltjes of Bol.")
+            if is_admin and st.button("✅ Vrijgeven voor synchronisatie", key=f"release_push_{chosen_id}"):
+                save_book_edits(
+                    chosen_id,
+                    {"push_enabled": True},
+                    user_short_name=current_user_short_name(),
+                    previous_values={"push_enabled": False},
+                )
+                load_books.clear()
+                st.success("Vrijgegeven. Het boek wordt bij de eerstvolgende synchronisatie aangemaakt.")
                 st.rerun()
 
         # Per ongeluk dubbel opgeslagen? Een boek dat nog NIET bij Boekwinkeltjes staat kan hier worden verwijderd.
@@ -773,7 +787,7 @@ else:
                 # naar Nee gezet, dan gaat 'ie automatisch aan (dat scheelt een handeling
                 # na het controleren van een bulk-geïmporteerd boek).
                 edit_push_enabled = current_push_enabled
-                if current_queued and not edit_queued:
+                if current_queued and not edit_queued and is_admin:   # alleen de beheerder geeft een boek vrij
                     edit_push_enabled = True
 
                 save_book_edits(

@@ -70,6 +70,9 @@ from categories import CATEGORY1_OPTIONS, CATEGORY2_OPTIONS, category1_label_for
 st.set_page_config(page_title="Nieuw boek", page_icon="📑", layout="wide")
 render_logo(Path(__file__).parent.parent / "assets" / "logo_mail.png")
 current_user = require_login()
+# Alleen de beheerder mag een nieuw boek meteen laten synchroniseren; voor iedereen anders staat 'Synchronisatie' vast op 'Geen push'
+# (het boek ligt dan misschien nog thuis). Zonder gebruikers (opstartfase) geldt alles als beheerder.
+is_admin = current_user is None or current_user.get("role") == "beheerder"
 st.title("📑 Nieuw boek toevoegen")
 
 # 'v' bepaalt de sleutel-suffix van elk veld (behalve Locatie). Na een succesvolle
@@ -154,13 +157,23 @@ if isbn_is_valid:
     # Deze drie opzoekingen hebben niks met elkaar te maken, dus die halen we
     # gelijktijdig op in plaats van na elkaar — dat scheelt flink wachttijd,
     # aangezien het stuk voor stuk live netwerkverzoeken zijn.
-    with ThreadPoolExecutor(max_workers=3) as executor:
+    with ThreadPoolExecutor(max_workers=5) as executor:
         future_market = executor.submit(lookup_boekwinkeltjes_market_info, ean)
         future_bol_offers = executor.submit(lookup_bol_competing_offers, isbn_clean)
         future_metadata = executor.submit(lookup_book_metadata_external, ean)
+        # Vooruit ophalen: de Bol-catalogus en Bol-categorieën worden verderop bij het invullen van het formulier
+        # gebruikt. Door ze nu al gelijktijdig te starten staan ze (gecachet) klaar en hoeft het formulier er niet
+        # meer na elkaar op te wachten. Een fout hier wordt verderop gewoon opnieuw (en dan zichtbaar) afgehandeld.
+        future_bol_product = executor.submit(lookup_bol_catalog_product, ean)
+        future_bol_cats = executor.submit(lookup_bol_category_names, ean)
         market_info, market_error = future_market.result()
         bol_count, bol_laagste, bol_hoogste = future_bol_offers.result()
         external_metadata_preview = future_metadata.result()
+        for _f in (future_bol_product, future_bol_cats):
+            try:
+                _f.result()
+            except Exception:
+                pass
 
 known_publishers = get_known_publishers()
 NEW_PUBLISHER_SENTINEL = "➕ Nieuwe uitgever invoeren..."
@@ -563,11 +576,15 @@ with col_b:
     long_description = st.text_area(
         "Meer info (in Nederlands)", height=150, key=k("long")
     )
-    push_enabled_choice = st.selectbox(
-        "Synchronisatie",
-        options=["Push naar de webshop, Boekwinkeltjes en eventueel Bol", "Geen push (alleen lokaal bewaren)"],
-        key=k("push_enabled"),
-    )
+    _push_options = ["Push naar de webshop, Boekwinkeltjes en eventueel Bol", "Geen push (alleen lokaal bewaren)"]
+    if is_admin:
+        push_enabled_choice = st.selectbox("Synchronisatie", options=_push_options, key=k("push_enabled"))
+    else:
+        push_enabled_choice = st.selectbox(
+            "Synchronisatie", options=_push_options, index=1, disabled=True, key=k("push_enabled"),
+            help="Het boek wordt pas online gezet nadat de beheerder het vrijgeeft, als het boek in de opslag ligt.",
+        )
+        st.caption("Het boek komt pas online nadat de beheerder het vrijgeeft (zodra het in de opslag ligt).")
 
 st.divider()
 st.subheader("📷 Afbeeldingen")
