@@ -1,7 +1,8 @@
 """
 pages/3_Boekdetails.py — Eén pagina om een boek in detail te bekijken en te bewerken, met bovenaan
-een keuze tussen Voorradig (voorraad > 0), Niet voorradig (voorraad 0) en Alles.
-In de weergave 'Niet voorradig' zijn locatie en verzendkosten niet zichtbaar en heet de prijs
+filterknoppen (Voorradig, Niet voorradig, Nog niet op BW, Zonder categorie, Zonder uitgever) en filters op
+invoerdatum, auteur en taal. Zonder filters zie je alle boeken.
+Is alleen 'Niet voorradig' gekozen, dan zijn locatie en verzendkosten niet zichtbaar en heet de prijs
 'Laatste prijs Boekwinkeltjes'.
 """
 
@@ -89,29 +90,22 @@ if _saved_msg:
 
 books_all, orders = load_books(), load_orders()
 
-# De vier weergaven: welke boeken je ziet, gebaseerd op voorraad en of het boek
-# al bij Boekwinkeltjes is aangemaakt.
-VIEW_OPTIONS = {
-    "📗 Voorradig": "voorradig",
-    "📒 Voorradig, nog niet op BW": "voorradig_nog_niet_bw",
-    "📕 Niet voorradig": "niet_voorradig",
-    "📘 Alles": "alles",
-    "🏷️ Zonder categorie": "zonder_categorie",
-}
-SEARCH_LABELS = {
-    "voorradig": "🔎 Zoek op titel, auteur, ISBN of locatie (bijv. 0412) in alle voorradige boeken.",
-    "voorradig_nog_niet_bw": "🔎 Zoek op titel, auteur, ISBN of locatie (bijv. 0412) in voorradige boeken die nog wachten op het druppelsysteem.",
-    "niet_voorradig": "🔎 Zoek op titel, auteur, ISBN of locatie (bijv. 0412) in alle boeken die ooit zijn ingevoerd, maar niet meer voorradig zijn.",
-    "alles": "🔎 Zoek op titel, auteur, ISBN of locatie (bijv. 0412) in álle boeken: voorradig en niet voorradig.",
-    "zonder_categorie": "🔎 Zoek op titel, auteur, ISBN of locatie (bijv. 0412) in voorradige boeken zonder Categorie 1.",
-}
-EMPTY_MESSAGES = {
-    "voorradig": "Nog geen voorradige boeken om te tonen.",
-    "voorradig_nog_niet_bw": "Geen boeken die wachten op het druppelsysteem — alles staat al op Boekwinkeltjes.",
-    "niet_voorradig": "Geen niet-voorradige boeken om te tonen.",
-    "alles": "Nog geen boeken om te tonen.",
-    "zonder_categorie": "Alle voorradige boeken hebben een categorie. 👍",
-}
+# Filterknoppen (combineerbaar). Staan er geen filters aan, dan zie je alle boeken.
+F_STOCK = "📗 Voorradig"
+F_SOLD = "📕 Niet voorradig"
+F_NEWBW = "📒 Nog niet op BW"
+F_NOCAT = "🏷️ Zonder categorie"
+F_NOPUB = "🏢 Zonder uitgever"
+FILTER_OPTIONS = [F_STOCK, F_SOLD, F_NEWBW, F_NOCAT, F_NOPUB]
+ALL_AUTHORS = "(alle auteurs)"
+NO_LANGUAGE = ""   # staat voor boeken zonder taal in de taalfilter
+
+# Invoerdatum: 'Te koop sinds' (listing_date van Boekwinkeltjes); voor boeken die nog niet bij Boekwinkeltjes staan de laatste wijziging in de app.
+if not books_all.empty:
+    _inv = pd.to_datetime(books_all["listing_date"], errors="coerce", utc=True).fillna(
+        pd.to_datetime(books_all["local_updated_at"], errors="coerce", utc=True)
+    )
+    books_all = books_all.assign(_invoer=_inv.dt.tz_convert("Europe/Amsterdam").dt.tz_localize(None).dt.normalize())
 
 preselect_id = st.session_state.pop("preselect_book_id", None)
 if preselect_id is None:
@@ -134,39 +128,73 @@ if preselect_id is not None:
             preselect_row = preselected.iloc[0]
             preselect_amount = preselect_row["amount"]
             has_stock = pd.notna(preselect_amount) and preselect_amount > 0
-            if not has_stock:
-                st.session_state["book_view_mode"] = "📕 Niet voorradig"
-            elif preselect_row["id"] < 0:
-                st.session_state["book_view_mode"] = "📒 Voorradig, nog niet op BW"
-            else:
-                st.session_state["book_view_mode"] = "📗 Voorradig"
+            st.session_state["book_filters"] = [F_STOCK] if has_stock else [F_SOLD]
+            # Overige filters leegmaken, zodat het boek zeker in de lijst staat.
+            for _k in ("book_f_author", "book_f_lang", "book_f_from", "book_f_to"):
+                st.session_state.pop(_k, None)
 
-# Na het opslaan schuift de weergave mee met het boek (bijv. naar 'Niet voorradig' als de
-# voorraad op 0 is gezet). Dat moet vóór het aanmaken van de keuzeknop worden toegepast.
-if "pending_view_mode" in st.session_state:
-    st.session_state["book_view_mode"] = st.session_state.pop("pending_view_mode")
+# Na het opslaan schuift de keuze mee met het boek (bijv. van 'Voorradig' naar 'Niet voorradig' als de
+# voorraad op 0 is gezet). Dat moet vóór het aanmaken van de filterknoppen worden toegepast.
+if "pending_view_filters" in st.session_state:
+    st.session_state["book_filters"] = st.session_state.pop("pending_view_filters")
+st.session_state.setdefault("book_filters", [F_STOCK])
 
-view_label = st.radio(
-    "Toon", list(VIEW_OPTIONS.keys()), horizontal=True, key="book_view_mode", label_visibility="collapsed"
+filters = st.multiselect(
+    "Filters", FILTER_OPTIONS, key="book_filters", placeholder="Kies filters (geen filter = alle boeken)",
 )
-mode = VIEW_OPTIONS[view_label]
-show_logistics = mode != "niet_voorradig"  # locatie en verzendkosten
-price_label = "Laatste prijs webshop en BW" if mode == "niet_voorradig" else "Prijs webshop en BW"
+only_sold = F_SOLD in filters and F_STOCK not in filters
+show_logistics = not only_sold  # locatie en verzendkosten
+price_label = "Laatste prijs webshop en BW" if only_sold else "Prijs webshop en BW"
 
-if books_all.empty or mode == "alles":
+if not books_all.empty:
+    _authors = sorted({a.strip() for a in books_all["author"].dropna().astype(str) if a.strip()}, key=str.lower)
+    _lang_counts = books_all["language"].fillna("").astype(str).str.strip().value_counts()
+    _lang_options = list(_lang_counts.index)
+
+    def _lang_label(v):
+        return f"(geen taal) ({_lang_counts[v]})" if v == NO_LANGUAGE else f"{v} ({_lang_counts[v]})"
+
+    # Een bewaarde keuze die niet meer bestaat (auteur of taal is intussen aangepast) weghalen, anders geeft Streamlit een fout.
+    if st.session_state.get("book_f_author", ALL_AUTHORS) not in [ALL_AUTHORS] + _authors:
+        st.session_state.pop("book_f_author", None)
+    if "book_f_lang" in st.session_state:
+        st.session_state["book_f_lang"] = [v for v in st.session_state["book_f_lang"] if v in _lang_options]
+
+    _c1, _c2, _c3, _c4 = st.columns(4)
+    f_from = _c1.date_input("Invoerdatum vanaf", value=None, format="DD-MM-YYYY", key="book_f_from")
+    f_to = _c2.date_input("Invoerdatum tot en met", value=None, format="DD-MM-YYYY", key="book_f_to")
+    f_author = _c3.selectbox("Auteur", [ALL_AUTHORS] + _authors, key="book_f_author")
+    f_langs = _c4.multiselect("Taal", _lang_options, format_func=_lang_label, key="book_f_lang", placeholder="Alle talen")
+
     books = books_all
-elif mode == "voorradig":
-    books = books_all[(books_all["amount"].fillna(0) > 0) & (books_all["id"] > 0)]
-elif mode == "voorradig_nog_niet_bw":
-    books = books_all[(books_all["amount"].fillna(0) > 0) & (books_all["id"] < 0)]
-elif mode == "zonder_categorie":
-    # Voorradig (ook de boeken die nog niet op Boekwinkeltjes staan) en zonder Categorie 1; nieuwste bovenaan.
-    books = books_all[(books_all["amount"].fillna(0) > 0) & books_all["category1"].fillna("").astype(str).str.strip().eq("")]
+    _amount = books["amount"].fillna(0)
+    if F_STOCK in filters and F_SOLD not in filters:
+        books = books[_amount > 0]
+    elif F_SOLD in filters and F_STOCK not in filters:
+        books = books[_amount == 0]
+    if F_NEWBW in filters:
+        books = books[books["id"] < 0]
+    if F_NOCAT in filters:
+        books = books[books["category1"].fillna("").astype(str).str.strip().eq("")]
+    if F_NOPUB in filters:
+        books = books[books["publisher"].fillna("").astype(str).str.strip().eq("")
+                      & books["publisher_name"].fillna("").astype(str).str.strip().eq("")]
+    if f_from:
+        books = books[books["_invoer"] >= pd.Timestamp(f_from)]
+    if f_to:
+        books = books[books["_invoer"] <= pd.Timestamp(f_to)]
+    if f_author != ALL_AUTHORS:
+        books = books[books["author"].fillna("").astype(str).str.strip() == f_author]
+    if f_langs:
+        books = books[books["language"].fillna("").astype(str).str.strip().isin(f_langs)]
+    # Bij een of meer smalle filters tonen we meteen de lijst (nieuwste bovenaan), anders pas na een zoekterm.
+    has_extra = bool({F_NEWBW, F_NOCAT, F_NOPUB} & set(filters)) or bool(f_from or f_to or f_langs) or f_author != ALL_AUTHORS
 else:
-    books = books_all[books_all["amount"].fillna(0) == 0]
+    books = books_all
+    has_extra = False
 
 if books.empty:
-    st.info(EMPTY_MESSAGES[mode])
+    st.info("Geen boeken die aan de gekozen filters voldoen." if not books_all.empty else "Nog geen boeken om te tonen.")
 else:
     default_search = ""
     if preselect_id is not None:
@@ -174,9 +202,11 @@ else:
         if not match.empty:
             default_search = match.iloc[0]["title"]
 
-    search = st.text_input(SEARCH_LABELS[mode], default_search, key="book_search_input")
+    search = st.text_input(
+        "🔎 Zoek op titel, auteur, ISBN of locatie (bijv. 0412) binnen de gekozen filters.", default_search, key="book_search_input"
+    )
 
-    if search or mode == "zonder_categorie":
+    if search or has_extra:
         s = search.strip().lower()
         # Locatie: alles wat met de zoekterm begint (0412 vindt 0412, 0412A, 0412B...); spaties negeren we, dus "0111 a" vindt "0111A".
         s_loc = s.replace(" ", "")
@@ -198,7 +228,7 @@ else:
             # Staat er een locatie bij de resultaten, dan eerst op locatie sorteren (daarna titel), handig voor "alles van 0412".
             filtered = filtered.assign(_loc=loc_norm[mask]).sort_values(["_loc", "title"], na_position="last").drop(columns="_loc")
 
-        if mode == "zonder_categorie":
+        if F_NOCAT in filters or (has_extra and not search):
             # Nieuwste bovenaan: boeken die nog niet bij Boekwinkeltjes staan (negatief id, nog aan te maken) eerst, daarna het hoogste boeknummer.
             _is_new = filtered["id"] < 0
             _fresh = filtered[_is_new].assign(_upd=pd.to_datetime(filtered[_is_new]["local_updated_at"], errors="coerce", utc=True)).sort_values(
@@ -211,13 +241,21 @@ else:
             st.warning("Geen boeken gevonden voor deze zoekterm.")
         else:
             st.caption(
-                f"{len(filtered)} boeken zonder categorie, nieuwste bovenaan." if (mode == "zonder_categorie" and not search)
+                f"{len(filtered)} boeken, nieuwste bovenaan." if (has_extra and not search)
                 else f"{len(filtered)} resultaat/resultaten"
             )
+            _MAX_OPTIONS = 500   # een keuzelijst met duizenden boeken wordt traag; verfijn dan de filters of de zoekterm
+            _shown = filtered.head(_MAX_OPTIONS)
+            if len(filtered) > _MAX_OPTIONS:
+                st.caption(f"Alleen de eerste {_MAX_OPTIONS} staan in de lijst. Verfijn de filters of zoek op een term.")
+            if current_id_pre := st.session_state.get("current_book_id"):
+                # Het gekozen boek moet in de lijst blijven, ook als het buiten de eerste 500 valt.
+                if current_id_pre in filtered["id"].values and current_id_pre not in _shown["id"].values:
+                    _shown = pd.concat([filtered[filtered["id"] == current_id_pre], _shown])
             book_options = {
                 f"{row['title']} — {row['author']} — ISBN {format_isbn(row['ean'])}"
                 + (f" — locatie {row['location']}" if pd.notna(row.get("location")) and str(row.get("location")).strip() else ""): row["id"]
-                for _, row in filtered.iterrows()
+                for _, row in _shown.iterrows()
             }
             option_labels = list(book_options.keys())
             option_ids = list(book_options.values())
@@ -231,14 +269,7 @@ else:
             )
             st.session_state["current_book_id"] = book_options[chosen_label]
     else:
-        if mode == "voorradig":
-            st.caption(f"Typ om te zoeken in {len(books)} voorradige boeken.")
-        elif mode == "voorradig_nog_niet_bw":
-            st.caption(f"Typ om te zoeken in {len(books)} voorradige boeken die nog wachten op het druppelsysteem.")
-        elif mode == "niet_voorradig":
-            st.caption(f"Typ om te zoeken in {len(books)} niet-voorradige boeken.")
-        else:
-            st.caption(f"Typ om te zoeken in alle {len(books)} bekend zijnde boeken, voorradig en niet voorradig.")
+        st.caption(f"Typ om te zoeken in {len(books)} boeken die aan de gekozen filters voldoen.")
 
     chosen_id = st.session_state.get("current_book_id")
 
@@ -860,13 +891,14 @@ else:
 
                 load_books.clear()
                 get_all_images.clear()
-                if mode not in ("alles", "zonder_categorie"):
-                    if int(edit_amount) <= 0:
-                        st.session_state["pending_view_mode"] = "📕 Niet voorradig"
-                    elif chosen_id < 0:
-                        st.session_state["pending_view_mode"] = "📒 Voorradig, nog niet op BW"
-                    else:
-                        st.session_state["pending_view_mode"] = "📗 Voorradig"
+                # Het boek blijft zichtbaar: wisselt de voorraad tussen 0 en meer dan 0, dan wisselt de voorraadknop mee.
+                _f = list(filters)
+                if int(edit_amount) <= 0 and F_STOCK in _f:
+                    _f = [x for x in _f if x != F_STOCK] + ([] if F_SOLD in _f else [F_SOLD])
+                    st.session_state["pending_view_filters"] = _f
+                elif int(edit_amount) > 0 and F_SOLD in _f:
+                    _f = [x for x in _f if x != F_SOLD] + ([] if F_STOCK in _f else [F_STOCK])
+                    st.session_state["pending_view_filters"] = _f
                 _online = not edit_queued and edit_push_enabled
                 _lines = [f"✅ \"{edit_title}\" is aangepast en opgeslagen (id {chosen_id})" + (" en komt online:" if _online else ":")]
                 if edit_queued:
