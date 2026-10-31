@@ -314,8 +314,12 @@ daily_active = _daily_left.checkbox("Dagcode in de bevestigingsmail zetten", val
 daily_pct = _daily_right.number_input("Percentage korting", min_value=1, max_value=100, value=_daily_pct_now, step=1, key="daily_pct")
 if st.button("Dagcode-instelling opslaan", key="save_daily_code"):
     set_setting(DAILY_SETTING, json.dumps({"active": bool(daily_active), "percent": int(daily_pct)}))
-    st.success("Opgeslagen. De mails en de webshop gebruiken dit na de eerstvolgende catalogus-update (binnen een half uur). "
-               "Let op: het percentage geldt voor alle codes die nog geldig zijn.")
+    if daily_active:
+        st.success("Opgeslagen. De mails en de webshop gebruiken dit na de eerstvolgende catalogus-update (binnen een half uur). "
+                   "Let op: het percentage geldt voor alle codes die nog geldig zijn.")
+    else:
+        st.success("Opgeslagen. De mails van de webshop gebruiken de dagcode niet meer vanaf de volgende catalogus-update "
+                   "(binnen een half uur). Oude dagcodes blijven nog geldig.")
 
 _data_key = (_get_secret("WEBSHOP_DATA_KEY") or "").strip()
 if not _data_key:
