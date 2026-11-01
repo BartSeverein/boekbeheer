@@ -717,7 +717,9 @@ def _gross_revenue_chart(orders_df, history=None, months=12):
     fig = px.bar(pd.DataFrame(long_rows), x="maand", y="omzet", color="platform", text="label",
                  category_orders={"maand": labels, "platform": list(PLATFORM_COLORS)}, color_discrete_map=PLATFORM_COLORS)
     fig.update_traces(texttemplate="%{text}", hovertemplate="%{x}<br>%{fullData.name}: %{text}<extra></extra>")
-    fig.update_layout(barmode="stack", xaxis_title=None, yaxis_title="bruto omzet (€)", legend_title_text=None, separators=",.")
+    # Legenda van onder naar boven in dezelfde volgorde als de blokken in de staaf (Boekwinkeltjes onderaan, Webshop bovenaan).
+    fig.update_layout(barmode="stack", xaxis_title=None, yaxis_title="bruto omzet (€)", legend_title_text=None, separators=",.",
+                      legend=dict(traceorder="reversed"))
     fig.update_yaxes(tickformat=",.0f" if max(totals) >= 10000 else ".0f", tickprefix="€ ")
     fig.add_scatter(x=labels, y=totals, mode="text", text=["€ " + _nl_number(t) for t in totals],
                     textposition="top center", showlegend=False, hoverinfo="skip")
