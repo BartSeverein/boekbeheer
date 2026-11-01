@@ -4106,6 +4106,29 @@ def get_webshop_authors():
                   key=lambda a: (-a["count"], a["name"].lower()))
 
 
+def get_author_display_names():
+    """
+    {slug: nette naam} voor álle auteurs met boeken te koop in de webshop, ook als dat er minder dan 3 zijn (dan is er geen pagina).
+    Zo toont Auteursbeheer ook bij bewaarde teksten zonder pagina een nette naam ("N.D. Walsch" in plaats van "walsch nd").
+    """
+    try:
+        df = load_books()
+        if df.empty:
+            return {}
+        for col, default in (("pending_create", False), ("queued", False)):
+            if col not in df.columns:
+                df[col] = default
+        ok = (
+            (df["amount"].fillna(0) > 0) & ~df["pending_create"].fillna(False).astype(bool) & ~df["queued"].fillna(False).astype(bool)
+            & df["price"].notna() & (df["price"] > 0) & df["title"].fillna("").astype(str).str.strip().ne("")
+        )
+        books = [{"id": int(r["id"]), "author": r["author"]} for _, r in df[ok].iterrows()]
+        _more, pages = _webshop_authors_module().build_authors(books, min_page=1)
+        return {p["slug"]: p["name"] for p in pages}
+    except Exception:
+        return {}   # alleen een nettere weergave: een fout hier mag Auteursbeheer niet stoppen
+
+
 def get_author_texts():
     """{slug: {"name", "text"}} van alle bewaarde auteursteksten (ook van auteurs die nu geen pagina hebben)."""
     conn = psycopg2.connect(get_db_url())
