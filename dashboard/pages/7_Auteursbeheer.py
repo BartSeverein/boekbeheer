@@ -12,7 +12,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from common import render_logo, require_login, get_webshop_authors, get_author_texts, save_author_text
+from common import render_logo, require_login, get_webshop_authors, get_author_texts, save_author_text, get_author_display_names
 
 st.set_page_config(page_title="Auteursbeheer", page_icon="✍️", layout="wide")
 render_logo(Path(__file__).parent.parent / "assets" / "logo_mail.png")
@@ -53,6 +53,10 @@ for a in authors:
 # Bewaarde teksten van auteurs die nu geen pagina hebben
 current_slugs = {a["slug"] for a in authors}
 parked = {s: v for s, v in texts.items() if s not in current_slugs and (v.get("text") or "").strip()}
+# De bewaarde naam kan uit de tijd van de kale sleutel zijn ("walsch nd"): toon liever de nette naam uit de boeken.
+_names = get_author_display_names() if parked else {}
+for _s, _v in parked.items():
+    _v["name"] = _names.get(_s) or _v.get("name") or _s
 
 _buf2 = io.StringIO()
 _w2 = csv.writer(_buf2, delimiter=";")
