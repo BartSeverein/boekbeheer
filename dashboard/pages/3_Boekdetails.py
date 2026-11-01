@@ -16,6 +16,7 @@ from common import (
     load_books,
     get_long_description,
     load_orders,
+    get_bol_offer_eans,
     find_main_image_index,
     get_all_images,
     image_identity_urls,
@@ -96,7 +97,8 @@ F_SOLD = "📕 Niet voorradig"
 F_NEWBW = "📒 Nog niet op BW"
 F_NOCAT = "🏷️ Zonder categorie"
 F_NOPUB = "🏢 Zonder uitgever"
-FILTER_OPTIONS = [F_STOCK, F_SOLD, F_NEWBW, F_NOCAT, F_NOPUB]
+F_BOLZERO = "🧹 Voorraad 0 op Bol, zonder order"
+FILTER_OPTIONS = [F_STOCK, F_SOLD, F_NEWBW, F_NOCAT, F_NOPUB, F_BOLZERO]
 ALL_AUTHORS = "(alle auteurs)"
 NO_LANGUAGE = ""   # staat voor boeken zonder taal in de taalfilter
 
@@ -179,6 +181,11 @@ if not books_all.empty:
     if F_NOPUB in filters:
         books = books[books["publisher"].fillna("").astype(str).str.strip().eq("")
                       & books["publisher_name"].fillna("").astype(str).str.strip().eq("")]
+    if F_BOLZERO in filters:
+        # Voorraad 0, er staat nog een Bol-aanbieding, en er is nooit een bestelling voor het boek geweest: wel opruimen, maar eerst even nagaan waarom.
+        _ordered = set(orders["book_id"].dropna().astype(int)) if not orders.empty else set()
+        books = books[(books["amount"].fillna(0) == 0) & books["ean"].astype(str).isin(get_bol_offer_eans())
+                      & ~books["id"].isin(_ordered)]
     if f_from:
         books = books[books["_invoer"] >= pd.Timestamp(f_from)]
     if f_to:
@@ -188,7 +195,7 @@ if not books_all.empty:
     if f_langs:
         books = books[books["language"].fillna("").astype(str).str.strip().isin(f_langs)]
     # Bij een of meer smalle filters tonen we meteen de lijst (nieuwste bovenaan), anders pas na een zoekterm.
-    has_extra = bool({F_NEWBW, F_NOCAT, F_NOPUB} & set(filters)) or bool(f_from or f_to or f_langs) or f_author != ALL_AUTHORS
+    has_extra = bool({F_NEWBW, F_NOCAT, F_NOPUB, F_BOLZERO} & set(filters)) or bool(f_from or f_to or f_langs) or f_author != ALL_AUTHORS
 else:
     books = books_all
     has_extra = False
@@ -244,6 +251,19 @@ else:
                 f"{len(filtered)} boeken, nieuwste bovenaan." if (has_extra and not search)
                 else f"{len(filtered)} resultaat/resultaten"
             )
+            if F_BOLZERO in filters:
+                # Loodslijst voor een ronde door de opslag: gesorteerd op locatie, zodat je de boeken in één keer kunt langslopen.
+                _walk = filtered.assign(_loc=filtered["location"].fillna("").astype(str).str.strip())
+                _walk = _walk.assign(_empty=_walk["_loc"].eq("")).sort_values(["_empty", "_loc", "title"])
+                st.dataframe(
+                    pd.DataFrame({
+                        "Locatie": _walk["_loc"].replace("", "–"),
+                        "Titel": _walk["title"],
+                        "Auteur": _walk["author"].fillna(""),
+                        "ISBN": [format_isbn(e) for e in _walk["ean"]],
+                    }),
+                    hide_index=True, width="stretch",
+                )
             _MAX_OPTIONS = 500   # een keuzelijst met duizenden boeken wordt traag; verfijn dan de filters of de zoekterm
             _shown = filtered.head(_MAX_OPTIONS)
             if len(filtered) > _MAX_OPTIONS:
