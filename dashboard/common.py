@@ -3026,6 +3026,21 @@ def get_bol_condition_rows():
         conn.close()
 
 
+@st.cache_data(ttl=300)
+def get_bol_offer_eans():
+    """Alle ISBN's (ean) waarvoor een Bol-aanbieding bekend is, ook als die op voorraad 0 staat."""
+    conn = psycopg2.connect(get_db_url())
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT ean FROM bol_offer_mapping WHERE ean IS NOT NULL")
+            return {str(row[0]) for row in cur.fetchall()}
+    except Exception:
+        conn.rollback()
+        return set()
+    finally:
+        conn.close()
+
+
 @st.cache_data(ttl=600)
 def get_weekly_stock_snapshots(max_weeks=60):
     """
