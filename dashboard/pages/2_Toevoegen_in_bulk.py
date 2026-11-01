@@ -173,6 +173,8 @@ if uploaded_file is not None:
 st.divider()
 st.subheader("📋 Boeken die wachten op controle")
 
+if "bulk_queue_loc_done" in st.session_state:
+    st.success(st.session_state.pop("bulk_queue_loc_done"))
 queued_books = get_queued_books()
 if not queued_books:
     info_box("Geen boeken in de wachtrij.")
@@ -186,6 +188,18 @@ else:
     shown_books = filter_queued_books(queued_books, my_name, queue_view)
     if not shown_books:
         info_box(f"Je hebt geen boeken in de wachtrij staan. Kies '{QUEUE_VIEW_ALL}' om de rest te zien.")
+    if shown_books:
+        # Eén locatie voor alle boeken die hieronder getoond worden (kies 'Alle boeken' voor de hele wachtrij).
+        with st.expander(f"📍 Locatie wijzigen voor alle {len(shown_books)} getoonde boeken"):
+            new_location = st.text_input("Nieuwe locatie", key="bulk_queue_new_location", placeholder="bijv. 0471AR").strip()
+            if st.button(f"Locatie van {len(shown_books)} boeken wijzigen", key="bulk_queue_set_location", disabled=not new_location):
+                _me = current_user_short_name()
+                for _b in shown_books:
+                    save_book_edits(_b["id"], {"location": new_location}, user_short_name=_me,
+                                    previous_values={"location": _b.get("location")})
+                load_books.clear()
+                st.session_state["bulk_queue_loc_done"] = f"De locatie van {len(shown_books)} boeken is gewijzigd naar {new_location}."
+                st.rerun()
     for book in shown_books:
         col_info, col_edit, col_delete = st.columns([5, 1, 1])
         with col_info:
