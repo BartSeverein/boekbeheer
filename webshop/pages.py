@@ -209,8 +209,17 @@ class Site:
         return f'<nav class="crumb" aria-label="{esc(self.t("p_crumb"))}">' + sep.join(items) + "</nav>"
 
     # ---- pagina's ----
-    def home(self, newest):
+    def home(self, newest, total=None):
         cfg = self.cfg
+        # Beschrijving in Google: aantal boeken (op honderdtallen naar beneden afgerond, zodat hij niet elke dag verandert),
+        # tenzij je zelf een eigen slogan hebt ingesteld (WEBSHOP_TAGLINE).
+        desc = self.tagline
+        if total and total >= 100 and not cfg.get("tagline_custom"):
+            n = (int(total) // 100) * 100
+            sep = {"nl": ".", "de": ".", "en": ",", "fr": " "}.get(self.lang, ".")
+            amount = self.free_amount()
+            free = self.t("p_free_ship_desc", amount=amount) if amount else ""
+            desc = self.t("p_home_desc", N=f"{n:,}".replace(",", sep), free=free)
         body = (f'<div class="hc"><h1 class="sr">{esc(cfg["name"])}</h1><h2>{esc(self.t("p_newest"))}</h2>' + self.grid(newest)
                 + "<!--CATS-->" + f'<section class="aboutme"><h2>{esc(self.t("p_about_me"))}</h2><p>{esc(self.t("p_about_me_text"))}</p></section></div>')
         ld = [{
@@ -221,7 +230,7 @@ class Site:
             "@context": "https://schema.org", "@type": "WebSite", "name": cfg["name"], "alternateName": "Severein", "url": self.url(self.L("/")),
             "inLanguage": self.lang,
         }]
-        return self.layout(title=self.t("p_home_title"), desc=self.tagline, path="/", body=body, ld=ld,
+        return self.layout(title=self.t("p_home_title"), desc=desc, path="/", body=body, ld=ld,
                            show_cats=True, image=("/" + self.logo[0]) if self.logo else None)
 
     def cats_nav(self):

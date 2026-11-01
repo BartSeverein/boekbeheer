@@ -76,6 +76,13 @@ T = {
                      "In dieser Kategorie gibt es 1 Buch (aber ein schönes!).", "Il y a 1 livre dans cette catégorie (mais un beau !)."),
     "p_home_title": ("Tweedehands en nieuwe boeken kopen", "Buy second-hand and new books",
                      "Gebrauchte und neue Bücher kaufen", "Acheter des livres d'occasion et neufs"),
+    # Beschrijving van de beginpagina in Google: {N} is het aantal boeken naar beneden afgerond op honderdtallen, {free} de zin over
+    # gratis verzending (alleen Nederlands, anders leeg).
+    "p_home_desc": ("Ruim {N} tweedehands en nieuwe boeken, van kunst en fotografie tot literatuur en spiritualiteit.{free} Persoonlijk verzonden door Bart Severein.",
+                    "Over {N} second-hand and new books, from art and photography to literature and spirituality. Sent personally by Bart Severein.",
+                    "Über {N} gebrauchte und neue Bücher, von Kunst und Fotografie bis zu Literatur und Spiritualität. Persönlich versendet von Bart Severein.",
+                    "Plus de {N} livres d'occasion et neufs, de l'art et la photographie à la littérature et la spiritualité. Expédiés personnellement par Bart Severein."),
+    "p_free_ship_desc": (" Gratis verzending in Nederland vanaf {amount}.", "", "", ""),
     "p_cat_title": ("{label}: tweedehands en nieuwe boeken ({total})", "{label}: second-hand and new books ({total})",
                     "{label}: gebrauchte und neue Bücher ({total})", "{label} : livres d'occasion et neufs ({total})"),
     "p_cat_intro_sub": ("{label}: een selectie tweedehands en nieuwe boeken binnen {parent}.",

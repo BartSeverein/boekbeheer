@@ -705,9 +705,11 @@ def build_site(raw_books, out_dir, cfg=None, *, mode="full", imported_order_ids=
             _tb = books + sold
             for i in range(0, len(_tb), 40):
                 if tr.stopped:
-                    rest = [b.get(k) for b in _tb[i:] for k in keys if (b.get(k) or "").strip()]
-                    tr.missing += len(rest) * len(foreign)
-                    tr.missing_chars += sum(len(x) for x in rest) * len(foreign)
+                    rest = list(dict.fromkeys(b.get(k) for b in _tb[i:] for k in keys if (b.get(k) or "").strip()))
+                    for _l in foreign:   # alleen wat echt nog ontbreekt (wat al vertaald is, telt niet mee)
+                        _todo = [x for x in rest if tr.get(x, _l) is None]
+                        tr.missing += len(_todo)
+                        tr.missing_chars += sum(len(x) for x in _todo)
                     break
                 tr.ensure([x for b in _tb[i:i + 40] for x in (b.get(k) for k in keys) if x and x.strip()], foreign)
         if not cfg["translate_books"]:
@@ -778,7 +780,7 @@ def build_site(raw_books, out_dir, cfg=None, *, mode="full", imported_order_ids=
             _write(out_dir, _page_dir(site.L(path)), html)
             count_pages += 1
 
-        emit("/", site.home(books[:24]))
+        emit("/", site.home(books[:24], len(books)))
         urls.append(site.L("/"))
 
         def intro_for(raw_label, label, parent_label, raw_parent=None, site=site, lang=lang):
