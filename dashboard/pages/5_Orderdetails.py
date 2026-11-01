@@ -30,6 +30,13 @@ st.title("🛒 Orderdetails")
 _PLATFORM_NAMES = {"Webshop": "Webshop", "Bol": "Bol", "BW": "Boekwinkeltjes", "": "Boekwinkeltjes"}
 
 
+# Alle statussen die een webshop-bestelling kan krijgen, in de volgorde van Boekwinkeltjes.
+WEBSHOP_STATUS_CHOICES = [
+    "new_order", "wait_for_customer", "wait_for_payment", "wait_for_shipping", "wait_for_pickup", "shipped_wait_for_payment",
+    "shipped_paid", "picked_up_paid", "return_received", "lost_in_transit", "sold_or_unavailable", "no_response",
+]
+
+
 def _set_webshop_status(lo, hi, new):
     """Zet de status in de database en onthoudt hem in de sessie, zodat de pagina direct klopt zonder alles opnieuw te laden."""
     conn = psycopg2.connect(get_db_url())
@@ -145,6 +152,14 @@ else:
             st.write("")
             st.button(_label, key=f"ship_{o['id']}", on_click=_set_webshop_status,
                       args=(_lo, _hi, "wait_for_shipping" if _shipped else "shipped_paid"))
+            # Alle andere statussen (dezelfde als bij Boekwinkeltjes), bijvoorbeeld 'Reeds verkocht / boek onvindbaar' als je een boek
+            # niet meer hebt en het bedrag hebt teruggestort. Zo'n bestelling telt dan niet meer mee in de omzet.
+            _current = o["status"] if o["status"] in WEBSHOP_STATUS_CHOICES else "wait_for_shipping"
+            _sc1, _sc2 = st.columns([2, 1], vertical_alignment="bottom")
+            _chosen = _sc1.selectbox("Status wijzigen", WEBSHOP_STATUS_CHOICES, index=WEBSHOP_STATUS_CHOICES.index(_current),
+                                     format_func=format_order_status, key=f"status_pick_{o['id']}_{o['status']}")
+            _sc2.button("Status opslaan", key=f"status_save_{o['id']}", on_click=_set_webshop_status, args=(_lo, _hi, _chosen),
+                        disabled=_chosen == o["status"])
 
         st.markdown("**Koper:**")
         buyer_name =_s(o["buyer_name"]) or f"{_s(o['buyer_first_name'])} {_s(o['buyer_last_name'])}".strip()
