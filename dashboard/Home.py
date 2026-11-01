@@ -577,8 +577,7 @@ if not books.empty:
             yaxis=dict(title="aantal boeken"), bargap=0.15, margin=dict(t=10),
         )
         st.plotly_chart(fig_year, width="stretch")
-        st.caption(f"Van de verkoopvoorraad; {len(_years)} van {len(_ysale)} boeken hebben een jaartal in Bijzonderheden. "
-                   "Lege jaren staan er ook in; onder de balken staat om de 5 jaar een jaartal.")
+        st.caption(f"Van de verkoopvoorraad; {len(_years)} van {len(_ysale)} boeken hebben een jaartal in Bijzonderheden.")
 else:
     st.info("Nog geen boeken om te tonen.")
 
