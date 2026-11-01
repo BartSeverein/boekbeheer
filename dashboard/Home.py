@@ -807,7 +807,7 @@ st.divider()
 @st.fragment
 def search_console_section():
     st.subheader("Zoekverkeer in Google voor webshop")
-    period = st.radio("Periode", list(GSC_PERIODS), index=0, horizontal=True, key="gsc_period", label_visibility="collapsed")
+    period = st.radio("Periode", list(GSC_PERIODS), index=list(GSC_PERIODS).index("28 dagen"), horizontal=True, key="gsc_period", label_visibility="collapsed")
     try:
         data = get_search_console_data(period)
     except Exception as error:
