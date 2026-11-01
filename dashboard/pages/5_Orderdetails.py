@@ -143,19 +143,15 @@ else:
             st.markdown(f"**Datum:** {format_order_datetime(o['order_date'])}")
             st.markdown(f"**Notitie:** {_s(o['note']) or '–'}")
 
-        # Webshop-bestellingen krijgen hun status nergens anders: hier zet je ze op verstuurd (of weer terug).
+        # Webshop-bestellingen krijgen hun status nergens anders: hier kies je zelf de status (verstuurd, reeds verkocht, geannuleerd, enz.).
         if _s(o.get("platform")) == "Webshop":
             _shop_nr = (-int(o["id"]) - 3_000_000_000) // 1000
             _lo, _hi = -(3_000_000_000 + _shop_nr * 1000 + 999), -(3_000_000_000 + _shop_nr * 1000)
-            _shipped = o["status"] == "shipped_paid"
-            _label = "↩️ Zet terug op 'Wachten op verzending'" if _shipped else "📦 Markeer als verstuurd"
             st.write("")
-            st.button(_label, key=f"ship_{o['id']}", on_click=_set_webshop_status,
-                      args=(_lo, _hi, "wait_for_shipping" if _shipped else "shipped_paid"))
-            # Alle andere statussen (dezelfde als bij Boekwinkeltjes), bijvoorbeeld 'Reeds verkocht / boek onvindbaar' als je een boek
+            # Alle statussen (dezelfde als bij Boekwinkeltjes), bijvoorbeeld 'Reeds verkocht / boek onvindbaar' als je een boek
             # niet meer hebt en het bedrag hebt teruggestort. Zo'n bestelling telt dan niet meer mee in de omzet.
             _current = o["status"] if o["status"] in WEBSHOP_STATUS_CHOICES else "wait_for_shipping"
-            _sc1, _sc2 = st.columns([2, 1], vertical_alignment="bottom")
+            _sc1, _sc2, _ = st.columns([2, 1, 6], vertical_alignment="bottom")
             _chosen = _sc1.selectbox("Status wijzigen", WEBSHOP_STATUS_CHOICES, index=WEBSHOP_STATUS_CHOICES.index(_current),
                                      format_func=format_order_status, key=f"status_pick_{o['id']}_{o['status']}")
             _sc2.button("Status opslaan", key=f"status_save_{o['id']}", on_click=_set_webshop_status, args=(_lo, _hi, _chosen),
