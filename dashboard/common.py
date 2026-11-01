@@ -3131,7 +3131,7 @@ def get_current_stock_snapshot():
                 "measured_on": dt.datetime.now(ZoneInfo("Europe/Amsterdam")).date(),
                 "bw_titles": int(bw_t), "bol_titles": int(bol_t),
                 "bw_value": float(bw_v or 0), "bol_value": float(bol_v or 0),
-                "label": "Nu",
+                "label": "Vandaag",
             }
     finally:
         conn.close()
