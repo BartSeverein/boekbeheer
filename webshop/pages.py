@@ -10,7 +10,7 @@ import re
 from urllib.parse import quote
 
 from . import i18n
-from .common import eur
+from .common import address_for, eur
 from .icons import icon
 
 
@@ -353,7 +353,7 @@ class Site:
         th = b.get("thumb")
         thumb_attr = f' data-img="{esc(th[0])}" data-ir="{th[1] / th[2]:.3f}"' if th and th[2] else ""
         ship = self.eur(b["ship_cents"])
-        stock_note = self.t("p_copies", n=b["amount"]) if b["amount"] > 1 else ""
+        stock_note = self.t("p_copies", n=b["amount"]) if b["amount"] > 1 else self.t("p_last_copy")
         free = self.free_amount()
         free_line = f'<p class="small">{esc(self.t("p_free_book", amount=free))}</p>' if free else ""
         keur_i = ""
@@ -525,7 +525,7 @@ class Site:
         name = cfg.get("copyright_name") or cfg.get("owner_name") or cfg["name"]
         company = [f"<strong>{esc(name)}</strong>"]
         if cfg.get("address"):
-            company.append(f'{esc(self.t("p_ct_postal"))}: ' + esc(cfg["address"]).replace("\n", "<br>"))
+            company.append(f'{esc(self.t("p_ct_postal"))}: ' + esc(address_for(cfg, lang)).replace("\n", "<br>"))
             company.append(f'<em>{esc(self.t("p_ct_notvisit"))}</em>')
         if cfg.get("kvk"):
             company.append(f'{esc(self.t("p_ct_kvk"))}: {esc(cfg["kvk"])}')
