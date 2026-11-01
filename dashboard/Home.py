@@ -546,6 +546,42 @@ with right3:
     else:
         st.info("Nog geen boeken om te tonen.")
 
+# ---------- Boeken per uitgavejaar ----------
+
+st.subheader("Boeken per uitgavejaar")
+if not books.empty:
+    _ysale = books[(books["amount"].fillna(0) > 0) & (books["id"] > 0)]
+    if "queued" in _ysale.columns:
+        _ysale = _ysale[~_ysale["queued"].fillna(False).astype(bool)]
+    # Jaar = het eerste viercijferige getal in Bijzonderheden; boeken zonder (geloofwaardig) jaar tellen niet mee.
+    _this_year = dt.date.today().year
+    _years = pd.to_numeric(
+        _ysale["short_description"].fillna("").astype(str).str.extract(r"(?<!\d)(\d{4})(?!\d)")[0], errors="coerce"
+    ).dropna().astype(int)
+    _years = _years[(_years >= 1400) & (_years <= _this_year + 1)]
+    _OLD = 1926
+    if _years.empty:
+        st.info("Nog geen boeken met een uitgavejaar in Bijzonderheden.")
+    else:
+        _years = _years.clip(lower=_OLD)
+        _ycounts = _years.value_counts().reindex(range(_OLD, int(_years.max()) + 1), fill_value=0).sort_index()
+        _ticks = [_OLD] + list(range(1930, int(_years.max()) + 1, 5))
+        fig_year = go.Figure(go.Bar(
+            x=_ycounts.index, y=_ycounts.values,
+            customdata=["1926 of ouder" if y == _OLD else str(y) for y in _ycounts.index],
+            hovertemplate="%{customdata}: %{y} boeken<extra></extra>",
+        ))
+        fig_year.update_layout(
+            xaxis=dict(tickmode="array", tickvals=_ticks, ticktext=["1926 of ouder" if t == _OLD else str(t) for t in _ticks],
+                       tickangle=-45, title=None),
+            yaxis=dict(title="aantal boeken"), bargap=0.15, margin=dict(t=10),
+        )
+        st.plotly_chart(fig_year, width="stretch")
+        st.caption(f"Van de verkoopvoorraad; {len(_years)} van {len(_ysale)} boeken hebben een jaartal in Bijzonderheden. "
+                   "Lege jaren staan er ook in; onder de balken staat om de 5 jaar een jaartal.")
+else:
+    st.info("Nog geen boeken om te tonen.")
+
 st.divider()
 
 # ---------- Wekelijks aanbod: titels en exemplaren, met het deel dat ook op Bol staat ----------
