@@ -59,6 +59,29 @@ def to_cents(value):
     return int(round(float(value) * 100))
 
 
+# ---------- Adres en telefoon per taal ----------
+
+# In het geheim WEBSHOP_ADDRESS staat alleen het Nederlandse adres ("Sportlaan 10A28 - 2995 VN - Heerjansdam"); de buitenlandse
+# pagina's krijgen er het land achter. Het telefoonnummer voor EN, DE en FR staat in internationale schrijfwijze
+# (WEBSHOP_PHONE_INTL overschrijft dit; de Nederlandse pagina's gebruiken WEBSHOP_PHONE).
+ADDRESS_COUNTRY = {"nl": "", "en": "the Netherlands", "de": "Niederlande", "fr": "Pays-Bas"}
+PHONE_INTL_DEFAULT = "+31-(0)620539792"
+
+
+def address_for(cfg, lang="nl"):
+    """Het adres zoals het in `lang` getoond wordt: de Nederlandse tekst, met voor andere talen " - <land>" erachter."""
+    address = (cfg.get("address") or "").strip()
+    country = ADDRESS_COUNTRY.get(lang, "")
+    return f"{address} - {country}" if address and country else address
+
+
+def phone_for(cfg, lang="nl"):
+    """Het telefoonnummer zoals het in `lang` getoond wordt (Nederlands: zoals ingesteld; andere talen: internationaal)."""
+    if lang == "nl":
+        return (cfg.get("phone") or "").strip()
+    return (os.environ.get("WEBSHOP_PHONE_INTL") or PHONE_INTL_DEFAULT).strip()
+
+
 # ---------- Instellingen uit de omgeving ----------
 
 def shop_config():
