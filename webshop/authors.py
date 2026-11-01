@@ -143,12 +143,17 @@ def build_authors(books, min_page=3):
         return key in names or len(key[1]) >= 2
 
     def name_of(key, fallback):
-        return names[key].most_common(1)[0][0] if names[key] else fallback
+        if names[key]:
+            return names[key].most_common(1)[0][0]
+        # Alleen initialen ("Russer, G.A."): neem de schrijfwijze uit de boeken ("G.A. Russer") in plaats van de kale sleutel ("russer ga").
+        shown = Counter(d for b in groups[key] for last, first, d in persons[b["id"]] if canon(last, first) == key)
+        return shown.most_common(1)[0][0] if shown else fallback
 
     slugs, pages, used = {}, [], set()
     for key, items in sorted(groups.items(), key=lambda kv: (-len(kv[1]), kv[0])):
         if len(items) >= min_page and usable(key):
-            base = slugify(name_of(key, " ".join(key)))
+            # Het adres blijft zoals het was (bij alleen initialen de kale sleutel, bijv. russer-ga); alleen de getoonde naam is netter.
+            base = slugify(names[key].most_common(1)[0][0] if names[key] else " ".join(key))
             slug, n = base, 2
             while slug in used:
                 slug, n = f"{base}-{n}", n + 1
