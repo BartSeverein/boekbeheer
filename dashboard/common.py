@@ -3260,6 +3260,58 @@ def get_search_console_data(period):
     return data.drop(columns="key").sort_values("moment").reset_index(drop=True)
 
 
+@st.cache_data(ttl=1800, show_spinner=False)
+def get_search_console_queries(period, limit=20):
+    """
+    De zoekopdrachten (queries) waarmee mensen je webshop in Google vonden, voor de gekozen periode (zie GSC_PERIODS): een tabel
+    met kolommen query, impressions en clicks, meeste impressies eerst (daarna meeste klikken), hoogstens 'limit' rijen. Google laat
+    zeldzame, anonieme zoekopdrachten weg. Geeft None als de koppeling nog niet is ingesteld; bij een storing een uitzondering.
+    """
+    info = _gsc_credentials_info()
+    site = _get_secret("GSC_SITE_URL")
+    if not info or not site:
+        return None
+    from google.auth.transport.requests import Request as GoogleRequest
+    from google.oauth2 import service_account
+    from urllib.parse import quote
+
+    creds = service_account.Credentials.from_service_account_info(
+        info, scopes=["https://www.googleapis.com/auth/webmasters.readonly"])
+    creds.refresh(GoogleRequest())
+    days, hourly = GSC_PERIODS[period]
+    today = dt.datetime.now(ZoneInfo("America/Los_Angeles")).date()   # Search Console rekent in Pacific Time
+    body = {
+        "startDate": (today - dt.timedelta(days=days)).isoformat(),
+        "endDate": today.isoformat(),
+        # De laatste 24 uur kan alleen per uur (hourly_all); die uren tellen we hieronder per zoekopdracht op.
+        "dimensions": ["HOUR", "query"] if hourly else ["query"],
+        "dataState": "hourly_all" if hourly else "all",
+        "rowLimit": 25000 if hourly else 1000,
+    }
+    url = f"https://www.googleapis.com/webmasters/v3/sites/{quote(site, safe='')}/searchAnalytics/query"
+    resp = requests.post(url, json=body, headers={"Authorization": f"Bearer {creds.token}"}, timeout=30)
+    if resp.status_code != 200:
+        try:
+            detail = resp.json().get("error", {}).get("message", "")
+        except Exception:
+            detail = resp.text[:200]
+        raise RuntimeError(f"Search Console antwoordde met {resp.status_code}: {detail}")
+    data = pd.DataFrame([
+        {"hour": r["keys"][0] if hourly else None, "query": r["keys"][-1],
+         "clicks": r.get("clicks", 0), "impressions": r.get("impressions", 0)}
+        for r in resp.json().get("rows", [])
+    ])
+    if data.empty:
+        return pd.DataFrame(columns=["query", "impressions", "clicks"])
+    if hourly:
+        moment = pd.to_datetime(data["hour"], utc=True).dt.tz_convert("Europe/Amsterdam").dt.tz_localize(None)
+        data = data[moment >= dt.datetime.now(ZoneInfo("Europe/Amsterdam")).replace(tzinfo=None) - dt.timedelta(hours=24)]
+    data = data.groupby("query", as_index=False)[["impressions", "clicks"]].sum()
+    data = data.sort_values(["impressions", "clicks"], ascending=False).head(limit).reset_index(drop=True)
+    data[["impressions", "clicks"]] = data[["impressions", "clicks"]].astype(int)
+    return data
+
+
 def get_database_size_mb():
     """
     Huidige grootte van de database in MB, zoals Supabase de limiet toepast: de som over alle databases

@@ -46,6 +46,7 @@ from common import (
     require_login,
     get_database_size_mb,
     get_search_console_data,
+    get_search_console_queries,
     get_mollie_payments,
     WEBSHOP_FIRST_REAL_ORDER,
     GSC_PERIODS,
@@ -576,13 +577,13 @@ def _weekly_stock_chart(snapshots, total_key, bol_key, y_title, money=False):
         alone = max(float(row[total_key]) - float(row[bol_key]), 0)
         long_rows.append({"week": row["week"], "soort": "Ook op Bol", "aantal": float(row[bol_key]),
                           "label": prefix + _nl_number(row[bol_key])})
-        long_rows.append({"week": row["week"], "soort": "Alleen Boekwinkeltjes", "aantal": alone,
+        long_rows.append({"week": row["week"], "soort": "Alleen BW en webshop", "aantal": alone,
                           "label": prefix + _nl_number(alone)})
     fig = px.bar(
         pd.DataFrame(long_rows), x="week", y="aantal", color="soort", text="label",
-        category_orders={"week": list(data["week"]), "soort": ["Ook op Bol", "Alleen Boekwinkeltjes"]},
-        # Dezelfde blauwtinten als de andere grafieken: donker = ook op Bol, licht = alleen Boekwinkeltjes.
-        color_discrete_map={"Ook op Bol": "#0068C9", "Alleen Boekwinkeltjes": "#83C9FF"},
+        category_orders={"week": list(data["week"]), "soort": ["Ook op Bol", "Alleen BW en webshop"]},
+        # Dezelfde blauwtinten als de andere grafieken: donker = ook op Bol, licht = alleen BW en webshop.
+        color_discrete_map={"Ook op Bol": "#0068C9", "Alleen BW en webshop": "#83C9FF"},
     )
     fig.update_traces(texttemplate="%{text}", hovertemplate="%{x}<br>%{fullData.name}: %{text}<extra></extra>")
     # Komma voor decimalen, punt voor duizendtallen (voor de aslabels; de getallen in de staven zijn hierboven al gezet).
@@ -632,7 +633,7 @@ with week_right:
         st.info("Nog geen metingen.")
     else:
         st.plotly_chart(_weekly_stock_chart(weekly_snapshots, "bw_value", "bol_value", "verkoopwaarde (€)", money=True), width="stretch")
-        st.caption("Prijs Boekwinkeltjes x voorraad van alle boeken met voorraad boven 0. Het donkere deel staat ook op Bol.")
+        st.caption("Gebaseerd op de prijzen op Boekwinkeltjes en de webshop, van alle boeken met voorraad boven 0. Het donkere deel staat ook op Bol.")
 
 st.divider()
 
@@ -809,6 +810,26 @@ def search_console_section():
     )
     st.plotly_chart(fig, width="stretch")
     st.caption("Bron: Google Search Console (zoektype Web). De cijfers van de laatste uren zijn nog voorlopig en worden elk half uur ververst.")
+
+    # De 20 zoekopdrachten met de meeste impressies: laatste 24 uur en laatste 3 maanden (los van de gekozen periode hierboven).
+    q_left, q_right = st.columns(2)
+    for column, query_period, title in ((q_left, "24 uur", "Top 20 zoekopdrachten, laatste 24 uur"),
+                                        (q_right, "3 maanden", "Top 20 zoekopdrachten, laatste 3 maanden")):
+        with column:
+            st.markdown(f"**{title}**")
+            try:
+                queries = get_search_console_queries(query_period)
+            except Exception as error:
+                st.info(f"De zoekopdrachten konden nu niet worden opgevraagd ({error}).")
+                continue
+            if queries is None or queries.empty:
+                st.caption("Nog geen zoekopdrachten voor deze periode.")
+                continue
+            st.dataframe(
+                queries.rename(columns={"query": "Zoekopdracht", "impressions": "Impressies", "clicks": "Klikken"}),
+                hide_index=True, width="stretch",
+            )
+    st.caption("Google laat zeldzame zoekopdrachten weg (privacy), dus de lijst is nooit helemaal compleet.")
 
 
 search_console_section()
