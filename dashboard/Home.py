@@ -171,9 +171,12 @@ amount_mask = books["amount"].fillna(0) > 0 if not books.empty else pd.Series(dt
 visible_books = books[(~queued_mask) & amount_mask] if not books.empty else books
 n_queued = int(queued_mask.sum()) if not books.empty else 0
 
-col1, col2, col3, col4, col5 = st.columns(5)
+col1, col2, col_total, col3, col4, col5 = st.columns(6)
 col1.metric("In voorraad", int(visible_books["amount"].fillna(0).sum()) if not visible_books.empty else 0)
 col2.metric("Unieke titels", len(visible_books))
+# Alle titels in de database die al op Boekwinkeltjes staan, dus ook verkochte boeken (voorraad 0); zonder bulkwachtrij en zonder boeken die nog niet op BW staan.
+col_total.metric("Titels totaal", int(((~queued_mask) & (books["id"] > 0)).sum()) if not books.empty else 0,
+                 help="Alle titels in de database, ook de verkochte (voorraad 0). Zonder de bulkwachtrij en zonder boeken die nog niet op Boekwinkeltjes staan.")
 # Bulkwachtrij: eerst wat ik zelf heb toegevoegd, dan het totaal (bijv. 20/44).
 try:
     _n_queued_mine, _n_queued_total = queued_counts(get_queued_books(), current_user_short_name())
