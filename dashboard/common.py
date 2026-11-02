@@ -4104,21 +4104,24 @@ def failed_cron_jobs(jobs):
 
 
 @st.cache_data(ttl=300)
-def get_github_workflow_runs(workflow_file, limit=30):
+def get_github_workflow_runs(workflow_file, around_epoch, window_seconds=600):
     """
-    De laatste uitvoeringen van één GitHub Actions-workflow, nieuwste eerst: lijst van
-    {"created": tijdstip (UTC), "status", "conclusion", "seconds" (looptijd of None)}. Geeft (runs, foutmelding) terug.
-    Hiermee zie je of een geplande taak niet alleen is aangeroepen, maar ook echt goed is afgelopen.
+    De uitvoeringen van één GitHub Actions-workflow die rond een bepaald tijdstip (epoch, in seconden) zijn gestart, nieuwste eerst:
+    lijst van {"created": tijdstip (UTC), "status", "conclusion", "seconds" (looptijd of None)}. Geeft (runs, foutmelding) terug.
+    Op tijdstip filteren is nodig omdat sommige workflows (bijv. de webshop) elk kwartier draaien: de laatste run van een
+    dagelijkse taak is dan snel niet meer te vinden in de laatste paar runs.
     """
     repo = _get_secret("GITHUB_REPO")
     token = _get_secret("GITHUB_TOKEN")
     if not repo or not token:
         return [], "GITHUB_REPO en/of GITHUB_TOKEN zijn niet ingesteld."
+    start = dt.datetime.fromtimestamp(around_epoch - window_seconds, tz=dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    end = dt.datetime.fromtimestamp(around_epoch + window_seconds, tz=dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     try:
         resp = requests.get(
             f"https://api.github.com/repos/{repo}/actions/workflows/{workflow_file}/runs",
             headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
-            params={"per_page": limit},
+            params={"per_page": 30, "created": f"{start}..{end}"},
             timeout=15,
         )
         if not resp.ok:
@@ -4155,7 +4158,7 @@ def github_run_for_cron_job(job, max_gap_seconds=600):
     last_exec = job.get("lastExecution") or 0
     if not match or not last_exec:
         return None, None
-    runs, error = get_github_workflow_runs(match.group(1))
+    runs, error = get_github_workflow_runs(match.group(1), int(last_exec))
     if error:
         return None, error
     moment = dt.datetime.fromtimestamp(last_exec, tz=dt.timezone.utc)
