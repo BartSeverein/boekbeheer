@@ -47,6 +47,9 @@ from common import (
     get_database_size_mb,
     get_search_console_data,
     get_search_console_queries,
+    get_github_workflow_runs,
+    github_run_for_cron_job,
+    github_run_label,
     get_mollie_payments,
     WEBSHOP_FIRST_REAL_ORDER,
     GSC_PERIODS,
@@ -351,6 +354,7 @@ st.subheader("Geplande taken")
 # één aanroep.
 if st.button("🔄 Status verversen", key="refresh_cron_status", help="Haalt de actuele status van cron-job.org op (kost één van de 100 aanroepen per dag)."):
     get_cron_job_status.clear()
+    get_github_workflow_runs.clear()
     st.rerun()
 
 try:
@@ -390,19 +394,31 @@ Alle taken roepen GitHub aan om een workflow te starten. Bij een HTTP-fout is di
     # --- mislukte taken (einde) ---
 
     rows = []
+    github_failed = []
     for job in cron_jobs:
         last_exec = job.get("lastExecution") or 0
         next_exec = job.get("nextExecution") or 0
+        try:
+            gh_run, gh_error = github_run_for_cron_job(job)
+        except Exception:
+            gh_run, gh_error = None, "onbekend"
+        if gh_run is not None and gh_run["conclusion"] in ("failure", "timed_out"):
+            github_failed.append(job.get("title", "(naamloos)"))
         rows.append(
             {
                 "Taak": job.get("title", "(naamloos)"),
                 "Laatste run": format_datetime_nl(dt.datetime.fromtimestamp(last_exec, tz=dt.timezone.utc)) if last_exec else "–",
                 "Status": cron_status_label(job.get("lastStatus")),
+                "Uitkomst bij GitHub": "⚠️ niet op te halen" if gh_error else github_run_label(gh_run),
                 "Duur": f"{job.get('lastDuration', 0) / 1000:.1f}s" if job.get("lastDuration") else "–",
                 "Volgende run": format_datetime_nl(dt.datetime.fromtimestamp(next_exec, tz=dt.timezone.utc)) if next_exec else "–",
             }
         )
+    if github_failed:
+        st.error(f"🚨 Bij GitHub is de laatste uitvoering mislukt van: {', '.join(github_failed)}. De aanroep zelf slaagde, maar de taak "
+                 f"liep daarna fout. Open GitHub onder Actions voor de foutmelding.")
     st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
+    st.caption("'Status' is of cron-job.org GitHub heeft aangeroepen; 'Uitkomst bij GitHub' is of de taak daarna goed is afgelopen.")
 
 st.divider()
 

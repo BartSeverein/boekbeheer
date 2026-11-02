@@ -1054,6 +1054,22 @@ def count_books_without_shipping_format(books):
 _SHIPPING_FORMAT_COLUMN_CHECKED = False
 
 
+_BOL_RESTOCK_COLUMN_CHECKED = False
+
+
+def _ensure_bol_restock_column(cur):
+    """Zorgt dat books.bol_restock bestaat (de vlag 'voorraad is in de app van 0 omhoog gezet, zet het ook bij Bol weer klaar')."""
+    global _BOL_RESTOCK_COLUMN_CHECKED
+    if not _BOL_RESTOCK_COLUMN_CHECKED:
+        cur.execute(
+            "SELECT 1 FROM information_schema.columns "
+            "WHERE table_schema = current_schema() AND table_name = 'books' AND column_name = 'bol_restock'"
+        )
+        if cur.fetchone() is None:
+            cur.execute("ALTER TABLE books ADD COLUMN IF NOT EXISTS bol_restock BOOLEAN DEFAULT FALSE")
+        _BOL_RESTOCK_COLUMN_CHECKED = True
+
+
 def _ensure_shipping_format_column(cur):
     """Zorgt dat books.shipping_format bestaat (één keer per programma-run), ook als de sync dat nog niet deed."""
     global _SHIPPING_FORMAT_COLUMN_CHECKED
@@ -1117,6 +1133,12 @@ def save_book_edits(book_id, fields, user_short_name=None, previous_values=None)
                         db_fields["shipping_format"] = new_format
 
             set_clause = ", ".join(f"{col} = %({col})s" for col in db_fields)
+            if "amount" in db_fields:
+                # Gaat de voorraad in de app van 0 (of leeg) omhoog, dan zet de sync het boek ook bij Bol weer klaar.
+                # In een UPDATE gelden rechts van '=' de oude waarden, dus dit kijkt naar de voorraad van vóór deze wijziging.
+                _ensure_bol_restock_column(cur)
+                set_clause += (", bol_restock = CASE WHEN COALESCE(books.amount, 0) <= 0 AND COALESCE(%(amount)s, 0) > 0 "
+                               "THEN TRUE ELSE COALESCE(books.bol_restock, FALSE) END")
             cur.execute(
                 f"""
                 UPDATE books
@@ -3035,6 +3057,21 @@ def get_bol_condition_rows():
 
 
 @st.cache_data(ttl=300)
+def get_bol_offer_stocks():
+    """{ean: voorraad bij Bol} van alle Bol-aanbiedingen die de voorraadsync kent (ook die op voorraad 0)."""
+    conn = psycopg2.connect(get_db_url())
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT ean, COALESCE(bol_stock, 0) FROM bol_offer_mapping WHERE ean IS NOT NULL")
+            return {str(row[0]): int(row[1]) for row in cur.fetchall()}
+    except Exception:
+        conn.rollback()
+        return {}
+    finally:
+        conn.close()
+
+
+@st.cache_data(ttl=300)
 def get_bol_offer_eans():
     """Alle ISBN's (ean) waarvoor een Bol-aanbieding bekend is, ook als die op voorraad 0 staat."""
     conn = psycopg2.connect(get_db_url())
@@ -4064,6 +4101,68 @@ def cron_status_label(code):
 def failed_cron_jobs(jobs):
     """De taken waarvan de laatste uitvoering mislukte: elke code vanaf 2 (ook een code die we nog niet kennen)."""
     return [job for job in jobs if isinstance(job.get("lastStatus"), int) and job["lastStatus"] >= 2]
+
+
+@st.cache_data(ttl=300)
+def get_github_workflow_runs(workflow_file, limit=30):
+    """
+    De laatste uitvoeringen van één GitHub Actions-workflow, nieuwste eerst: lijst van
+    {"created": tijdstip (UTC), "status", "conclusion", "seconds" (looptijd of None)}. Geeft (runs, foutmelding) terug.
+    Hiermee zie je of een geplande taak niet alleen is aangeroepen, maar ook echt goed is afgelopen.
+    """
+    repo = _get_secret("GITHUB_REPO")
+    token = _get_secret("GITHUB_TOKEN")
+    if not repo or not token:
+        return [], "GITHUB_REPO en/of GITHUB_TOKEN zijn niet ingesteld."
+    try:
+        resp = requests.get(
+            f"https://api.github.com/repos/{repo}/actions/workflows/{workflow_file}/runs",
+            headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
+            params={"per_page": limit},
+            timeout=15,
+        )
+        if not resp.ok:
+            return [], f"GitHub gaf {resp.status_code} terug"
+        runs = []
+        for r in resp.json().get("workflow_runs", []):
+            def _t(key):
+                value = r.get(key)
+                return dt.datetime.fromisoformat(value.replace("Z", "+00:00")) if value else None
+            created, started, updated = _t("created_at"), _t("run_started_at"), _t("updated_at")
+            seconds = (updated - started).total_seconds() if started and updated and r.get("status") == "completed" else None
+            runs.append({"created": created, "status": r.get("status"), "conclusion": r.get("conclusion"), "seconds": seconds})
+        return runs, None
+    except (requests.RequestException, ValueError) as e:
+        return [], f"Netwerkfout: {e}"
+
+
+def github_run_label(run):
+    """Korte tekst voor één GitHub-run: geslaagd, mislukt, bezig of geannuleerd."""
+    if run is None:
+        return "–"
+    if run["status"] != "completed":
+        return "⏳ Bezig"
+    return {"success": "✅ Geslaagd", "failure": "❌ Mislukt", "cancelled": "⚪ Geannuleerd", "timed_out": "❌ Time-out",
+            "skipped": "⚪ Overgeslagen"}.get(run["conclusion"], f"⚠️ {run['conclusion'] or 'onbekend'}")
+
+
+def github_run_for_cron_job(job, max_gap_seconds=600):
+    """
+    De GitHub-run die bij de laatste uitvoering van een cron-job.org-taak hoort: de workflow uit de URL van de taak, en daarin de
+    run die het dichtst bij het tijdstip van die uitvoering is gestart. Geeft (run of None, foutmelding of None).
+    """
+    match = re.search(r"/workflows/([^/]+)/dispatches", job.get("url") or "")
+    last_exec = job.get("lastExecution") or 0
+    if not match or not last_exec:
+        return None, None
+    runs, error = get_github_workflow_runs(match.group(1))
+    if error:
+        return None, error
+    moment = dt.datetime.fromtimestamp(last_exec, tz=dt.timezone.utc)
+    close = [r for r in runs if r["created"] and abs((r["created"] - moment).total_seconds()) <= max_gap_seconds]
+    if not close:
+        return None, None
+    return min(close, key=lambda r: abs((r["created"] - moment).total_seconds())), None
 
 
 @st.cache_data(ttl=21600)
