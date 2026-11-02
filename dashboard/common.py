@@ -2892,6 +2892,10 @@ def delete_book(book_id):
             cur.execute("DELETE FROM book_images WHERE book_id = %(id)s", {"id": int(book_id)})
             cur.execute("DELETE FROM book_uploaded_images WHERE book_id = %(id)s", {"id": int(book_id)})
             cur.execute("DELETE FROM books WHERE id = %(id)s", {"id": int(book_id)})
+            if int(book_id) < 0:
+                # Een tijdelijk id wordt door het volgende nieuwe boek hergebruikt. Blijven de logregels van het verwijderde
+                # concept staan, dan verhuizen ze bij de eerstvolgende sync mee naar dat nieuwe boek (en lijkt het dubbel aangemaakt).
+                cur.execute("DELETE FROM book_activity_log WHERE book_id = %(id)s", {"id": int(book_id)})
         conn.commit()
     finally:
         conn.close()
@@ -2916,6 +2920,10 @@ def delete_unplaced_book(book_id):
             cur.execute("DELETE FROM book_images WHERE book_id = %(id)s", {"id": int(book_id)})
             cur.execute("DELETE FROM book_uploaded_images WHERE book_id = %(id)s", {"id": int(book_id)})
             cur.execute("DELETE FROM books WHERE id = %(id)s", {"id": int(book_id)})
+            if int(book_id) < 0:
+                # Een tijdelijk id wordt door het volgende nieuwe boek hergebruikt. Blijven de logregels van het verwijderde
+                # concept staan, dan verhuizen ze bij de eerstvolgende sync mee naar dat nieuwe boek (en lijkt het dubbel aangemaakt).
+                cur.execute("DELETE FROM book_activity_log WHERE book_id = %(id)s", {"id": int(book_id)})
         conn.commit()
         return True
     finally:
