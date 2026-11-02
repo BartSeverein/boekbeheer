@@ -50,6 +50,7 @@ from common import (
     get_github_workflow_runs,
     github_run_for_cron_job,
     github_run_label,
+    github_run_duration_label,
     get_mollie_payments,
     WEBSHOP_FIRST_REAL_ORDER,
     GSC_PERIODS,
@@ -410,7 +411,7 @@ Alle taken roepen GitHub aan om een workflow te starten. Bij een HTTP-fout is di
                 "Laatste run": format_datetime_nl(dt.datetime.fromtimestamp(last_exec, tz=dt.timezone.utc)) if last_exec else "–",
                 "Status": cron_status_label(job.get("lastStatus")),
                 "Uitkomst bij GitHub": "⚠️ niet op te halen" if gh_error else github_run_label(gh_run),
-                "Duur": f"{job.get('lastDuration', 0) / 1000:.1f}s" if job.get("lastDuration") else "–",
+                "Duur": "–" if gh_error else github_run_duration_label(gh_run),
                 "Volgende run": format_datetime_nl(dt.datetime.fromtimestamp(next_exec, tz=dt.timezone.utc)) if next_exec else "–",
             }
         )
@@ -418,7 +419,7 @@ Alle taken roepen GitHub aan om een workflow te starten. Bij een HTTP-fout is di
         st.error(f"🚨 Bij GitHub is de laatste uitvoering mislukt van: {', '.join(github_failed)}. De aanroep zelf slaagde, maar de taak "
                  f"liep daarna fout. Open GitHub onder Actions voor de foutmelding.")
     st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
-    st.caption("'Status' is of cron-job.org GitHub heeft aangeroepen; 'Uitkomst bij GitHub' is of de taak daarna goed is afgelopen.")
+    st.caption("'Status' is of cron-job.org GitHub heeft aangeroepen; 'Uitkomst bij GitHub' en 'Duur' gaan over de taak zelf bij GitHub.")
 
 st.divider()
 

@@ -4133,10 +4133,28 @@ def get_github_workflow_runs(workflow_file, around_epoch, window_seconds=600):
                 return dt.datetime.fromisoformat(value.replace("Z", "+00:00")) if value else None
             created, started, updated = _t("created_at"), _t("run_started_at"), _t("updated_at")
             seconds = (updated - started).total_seconds() if started and updated and r.get("status") == "completed" else None
-            runs.append({"created": created, "status": r.get("status"), "conclusion": r.get("conclusion"), "seconds": seconds})
+            runs.append({"created": created, "started": started, "status": r.get("status"), "conclusion": r.get("conclusion"), "seconds": seconds})
         return runs, None
     except (requests.RequestException, ValueError) as e:
         return [], f"Netwerkfout: {e}"
+
+
+def github_run_duration_label(run):
+    """Looptijd van een GitHub-run als '47s', '3m 12s' of '2u 14m'; voor een run die nog bezig is 'bezig sinds UU:MM'."""
+    if run is None:
+        return "–"
+    if run["status"] != "completed":
+        started = run.get("started") or run.get("created")
+        return f"bezig sinds {format_datetime_nl(started)[-8:-3]}" if started else "bezig"
+    seconds = run.get("seconds")
+    if seconds is None:
+        return "–"
+    seconds = int(round(seconds))
+    if seconds < 60:
+        return f"{seconds}s"
+    if seconds < 3600:
+        return f"{seconds // 60}m {seconds % 60:02d}s"
+    return f"{seconds // 3600}u {(seconds % 3600) // 60:02d}m"
 
 
 def github_run_label(run):
