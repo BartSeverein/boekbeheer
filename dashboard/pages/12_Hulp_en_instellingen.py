@@ -370,18 +370,20 @@ def _load_discount_rows():
             until = None
         rows.append({
             "Code": it.get("code", ""),
+            "Omschrijving": it.get("description", ""),
             "Soort": "Gratis verzending" if it.get("type") == "shipping" else "Percentage korting",
             "Percentage": None if it.get("type") == "shipping" else it.get("percent"),
             "Tot en met": until,
             "Actief": bool(it.get("active", True)),
         })
-    return pd.DataFrame(rows, columns=["Code", "Soort", "Percentage", "Tot en met", "Actief"])
+    return pd.DataFrame(rows, columns=["Code", "Omschrijving", "Soort", "Percentage", "Tot en met", "Actief"])
 
 
 discount_df = st.data_editor(
     _load_discount_rows(), num_rows="dynamic", hide_index=True, width="stretch", key="discount_editor",
     column_config={
         "Code": st.column_config.TextColumn("Code", help="Letters en cijfers; hoofdletters maken niet uit.", max_chars=30),
+        "Omschrijving": st.column_config.TextColumn("Omschrijving", help="Alleen voor jezelf: waar deze code voor bedoeld was. Klanten zien dit niet.", max_chars=200),
         "Soort": st.column_config.SelectboxColumn("Soort", options=list(DISCOUNT_KINDS), default="Percentage korting", required=True),
         "Percentage": st.column_config.NumberColumn("Percentage (%)", min_value=1, max_value=100, step=1, format="%d"),
         "Tot en met": st.column_config.DateColumn("Tot en met (optioneel)", format="DD-MM-YYYY"),
@@ -403,6 +405,9 @@ if st.button("Kortingscodes opslaan", key="save_discount_codes"):
         seen.add(code)
         kind = DISCOUNT_KINDS.get(row.get("Soort"), "percent")
         entry = {"code": code, "type": kind, "active": bool(row.get("Actief", True))}
+        description = str(row.get("Omschrijving") or "").strip()
+        if description and description.lower() != "nan":
+            entry["description"] = description[:200]
         if kind == "percent":
             pct = row.get("Percentage")
             if pct is None or pd.isna(pct) or not 1 <= float(pct) <= 100:
