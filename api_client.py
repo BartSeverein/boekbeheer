@@ -40,6 +40,23 @@ class BoekwinkeltjesAPIError(Exception):
     pass
 
 
+class BoekwinkeltjesBlockedError(Exception):
+    """Boekwinkeltjes weigert ons (kale 403 van de webserver, geen JSON van de API): waarschijnlijk een IP-blokkade.
+    Bewust géén subklasse van BoekwinkeltjesAPIError, zodat de per-boek 'doorgaan bij fout'-afhandeling dit niet opvangt
+    en de taak meteen stopt in plaats van duizenden keren hetzelfde geblokkeerde verzoek te herhalen."""
+    pass
+
+
+def _check_blocked(method, url, resp):
+    """Een 403 met een HTML-pagina (Apache) komt van de webserver/firewall; de API zelf antwoordt met JSON."""
+    if resp.status_code == 403 and "json" not in (resp.headers.get("Content-Type") or "").lower():
+        raise BoekwinkeltjesBlockedError(
+            f"GEBLOKKEERD DOOR BOEKWINKELTJES: {method} {url} -> 403 Forbidden van de webserver (geen API-antwoord). "
+            "Waarschijnlijk wordt ons IP-adres (GitHub Actions) geweigerd. De taak stopt direct om de blokkade niet te verlengen; "
+            "neem contact op met Boekwinkeltjes."
+        )
+
+
 _UNSET = object()
 
 
@@ -63,6 +80,8 @@ def _send(method, url, **kwargs):
 def _request(method, path, params=None, json=None, on_404=_UNSET):
     url = f"{BASE_URL}{path}"
     resp = _send(method, url, headers=HEADERS, params=params, json=json, timeout=30)
+
+    _check_blocked(method, url, resp)
 
     if resp.status_code == 404 and on_404 is not _UNSET:
         return on_404
@@ -90,6 +109,7 @@ def upload_book_image(book_id, image_bytes, content_type="image/jpeg"):
     url = f"{BASE_URL}/books/{book_id}/images"
     headers = {"api-key": API_KEY, "Content-Type": content_type}
     resp = _send("POST", url, headers=headers, data=image_bytes, timeout=60)
+    _check_blocked("POST", url, resp)
     if not resp.ok:
         raise BoekwinkeltjesAPIError(f"POST {url} -> {resp.status_code}: {resp.text[:500]}")
     return resp.json() if resp.text.strip() else None

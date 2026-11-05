@@ -224,4 +224,9 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    import api_client
+    try:
+        main()
+    except api_client.BoekwinkeltjesBlockedError as e:
+        print(f"\n{e}")
+        sys.exit(1)
