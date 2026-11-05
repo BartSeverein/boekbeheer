@@ -68,6 +68,11 @@ ADDRESS_COUNTRY = {"nl": "", "en": "the Netherlands", "de": "Niederlande", "fr":
 PHONE_INTL_DEFAULT = "+31-(0)620539792"
 
 
+def strip_country(address):
+    """Haalt een landaanduiding aan het eind van het adres weg (' - NL', ', Nederland', ' - The Netherlands'), want die komt per taal erbij."""
+    return re.sub(r"[\s,;-]+(NL|Nederland|The Netherlands|Netherlands|Niederlande|Pays-Bas)\.?\s*$", "", (address or "").strip(), flags=re.IGNORECASE)
+
+
 def address_for(cfg, lang="nl"):
     """Het adres zoals het in `lang` getoond wordt: de Nederlandse tekst, met voor andere talen " - <land>" erachter."""
     address = (cfg.get("address") or "").strip()
@@ -163,7 +168,7 @@ def shop_config():
         "mollie_api_base": os.environ.get("WEBSHOP_MOLLIE_API_BASE") or "https://api.mollie.com/v2",
         "webhook_base": (os.environ.get("WEBSHOP_WEBHOOK_BASE") or base).rstrip("/"),
         "owner_name": os.environ.get("WEBSHOP_OWNER_NAME") or "",
-        "address": os.environ.get("WEBSHOP_ADDRESS") or "",
+        "address": strip_country(os.environ.get("WEBSHOP_ADDRESS") or ""),
         "kvk": os.environ.get("WEBSHOP_KVK") or "",
         "vat": os.environ.get("WEBSHOP_VAT") or "",
         "iban": os.environ.get("WEBSHOP_IBAN") or "",
