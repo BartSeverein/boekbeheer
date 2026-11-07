@@ -1,0 +1,61 @@
+name: Alles nu doorzetten (nieuwe boeken naar Boekwinkeltjes, sync, foto's, webshop)
+
+# Eén klik, vaste volgorde, bedoeld voor als je niet op het druppelsysteem en de gewone ritmes wilt wachten:
+#   1. alle wachtende nieuwe boeken in één keer naar Boekwinkeltjes (negeert de tijdvakken van het druppelsysteem)
+#   2. volledige sync (boeken/orders ophalen, voorraad met Bol, wachtende wijzigingen en nieuwe Bol-aanbiedingen)
+#   3. foto's ophalen (200 boeken per keer, zoals de gewone foto-taak)
+#   4. webshop 'full' starten als aparte run (die bouwt de pagina's; herhaal die zo nodig tot 'complete': True)
+# Stopt een stap met een fout, dan draaien de volgende niet.
+on: { workflow_dispatch: {} }
+
+concurrency:
+  group: boekwinkeltjes-sync
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: write   # nodig om in stap 4 de webshop-run te starten
+
+jobs:
+  alles-nu:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      BOEKWINKELTJES_ENV: ${{ secrets.BOEKWINKELTJES_ENV }}
+      BOEKWINKELTJES_API_KEY_SANDBOX: ${{ secrets.BOEKWINKELTJES_API_KEY_SANDBOX }}
+      BOEKWINKELTJES_API_KEY_LIVE: ${{ secrets.BOEKWINKELTJES_API_KEY_LIVE }}
+      BOL_CLIENT_ID: ${{ secrets.BOL_CLIENT_ID }}
+      BOL_CLIENT_SECRET: ${{ secrets.BOL_CLIENT_SECRET }}
+      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+      SMTP_HOST: ${{ secrets.SMTP_HOST }}
+      SMTP_PORT: ${{ secrets.SMTP_PORT }}
+      SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+      SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+      SMTP_TO: ${{ secrets.SMTP_TO }}
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: 1. Alle wachtende nieuwe boeken naar Boekwinkeltjes
+        run: python main.py push-new-books
+
+      - name: 2. Volledige sync
+        run: python main.py sync
+
+      - name: 3a. Foto's ophalen
+        run: python main.py pull-images 200
+
+      - name: 3b. Hoofdfoto's ophalen
+        run: python main.py pull-main-images 200
+
+      - name: 4. Webshop (full) starten
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run webshop-publish.yml -f modus=full -f echt_uitvoeren=ja -f max_minuten=120
