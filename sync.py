@@ -1107,6 +1107,10 @@ def full_sync():
         push_new_books_to_bol()
     except Exception:
         pass  # al gelogd in push_new_books_to_bol(); de rest van de sync gaat gewoon door
+    try:
+        restock_bol_offers()
+    except Exception:
+        pass  # al gelogd in restock_bol_offers(); de rest van de sync gaat gewoon door
     return {
         "books_pulled": n_books,
         "orders_pulled": n_orders,
@@ -3012,11 +3016,10 @@ def reclaim_space(real=True):
 
 # ---------- Opslagbewaking: een mail als de database vol raakt ----------
 
-# De limiet van het gratis Supabase-abonnement: komt de database boven deze grootte, dan wordt hij
-# alleen-lezen en kan er niets meer worden opgeslagen. (De 2 GB 'provisioned disk size' in Supabase is
-# schijfruimte en niet de limiet.) Stap je over op een betaald abonnement, pas dit dan aan, en
+# De limiet van het Supabase-abonnement: Pro (sinds november 2026) bevat 8 GB schijfruimte per project; het gratis
+# abonnement had 500 MB en werd bij overschrijding alleen-lezen. Verandert het abonnement, pas dit dan aan, en
 # DB_LIMIT_MB in dashboard/Home.py, zodat de meldingen en de grafiek kloppen.
-STORAGE_LIMIT_MB = 500
+STORAGE_LIMIT_MB = 8192
 # Bij welk percentage van de limiet er een mail komt. 100 = vol: de database is dan alleen-lezen.
 STORAGE_ALERT_LEVELS = (90, 95, 98, 100)
 # Een niveau telt pas als verlaten als het gebruik zoveel procentpunt eronder zakt. Anders zou een
@@ -3739,6 +3742,146 @@ def push_new_books_to_bol():
         raise
 
 
+_BOL_RESTOCK_COLUMN_CHECKED = False
+
+
+def ensure_bol_restock_column(conn):
+    """Zorgt dat books.bol_restock bestaat (eerst kijken, dan pas aanmaken: zie ensure_shipping_format_column). De aanroeper commit."""
+    global _BOL_RESTOCK_COLUMN_CHECKED
+    if _BOL_RESTOCK_COLUMN_CHECKED:
+        return
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT 1 FROM information_schema.columns "
+            "WHERE table_schema = current_schema() AND table_name = 'books' AND column_name = 'bol_restock'"
+        )
+        if cur.fetchone() is None:
+            cur.execute("ALTER TABLE books ADD COLUMN IF NOT EXISTS bol_restock BOOLEAN DEFAULT FALSE")
+    _BOL_RESTOCK_COLUMN_CHECKED = True
+
+
+def suggested_bol_price(price, shipping_cost):
+    """
+    Bol-prijs voor een boek zonder ingevulde Bol-prijs: boekprijs + verzendkosten + 2,25 (commissie), naar boven afgerond
+    op het eerstvolgende bedrag dat eindigt op ,45 of ,95 (10,15 wordt 10,45; 10,50 wordt 10,95; 10,45 blijft 10,45).
+    """
+    from decimal import Decimal
+    base = Decimal(str(price or 0)) + Decimal(str(shipping_cost or 0)) + Decimal("2.25")
+    whole = Decimal(int(base))
+    for candidate in (whole + Decimal("0.45"), whole + Decimal("0.95"), whole + Decimal("1.45")):
+        if candidate >= base:
+            return float(candidate)
+    return float(whole + Decimal("1.45"))
+
+
+def restock_bol_offers():
+    """
+    Zet boeken waarvan de voorraad in de app van 0 omhoog is gezet (vlag books.bol_restock, gezet door het dashboard) ook bij
+    Bol weer klaar. Dit is een bewuste handeling van een mens, dus het mag de gewone regel 'Bol nooit omhoog zetten' doorbreken:
+    - Bestaat de Bol-aanbieding nog met voorraad boven 0: niets doen.
+    - Bestaat hij nog op 0: voorraad op het nieuwe aantal zetten.
+    - Is hij bij Bol verwijderd (404): opnieuw aanmaken, met de Bol-prijs uit de app, of anders de suggestie.
+    Alleen boeken die al eens een Bol-koppeling hadden. Een boek dat nooit op Bol stond (of bewust als 'ongeschikt voor Bol'
+    is gemarkeerd) wordt nooit uit zichzelf aangemaakt. Bij een fout blijft de vlag staan, dus de volgende sync probeert het opnieuw.
+    """
+    conn = get_connection()
+    try:
+        ensure_bol_restock_column(conn)
+        conn.commit()
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT b.id, b.ean, b.title, b.location, b.amount, b.price, b.shipping_cost, b.shipping_cost_bol,
+                       b.short_description, m.offer_id, m.bol_stock
+                FROM books b
+                LEFT JOIN bol_offer_mapping m ON m.ean = b.ean
+                WHERE b.id > 0 AND COALESCE(b.bol_restock, FALSE) = TRUE AND COALESCE(b.queued, FALSE) = FALSE
+                """
+            )
+            candidates = cur.fetchall()
+        if not candidates:
+            return
+
+        def _clear(book_id):
+            with conn.cursor() as cur:
+                cur.execute("UPDATE books SET bol_restock = FALSE WHERE id = %(id)s", {"id": book_id})
+            conn.commit()
+
+        raised, created, skipped, errors = 0, 0, [], []
+        context = None   # verantwoordelijke partij en leverbelofte: alleen opzoeken als er echt iets aangemaakt moet worden
+        for book in candidates:
+            amount = int(book["amount"] or 0)
+            if amount <= 0:                      # intussen weer op 0 gezet
+                _clear(book["id"])
+                continue
+            if not book["ean"] or book["ean"] in ("", "0") or not book["offer_id"]:
+                skipped.append(f"{book['title']} (nooit op Bol gestaan)")
+                _clear(book["id"])
+                continue
+            try:
+                if (book["bol_stock"] or 0) > 0:
+                    _clear(book["id"])           # staat bij Bol al op voorraad
+                    continue
+                try:
+                    bol_client.update_offer_stock(book["offer_id"], amount)
+                    with conn.cursor() as cur:
+                        cur.execute("UPDATE bol_offer_mapping SET bol_stock = %(s)s, last_synced_at = %(now)s WHERE ean = %(ean)s",
+                                    {"s": amount, "now": _now(), "ean": book["ean"]})
+                    conn.commit()
+                    _clear(book["id"])
+                    raised += 1
+                    continue
+                except bol_client.BolAPIError as e:
+                    if getattr(e, "status_code", None) != 404:
+                        raise
+                    if bol_client.offer_exists(book["offer_id"]) is True:
+                        raise
+                # Aanbieding bestaat niet meer: opnieuw aanmaken.
+                if context is None:
+                    eo = bol_client.get_economic_operator_id_from_offers() or bol_client.get_economic_operator_id(BOL_ECONOMIC_OPERATOR_NAME)
+                    context = (eo, bol_client.get_delivery_profile_id_from_offers())
+                price = float(book["shipping_cost_bol"]) if book["shipping_cost_bol"] is not None \
+                    else suggested_bol_price(book["price"], book["shipping_cost"])
+                condition, comment = _derive_bol_condition(book["short_description"])
+                new_offer_id = bol_client.create_offer(
+                    ean=book["ean"], condition=condition, price=price, stock_amount=amount, reference=book["location"],
+                    delivery_code=BOL_DELIVERY_CODE, economic_operator_id=context[0], comment=comment,
+                    delivery_profile_id=context[1],
+                )
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        INSERT INTO bol_offer_mapping (ean, offer_id, bol_stock, last_synced_at)
+                        VALUES (%(ean)s, %(offer_id)s, %(stock)s, %(now)s)
+                        ON CONFLICT (ean) DO UPDATE SET offer_id = excluded.offer_id, bol_stock = excluded.bol_stock,
+                                                        last_synced_at = excluded.last_synced_at
+                        """,
+                        {"ean": book["ean"], "offer_id": new_offer_id, "stock": amount, "now": _now()},
+                    )
+                    if book["shipping_cost_bol"] is None:   # de gebruikte suggestie vastleggen, zodat de app hem laat zien
+                        cur.execute("UPDATE books SET shipping_cost_bol = %(p)s WHERE id = %(id)s", {"p": price, "id": book["id"]})
+                conn.commit()
+                _clear(book["id"])
+                created += 1
+            except bol_client.BolAPIError as e:
+                conn.rollback()
+                errors.append(f"boek {book['id']} ({book['title']}): {e}")
+
+        detail = (f"{raised} {_n(raised, 'aanbieding', 'aanbiedingen')} weer op voorraad gezet, "
+                  f"{created} {_n(created, 'aanbieding', 'aanbiedingen')} opnieuw aangemaakt bij Bol")
+        if skipped:
+            detail += f"; overgeslagen: " + "; ".join(skipped[:5])
+        if errors:
+            detail += f" — {len(errors)} fout(en): " + "; ".join(errors[:5])
+        _log(conn, "push", "restock_offers", "ok" if not errors else "error", detail, platform="Bol")
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        _log(conn, "push", "restock_offers", "error", str(e), platform="Bol")
+        conn.commit()
+        raise
+
+
 def _choose_one_offer_per_ean(offers, mapped_offer_ids):
     """
     Bol kan meer dan één aanbieding voor hetzelfde ean hebben (bijvoorbeeld een nieuwe én een
@@ -3977,6 +4120,11 @@ def quick_stock_sync():
     _lap("Bol-orders opgehaald")
     sync_stock_with_bol()
     _lap("voorraad met Bol gelijkgetrokken")
+    try:
+        restock_bol_offers()   # boeken die in de app weer op voorraad zijn gezet ook bij Bol klaarzetten
+    except Exception:
+        pass  # al gelogd in restock_bol_offers()
+    _lap("herstelde boeken bij Bol weer klaargezet")
 
 
 def _rows_to_csv_bytes(rows):
