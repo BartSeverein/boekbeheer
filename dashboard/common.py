@@ -3389,6 +3389,31 @@ def get_database_size_mb():
         conn.close()
 
 
+def get_largest_objects(limit=8):
+    """
+    De grootste tabellen (inclusief indexen en bijbehorende opslag), zoals Supabase ze toont onder 'Database Size'.
+    Geeft (rijen, totaal_bytes) terug: rijen = lijst van (naam, bytes); het percentage is t.o.v. de huidige database.
+    """
+    conn = psycopg2.connect(get_db_url())
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT schemaname || '.' || relname AS naam, pg_total_relation_size(relid) AS bytes
+                FROM pg_stat_user_tables
+                ORDER BY bytes DESC
+                LIMIT %(limit)s
+                """,
+                {"limit": limit},
+            )
+            rows = [(r[0], float(r[1])) for r in cur.fetchall()]
+            cur.execute("SELECT pg_database_size(current_database())")
+            total = float(cur.fetchone()[0])
+            return rows, total
+    finally:
+        conn.close()
+
+
 def get_slow_movers(limit=100):
     """
     Boeken die het langst onafgebroken in voorraad staan (op basis van listing_date —

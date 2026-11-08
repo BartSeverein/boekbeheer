@@ -45,6 +45,7 @@ from common import (
     render_logo,
     require_login,
     get_database_size_mb,
+    get_largest_objects,
     get_search_console_data,
     get_search_console_queries,
     get_github_workflow_runs,
@@ -364,6 +365,25 @@ try:
     getattr(st, banner_kind)(banner_text)
 except Exception:
     st.caption("De einddatum van de GitHub-sleutel kon nu niet worden opgevraagd.")
+
+try:
+    # Blokkade door Boekwinkeltjes: de laatste 12 uur gemeld en sindsdien geen geslaagde ophaalactie van boeken.
+    _bconn = psycopg2.connect(get_db_url())
+    with _bconn.cursor() as _bcur:
+        _bcur.execute("SELECT max(run_at) FROM sync_log WHERE resource = 'blokkade' AND run_at > now() - interval '12 hours'")
+        _blocked_at = _bcur.fetchone()[0]
+        _ok_after = None
+        if _blocked_at:
+            _bcur.execute("SELECT max(run_at) FROM sync_log WHERE direction = 'pull' AND resource = 'books' AND status = 'ok' AND run_at > %s",
+                          (_blocked_at,))
+            _ok_after = _bcur.fetchone()[0]
+    _bconn.close()
+    if _blocked_at and not _ok_after:
+        st.error(f"🚫 Boekwinkeltjes weigert onze aanroepen (403 Forbidden van de webserver), laatst gemeld {format_datetime_nl(_blocked_at)}. "
+                 "Waarschijnlijk is het IP-adres van GitHub geblokkeerd. De synchronisatie met Boekwinkeltjes stopt direct tot dit is opgelost; "
+                 "neem contact op met Boekwinkeltjes. Deze melding verdwijnt zodra een ophaalactie weer lukt.")
+except Exception:
+    pass
 
 cron_jobs, cron_error = get_cron_job_status()
 if not cron_jobs:
@@ -765,30 +785,27 @@ if can_see_finance:
                    "uit het verleden geldt dat bedrag. De laatste staaf is de lopende maand.")
     st.divider()
 
-# ---------- Categorie-overzicht ----------
-
-st.subheader("Voorraad per categorie (top 20)")
-if not books.empty:
-    combined_category = books.apply(
-        lambda r: f"{r['category1']}, {r['category2']}"
-        if pd.notna(r["category2"]) and str(r["category2"]).strip()
-        else r["category1"],
-        axis=1,
-    )
-    cat_counts = combined_category.fillna("onbekend").value_counts().head(20).reset_index()
-    cat_counts.columns = ["categorie", "aantal titels"]
-    fig = px.bar(cat_counts, x="categorie", y="aantal titels")
-    st.plotly_chart(fig, width="stretch")
-else:
-    st.info("Nog geen boeken om te tonen.")
-
-st.divider()
-
-# ---------- Boeken per uitgever + Supabase-opslag ----------
+# ---------- Categorie-overzicht + Boeken per uitgever ----------
 
 left2, right2 = st.columns(2)
 
 with left2:
+    st.subheader("Voorraad per categorie (top 20)")
+    if not books.empty:
+        combined_category = books.apply(
+            lambda r: f"{r['category1']}, {r['category2']}"
+            if pd.notna(r["category2"]) and str(r["category2"]).strip()
+            else r["category1"],
+            axis=1,
+        )
+        cat_counts = combined_category.fillna("onbekend").value_counts().head(20).reset_index()
+        cat_counts.columns = ["categorie", "aantal titels"]
+        fig = px.bar(cat_counts, x="categorie", y="aantal titels")
+        st.plotly_chart(fig, width="stretch")
+    else:
+        st.info("Nog geen boeken om te tonen.")
+
+with right2:
     st.subheader("Boeken per uitgever (top 20)")
     if not books.empty:
         pub_series = books["publisher_name"].fillna("").astype(str).str.strip()
@@ -799,9 +816,15 @@ with left2:
     else:
         st.info("Nog geen boeken om te tonen.")
 
-with right2:
+st.divider()
+
+# ---------- Supabase-opslag + grootste objecten ----------
+
+left_db, right_db = st.columns(2)
+
+with left_db:
     st.subheader("Supabase-opslag")
-    DB_LIMIT_MB = 500.0
+    DB_LIMIT_MB = 8192.0  # Supabase Pro: 8 GB; houd gelijk aan STORAGE_LIMIT_MB in sync.py
     try:
         # Zelf omzetten naar een gewoon kommagetal: Postgres levert een som als Decimal, en die laat zich niet
         # delen door de limiet hieronder. Lukt het meten niet, dan een melding; één grafiek mag de pagina niet breken.
@@ -821,6 +844,25 @@ with right2:
             hole=0.4,
         )
         st.plotly_chart(fig_db, width="stretch")
+
+with right_db:
+    st.subheader("Grootste objecten in de database")
+    try:
+        _obj_rows, _obj_total = get_largest_objects(8)
+        _obj_df = pd.DataFrame(
+            [
+                {
+                    "Object": name,
+                    "Grootte": f"{size / (1024 * 1024):.2f} MB".replace(".", ","),
+                    "Aandeel": f"{size / _obj_total * 100:.1f}%".replace(".", ",") if _obj_total else "–",
+                }
+                for name, size in _obj_rows
+            ]
+        )
+        st.dataframe(_obj_df, hide_index=True, width="stretch")
+        st.caption("Tabellen inclusief indexen en bijbehorende opslag; het aandeel is van de hele database.")
+    except Exception as error:
+        st.info(f"De grootste objecten konden nu niet worden opgevraagd ({type(error).__name__}).")
 
 # ---------- Zoekverkeer Google (Search Console) ----------
 
