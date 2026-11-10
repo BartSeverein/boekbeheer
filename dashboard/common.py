@@ -1633,8 +1633,8 @@ def _boekwinkeltjes_login_session():
     session = requests.Session()
     session.headers.update({"User-Agent": "Mozilla/5.0"})
     try:
-        session.get("https://www.boekwinkeltjes.nl/login/", timeout=10)
-        session.post(
+        get_resp = session.get("https://www.boekwinkeltjes.nl/login/", timeout=10)
+        post_resp = session.post(
             "https://www.boekwinkeltjes.nl/login/",
             data={
                 "boekwinkeltje": username,
@@ -1650,7 +1650,17 @@ def _boekwinkeltjes_login_session():
         return None, f"Kon niet inloggen bij Boekwinkeltjes: {e}"
 
     if "secureID" not in session.cookies.get_dict():
-        return None, "Inloggen bij Boekwinkeltjes is mislukt (verkeerde gebruikersnaam/wachtwoord?)."
+        # Wat de server precies terugstuurde, zodat te zien is of het een weigering (403, andere pagina) of een echt
+        # mislukte inlog is. Geen wachtwoorden of cookiewaarden, alleen statuscodes, de doorverwijzing en de cookienamen.
+        detail = (
+            f"pagina {get_resp.status_code}, inloggen {post_resp.status_code}"
+            f"{' -> ' + post_resp.headers['Location'] if post_resp.headers.get('Location') else ''}"
+            f", cookies: {', '.join(sorted(session.cookies.get_dict())) or 'geen'}"
+            f", server: {post_resp.headers.get('Server', '?')}"
+        )
+        if 403 in (get_resp.status_code, post_resp.status_code):
+            return None, f"Boekwinkeltjes weigert de verbinding vanaf deze server (403 Forbidden; {detail})."
+        return None, f"Inloggen bij Boekwinkeltjes is mislukt: geen sessiecookie ontvangen ({detail}). Controleer de gebruikersnaam en het wachtwoord."
     return session, None
 
 
