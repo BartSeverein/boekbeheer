@@ -140,6 +140,8 @@ T = {
     "p_in_stock": ("Op voorraad", "In stock", "Auf Lager", "En stock"),
     "p_copies": (" ({n} exemplaren)", " ({n} copies)", " ({n} Exemplare)", " ({n} exemplaires)"),
     "p_last_copy": (" (nog maar 1 exemplaar)", " (only 1 copy left)", " (nur noch 1 Exemplar)", " (plus qu'un exemplaire)"),
+    "p_used": (", tweedehands", ", used", ", gebraucht", ", d'occasion"),
+    "p_used_alone": ("Tweedehands", "Used", "Gebraucht", "D'occasion"),
     "p_ship_line": ("Verzendkosten {ship} (in Nederland).",
                     "Shipping {ship} (in the Netherlands; for other rates see Terms and shipping).",
                     "Versandkosten {ship} (in den Niederlanden; für andere Tarife siehe Bedingungen und Versand).",

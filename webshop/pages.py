@@ -342,9 +342,15 @@ class Site:
         isbn = b.get("isbn")
         if isbn and not isbn.strip("0"):   # "0" (of alleen nullen) betekent: geen ISBN
             isbn = self.t("p_none")
+        # Tweedehands is niet altijd duidelijk: alles wat niet 'in folie' (nieuw, verzegeld) is krijgt dat achter de bijzonderheden.
+        # Gecontroleerd op de Nederlandse tekst, want de vertaling van 'in folie' verschilt per taal.
+        notes = loc.get("short")
+        if "in folie" not in (b.get("short") or "").lower():
+            base = (notes or "").strip().rstrip(".,;:").rstrip()
+            notes = base + self.t("p_used") if base else self.t("p_used_alone")
         for key, value, fb in (("l_author", b.get("author"), False), ("l_publisher", b.get("publisher"), False),
                                ("l_isbn", isbn, False), ("l_lang", loc.get("language"), False),
-                               ("l_notes", loc.get("short"), loc.get("short_fb")), ("l_cat", loc.get("category_label"), False)):
+                               ("l_notes", notes, loc.get("short_fb")), ("l_cat", loc.get("category_label"), False)):
             if value:
                 rows.append(f"<dt>{esc(self.t(key))}</dt><dd{nl_attr if fb and self.lang != 'nl' else ''}>{esc(value)}</dd>")
         desc_html = "".join(f"<p>{esc(p)}</p>" for p in re.split(r"\n\s*\n|\r\n\s*\r\n", (loc.get("long") or "").strip()) if p.strip())
