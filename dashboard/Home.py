@@ -767,6 +767,37 @@ def _gross_revenue_chart(orders_df, history=None, months=12):
     return fig
 
 
+def _daily_sales_chart(orders_df, days=180):
+    """
+    Gestapelde staaf per dag: aantal verkochte boeken (orders) per platform over de laatste `days` dagen, in dezelfde kleuren
+    en volgorde als de omzet per maand. Geannuleerde orders, orders zonder reactie en retouren tellen niet mee.
+    Met een rode stippellijn bij 10 en een rode dichte lijn bij 15 verkopen per dag.
+    """
+    df = orders_df[~orders_df["status"].isin(NO_REVENUE_STATUSES)].dropna(subset=["order_date"]).copy()
+    if df.empty:
+        return None
+    dates = pd.to_datetime(df["order_date"])
+    if getattr(dates.dt, "tz", None) is not None:
+        dates = dates.dt.tz_convert(AMSTERDAM_TZ)
+    df["dag"] = dates.dt.normalize().dt.tz_localize(None)
+    df["platform"] = df["platform"].fillna("BW").map({"BW": "Boekwinkeltjes", "Bol": "Bol", "Webshop": "Webshop"}).fillna("Boekwinkeltjes")
+    today = pd.Timestamp(dt.datetime.now(AMSTERDAM_TZ).date())
+    all_days = pd.date_range(end=today, periods=days, freq="D")
+    counts = df.groupby(["dag", "platform"]).size().to_dict()
+    rows = [{"dag": d, "platform": pl, "aantal": int(counts.get((d, pl), 0))} for d in all_days for pl in PLATFORM_COLORS]
+    fig = px.bar(pd.DataFrame(rows), x="dag", y="aantal", color="platform",
+                 category_orders={"platform": list(PLATFORM_COLORS)}, color_discrete_map=PLATFORM_COLORS)
+    fig.update_traces(hovertemplate="%{x|%d-%m-%Y}<br>%{fullData.name}: %{y}<extra></extra>")
+    fig.update_layout(barmode="stack", xaxis_title=None, yaxis_title="verkochte boeken per dag", legend_title_text=None,
+                      legend=dict(traceorder="reversed"), bargap=0.15)
+    fig.update_xaxes(tickformat="%d-%m", dtick="M1" if days > 120 else 7 * 86400000)
+    fig.add_hline(y=10, line_dash="dot", line_color="red", line_width=2, annotation_text="10", annotation_position="top left",
+                  annotation_font_color="red")
+    fig.add_hline(y=15, line_dash="solid", line_color="red", line_width=2, annotation_text="15", annotation_position="top left",
+                  annotation_font_color="red")
+    return fig
+
+
 if can_see_finance:
     st.subheader("Bruto omzet per maand")
     try:
@@ -783,6 +814,14 @@ if can_see_finance:
         st.caption("Prijs van de boeken per orderdatum, zonder verzendkosten en zonder aftrek van commissie of andere kosten. "
                    "Geannuleerde orders, orders zonder reactie en retouren tellen niet mee. Voor maanden met een aangeleverd bedrag "
                    "uit het verleden geldt dat bedrag. De laatste staaf is de lopende maand.")
+    st.subheader("Verkopen per dag (laatste 180 dagen)")
+    daily_fig = _daily_sales_chart(orders, days=180)
+    if daily_fig is None:
+        st.info("Nog geen orders om te tonen.")
+    else:
+        st.plotly_chart(daily_fig, width="stretch")
+        st.caption("Aantal verkochte boeken (orders) per dag en platform. Geannuleerde orders, orders zonder reactie en retouren tellen niet mee. "
+                   "De stippellijn staat bij 10 en de rode lijn bij 15 verkopen per dag.")
     st.divider()
 
 # ---------- Categorie-overzicht + Boeken per uitgever ----------
