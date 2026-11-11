@@ -771,7 +771,7 @@ def _daily_sales_chart(orders_df, days=180):
     """
     Gestapelde staaf per dag: aantal verkochte boeken (orders) per platform over de laatste `days` dagen, in dezelfde kleuren
     en volgorde als de omzet per maand. Geannuleerde orders, orders zonder reactie en retouren tellen niet mee.
-    Met een rode lijn bij 10 verkopen per dag.
+    Met een groene lijn bij 10 verkopen per dag.
     """
     df = orders_df[~orders_df["status"].isin(NO_REVENUE_STATUSES)].dropna(subset=["order_date"]).copy()
     if df.empty:
@@ -791,8 +791,8 @@ def _daily_sales_chart(orders_df, days=180):
     fig.update_layout(barmode="stack", xaxis_title=None, yaxis_title="verkochte boeken per dag", legend_title_text=None,
                       legend=dict(traceorder="reversed"), bargap=0.15)
     fig.update_xaxes(tickformat="%d-%m", dtick="M1" if days > 120 else 7 * 86400000)
-    fig.add_hline(y=10, line_dash="solid", line_color="red", line_width=2, annotation_text="10", annotation_position="top left",
-                  annotation_font_color="red")
+    fig.add_hline(y=10, line_dash="solid", line_color="green", line_width=2, annotation_text="10", annotation_position="top left",
+                  annotation_font_color="green")
     return fig
 
 
@@ -819,7 +819,7 @@ if can_see_finance:
     else:
         st.plotly_chart(daily_fig, width="stretch")
         st.caption("Aantal verkochte boeken (orders) per dag en platform. Geannuleerde orders, orders zonder reactie en retouren tellen niet mee. "
-                   "De rode lijn staat bij 10 verkopen per dag.")
+                   "De groene lijn staat bij 10 verkochte boeken per dag, het verwachte minimum.")
     st.divider()
 
 # ---------- Categorie-overzicht + Boeken per uitgever ----------
