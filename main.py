@@ -207,6 +207,10 @@ def main():
             sys.exit(2)
         for line in sync.restore_listing_dates(sys.argv[2], execute=len(sys.argv) > 3 and sys.argv[3].lower() == "ja"):
             print(line)
+    elif command == "backfill-bol-shipments":
+        # Gebruik: python main.py backfill-bol-shipments [ja]   (zonder 'ja' is het een proefrun)
+        for line in sync.backfill_bol_orders_from_shipments(execute=len(sys.argv) > 2 and sys.argv[2].lower() == "ja"):
+            print(line)
     elif command == "weekly-stock-snapshot":
         # Legt het aantal actieve titels/exemplaren (totaal en op Bol) vast voor de weekgrafieken op Home.
         for line in sync.take_weekly_stock_snapshot():
@@ -229,4 +233,12 @@ if __name__ == "__main__":
         main()
     except api_client.BoekwinkeltjesBlockedError as e:
         print(f"\n{e}")
+        try:  # zet de blokkade in de log, zodat het dashboard hem toont (mislukt dit, dan blijft het bij het GitHub-log)
+            from db import get_connection
+            _conn = get_connection()
+            sync._log(_conn, "pull", "blokkade", "error", str(e))
+            _conn.commit()
+            _conn.close()
+        except Exception as _log_err:
+            print(f"Kon de blokkade niet in de log zetten: {_log_err}")
         sys.exit(1)

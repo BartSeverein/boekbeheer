@@ -924,6 +924,84 @@ def update_legacy_shipping_cost(real=False, briefpost=None, now_func=time.monoto
 BOL_ORDER_DETAIL_MAX_PER_RUN = 5
 
 
+def backfill_bol_orders_from_shipments(execute=False):
+    """
+    Vult Bol-orders van vóór de periode dat onze eigen sync ze bewaarde aan, uit de verzendingen van de laatste drie maanden
+    (de orderlijst van Bol toont verzonden orders maar 48 uur). Bestaande orders worden nooit aangepast: dezelfde orderregel
+    heeft hetzelfde id als bij pull_bol_orders (md5 van de orderItemId), dus wat er al is, wordt overgeslagen.
+    Titel en prijs komen uit het eigen boek met hetzelfde ISBN, anders uit de verzending zelf als Bol die meegeeft.
+    De orderdatum is de orderdatum van Bol als die in de verzending staat; anders de verzenddatum (iets later dan de echte
+    orderdatum). Proefrun tenzij execute=True. Geeft regels tekst terug.
+    """
+    shipments = bol_client.get_shipments()
+    rows = []
+    for shipment in shipments:
+        shipped = shipment.get("shipmentDate")
+        for item in shipment.get("shipmentItems") or []:
+            ean = item.get("ean")
+            order_item_id = item.get("orderItemId") or (f"{item.get('orderId')}-{ean}" if ean else None)
+            if not ean or not order_item_id:
+                continue
+            raw_date = item.get("orderDate") or shipped
+            date_is_order_date = bool(item.get("orderDate"))
+            try:
+                date = dt.datetime.fromisoformat(raw_date).replace(tzinfo=None).strftime("%Y-%m-%d %H:%M:%S") if raw_date else None
+            except ValueError:
+                date = raw_date
+            digest = hashlib.md5(f"bol-{order_item_id}".encode()).hexdigest()
+            rows.append({
+                "id": -(int(digest[:8], 16) % (2**31)), "date": date, "estimated": not date_is_order_date, "ean": ean,
+                "title": item.get("title") or None,
+                "price": item.get("offerPrice") if isinstance(item.get("offerPrice"), (int, float)) else None,
+            })
+    lines = [f"{len(shipments)} verzendingen opgehaald, {len(rows)} orderregels."]
+    if not rows:
+        return lines
+    conn = get_connection()
+    try:
+        new, existing, no_book = 0, 0, 0
+        dates = []
+        with conn.cursor() as cur:
+            for r in rows:
+                cur.execute("SELECT 1 FROM orders WHERE id = %(id)s", {"id": r["id"]})
+                if cur.fetchone():
+                    existing += 1
+                    continue
+                cur.execute("SELECT id, title, price FROM books WHERE TRIM(ean) = TRIM(%(ean)s) AND id > 0 LIMIT 1", {"ean": r["ean"]})
+                match = cur.fetchone()
+                book_id = match["id"] if match else None
+                title = (match["title"] if match else None) or r["title"]
+                price = (match["price"] if match and match["price"] is not None else None)
+                if price is None:
+                    price = r["price"]
+                if not match:
+                    no_book += 1
+                new += 1
+                if r["date"]:
+                    dates.append(r["date"][:10])
+                if execute:
+                    cur.execute(
+                        """
+                        INSERT INTO orders (id, order_date, status, platform, book_id, book_title, book_price, book_ean)
+                        VALUES (%(id)s, %(date)s, 'SHIPPED', 'Bol', %(book_id)s, %(title)s, %(price)s, %(ean)s)
+                        ON CONFLICT (id) DO NOTHING
+                        """,
+                        {"id": r["id"], "date": r["date"], "book_id": book_id, "title": title, "price": price, "ean": r["ean"]},
+                    )
+        if execute:
+            conn.commit()
+        lines.append(f"{existing} {_n(existing, 'regel stond', 'regels stonden')} er al; {new} {_n(new, 'regel is nieuw', 'regels zijn nieuw')}"
+                     f"{' (' + str(no_book) + ' zonder boek in onze tabel: titel en prijs zoals Bol ze meegaf)' if no_book else ''}.")
+        if dates:
+            lines.append(f"Nieuwe regels van {min(dates)} tot en met {max(dates)}.")
+        if any(r["estimated"] for r in rows):
+            lines.append("Let op: Bol gaf bij (een deel van) de verzendingen geen orderdatum; dan is de verzenddatum gebruikt.")
+        lines.append("Doorgevoerd." if execute else "PROEFRUN: er is niets opgeslagen. Draai opnieuw met echt_uitvoeren = ja.")
+    finally:
+        conn.close()
+    return lines
+
+
 def pull_bol_orders():
     """
     Haalt orders op bij Bol en slaat ze lokaal op in dezelfde 'orders'-tabel als

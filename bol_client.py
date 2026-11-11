@@ -870,6 +870,32 @@ def get_orders(status="ALL", fulfilment_method="ALL", max_pages=20):
     return all_orders
 
 
+def get_shipments(fulfilment_method="FBR", max_pages=60):
+    """
+    Verzendingen van de afgelopen drie maanden (Bol: GET /shipments, v10), met paginering. Geeft de ruwe verzendingen terug:
+    elke met shipmentId, shipmentDate en shipmentItems (orderItemId, orderId, ean, en zo nodig orderDate, title, offerPrice).
+    Dit is de enige manier om via de API verder dan 48 uur terug te kijken naar verzonden orders.
+    """
+    shipments = []
+    for page in range(1, max_pages + 1):
+        resp = _send(
+            "GET",
+            f"{BASE_URL}/shipments",
+            headers=_headers(),
+            params={"fulfilment-method": fulfilment_method, "page": page},
+            timeout=30,
+        )
+        if not resp.ok:
+            raise BolAPIError(f"Kon verzendingen niet ophalen ({resp.status_code}): {_error_detail(resp)}")
+        batch = resp.json().get("shipments") or []
+        if not batch:
+            break
+        shipments.extend(batch)
+        if len(batch) < 50:
+            break
+    return shipments
+
+
 def get_open_invoice_requests():
     """
     Open factuuraanvragen (Bestellingen > Factuuraanvragen in het Bol-portaal): lijst van dicts met o.a. 'shipmentId' en 'orderId'.
