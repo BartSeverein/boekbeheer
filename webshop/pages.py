@@ -352,7 +352,10 @@ class Site:
             notes = notes.strip().lower()
             if notes[:1].isalpha():
                 notes = notes[:1].upper() + notes[1:]
-        if "in folie" not in (b.get("short") or "").lower():
+        # Woorden die al zeggen dat het boek nieuw is: dan geen ", tweedehands". Inclusief veelvoorkomende typefouten.
+        # 'nieuw' alleen als los woord, zodat 'nieuwe druk' of 'nieuwsbrief' niet meetellen.
+        _short_nl = (b.get("short") or "").lower()
+        if "in folie" not in _short_nl and not re.search(r"\bnieuw\b|\bnieusw\b|nieuw[es]{0,2}\s*staat|nieuswstaat", _short_nl):
             base = (notes or "").strip().rstrip(".,;:").rstrip()
             notes = base + self.t("p_used") if base else self.t("p_used_alone")
         for key, value, fb in (("l_author", b.get("author"), False), ("l_publisher", b.get("publisher"), False),
