@@ -113,12 +113,22 @@ if parked:
     _flash = st.session_state.pop("parked_saved", None)
     if _flash:
         st.success(_flash)
+    _parked_search = st.text_input("Zoek in deze auteurs", placeholder="bijvoorbeeld Manara", key="parked_search").strip().lower()
+    _parked_shown = {
+        s: v for s, v in parked.items()
+        if not _parked_search or _parked_search in (v["name"] or s).lower()
+    }
+    if _parked_search:
+        st.caption(f"{len(_parked_shown)} van de {len(parked)} auteurs getoond. Sla wijzigingen op voor je een andere zoekterm intikt, anders gaan ze verloren.")
     _df = pd.DataFrame(
-        [{"slug": s, "Auteur": v["name"] or s, "Tekst": v["text"]} for s, v in sorted(parked.items(), key=lambda kv: (kv[1]["name"] or kv[0]).lower())]
+        [{"slug": s, "Auteur": v["name"] or s, "Tekst": v["text"]} for s, v in sorted(_parked_shown.items(), key=lambda kv: (kv[1]["name"] or kv[0]).lower())],
+        columns=["slug", "Auteur", "Tekst"],
     ).set_index("slug")
     st.caption("Klik op een tekst om hem aan te passen. Maak de tekst leeg om hem te wissen.")
+    if _df.empty:
+        st.info("Geen auteurs gevonden met deze zoekterm.")
     _edited = st.data_editor(
-        _df, hide_index=True, width="stretch", key="parked_editor", disabled=["Auteur"],
+        _df, hide_index=True, width="stretch", key=f"parked_editor_{_parked_search}", disabled=["Auteur"],
         column_config={"Auteur": st.column_config.TextColumn(width="small"), "Tekst": st.column_config.TextColumn(width="large")},
     )
     if st.button("Wijzigingen opslaan", type="primary", key="parked_save"):
