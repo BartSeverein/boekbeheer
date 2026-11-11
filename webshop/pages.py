@@ -345,6 +345,13 @@ class Site:
         # Tweedehands is niet altijd duidelijk: alles wat niet 'in folie' (nieuw, verzegeld) is krijgt dat achter de bijzonderheden.
         # Gecontroleerd op de Nederlandse tekst, want de vertaling van 'in folie' verschilt per taal.
         notes = loc.get("short")
+        # Bijzonderheden netjes in kleine letters ("2009, 318pp, Hardcover" -> "2009, 318pp, hardcover"). Begint de tekst met een
+        # woord, dan krijgt alleen de eerste letter een hoofdletter ("Uitgave 1929, hardcover"). Niet bij Duits: daar zijn
+        # zelfstandige naamwoorden hoofdletters (Hardcover, Einband), die mogen niet verdwijnen.
+        if notes and (self.lang != "de" or loc.get("short_fb")):
+            notes = notes.strip().lower()
+            if notes[:1].isalpha():
+                notes = notes[:1].upper() + notes[1:]
         if "in folie" not in (b.get("short") or "").lower():
             base = (notes or "").strip().rstrip(".,;:").rstrip()
             notes = base + self.t("p_used") if base else self.t("p_used_alone")
