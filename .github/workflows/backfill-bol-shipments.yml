@@ -1,0 +1,39 @@
+name: Bol-orders bijvullen uit verzendingen (eenmalig)
+
+# Bol toont verzonden orders maar 48 uur; verzendingen gaan drie maanden terug. Deze taak vult daarmee Bol-orders aan van vóór de
+# periode dat onze eigen sync ze bewaarde, voor de dagcijfers op Home. Bestaande orders blijven onaangeroerd.
+# Standaard een PROEFRUN. Zet 'echt_uitvoeren' op "ja" om door te voeren. Veilig opnieuw te draaien.
+on:
+  workflow_dispatch:
+    inputs:
+      echt_uitvoeren:
+        description: 'Zet op "ja" om echt bij te vullen. Anders proefrun.'
+        required: false
+        type: string
+        default: "nee"
+
+concurrency:
+  group: boekwinkeltjes-sync
+  cancel-in-progress: false
+
+jobs:
+  backfill-bol-shipments:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt
+      - name: Bol-orders bijvullen
+        run: python main.py backfill-bol-shipments "$ECHT_UITVOEREN"
+        env:
+          ECHT_UITVOEREN: ${{ github.event.inputs.echt_uitvoeren }}
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          BOL_CLIENT_ID: ${{ secrets.BOL_CLIENT_ID }}
+          BOL_CLIENT_SECRET: ${{ secrets.BOL_CLIENT_SECRET }}
+          BOEKWINKELTJES_ENV: ${{ secrets.BOEKWINKELTJES_ENV }}
+          BOEKWINKELTJES_API_KEY_SANDBOX: ${{ secrets.BOEKWINKELTJES_API_KEY_SANDBOX }}
+          BOEKWINKELTJES_API_KEY_LIVE: ${{ secrets.BOEKWINKELTJES_API_KEY_LIVE }}
+          PYTHONUNBUFFERED: "1"
