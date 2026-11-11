@@ -30,6 +30,7 @@ from common import (
     current_user_short_name,
     load_orders,
     load_revenue_history,
+    load_sales_history,
     format_price,
     format_order_status,
     format_datetime_nl,
@@ -767,14 +768,14 @@ def _gross_revenue_chart(orders_df, history=None, months=12):
     return fig
 
 
-def _daily_sales_chart(orders_df, days=180):
+def _daily_sales_chart(orders_df, days=180, history=None):
     """
     Gestapelde staaf per dag: aantal verkochte boeken (orders) per platform over de laatste `days` dagen, in dezelfde kleuren
     en volgorde als de omzet per maand. Geannuleerde orders, orders zonder reactie en retouren tellen niet mee.
     Met een groene lijn bij 10 verkopen per dag.
     """
     df = orders_df[~orders_df["status"].isin(NO_REVENUE_STATUSES)].dropna(subset=["order_date"]).copy()
-    if df.empty:
+    if df.empty and (history is None or history.empty):
         return None
     dates = pd.to_datetime(df["order_date"])
     if getattr(dates.dt, "tz", None) is not None:
@@ -784,6 +785,12 @@ def _daily_sales_chart(orders_df, days=180):
     today = pd.Timestamp(dt.datetime.now(AMSTERDAM_TZ).date())
     all_days = pd.date_range(end=today, periods=days, freq="D")
     counts = df.groupby(["dag", "platform"]).size().to_dict()
+    if history is not None and not history.empty:
+        # aangeleverde aantallen gaan voor op de orders van dezelfde dag en hetzelfde platform
+        for h in history.itertuples():
+            pl = {"BW": "Boekwinkeltjes", "Bol": "Bol", "Webshop": "Webshop"}.get(h.platform)
+            if pl:
+                counts[(pd.Timestamp(h.day), pl)] = int(h.quantity)
     rows = [{"dag": d, "platform": pl, "aantal": int(counts.get((d, pl), 0))} for d in all_days for pl in PLATFORM_COLORS]
     fig = px.bar(pd.DataFrame(rows), x="dag", y="aantal", color="platform",
                  category_orders={"platform": list(PLATFORM_COLORS)}, color_discrete_map=PLATFORM_COLORS)
@@ -813,7 +820,14 @@ if can_see_finance:
                    "Geannuleerde orders, orders zonder reactie en retouren tellen niet mee. Voor maanden met een aangeleverd bedrag "
                    "uit het verleden geldt dat bedrag. De laatste staaf is de lopende maand.")
     st.subheader("Verkopen per dag (laatste 180 dagen)")
-    daily_fig = _daily_sales_chart(orders, days=180)
+    try:
+        sales_history = load_sales_history()
+        if sales_history.empty:
+            st.warning("Tabel sales_history is leeg of bestaat niet: de aangeleverde Bol-aantallen worden niet gebruikt.")
+    except Exception as exc:
+        sales_history = None
+        st.warning(f"Aangeleverde verkoopaantallen konden niet worden gelezen: {exc}")
+    daily_fig = _daily_sales_chart(orders, days=180, history=sales_history)
     if daily_fig is None:
         st.info("Nog geen orders om te tonen.")
     else:

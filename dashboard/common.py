@@ -739,6 +739,21 @@ def load_revenue_history():
     return data
 
 
+def load_sales_history():
+    """Handmatig aangeleverde verkochte aantallen per dag en platform (tabel sales_history), met kolommen day, platform, quantity.
+    Leeg als de tabel nog niet bestaat."""
+    conn = psycopg2.connect(get_db_url())
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT to_regclass('sales_history')")
+            if cur.fetchone()[0] is None:
+                return pd.DataFrame(columns=["day", "platform", "quantity"])
+        data = pd.read_sql("SELECT day, platform, quantity FROM sales_history", conn)
+    finally:
+        conn.close()
+    return data
+
+
 # ---------- Dagcode voor klanten ----------
 # Dezelfde berekening als webshop/common.py (daily_code, add_one_month) en webshop/php/lib.php (day_code, add_month_ymd): wijzig je er één, wijzig dan alle drie.
 DAILY_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
