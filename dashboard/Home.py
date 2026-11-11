@@ -768,7 +768,7 @@ def _gross_revenue_chart(orders_df, history=None, months=12):
     return fig
 
 
-def _daily_sales_chart(orders_df, days=365, history=None):
+def _daily_sales_chart(orders_df, days=180, history=None):
     """
     Gestapelde staaf per dag: aantal verkochte boeken (orders) per platform over de laatste `days` dagen, in dezelfde kleuren
     en volgorde als de omzet per maand. Geannuleerde orders, orders zonder reactie en retouren tellen niet mee.
@@ -819,7 +819,7 @@ if can_see_finance:
         st.caption("Prijs van de boeken per orderdatum, zonder verzendkosten en zonder aftrek van commissie of andere kosten. "
                    "Geannuleerde orders, orders zonder reactie en retouren tellen niet mee. Voor maanden met een aangeleverd bedrag "
                    "uit het verleden geldt dat bedrag. De laatste staaf is de lopende maand.")
-    st.subheader("Verkopen per dag (laatste 365 dagen)")
+    st.subheader("Verkopen per dag (laatste 180 dagen)")
     try:
         sales_history = load_sales_history()
         if sales_history.empty:
@@ -827,7 +827,7 @@ if can_see_finance:
     except Exception as exc:
         sales_history = None
         st.warning(f"Aangeleverde verkoopaantallen konden niet worden gelezen: {exc}")
-    daily_fig = _daily_sales_chart(orders, days=365, history=sales_history)
+    daily_fig = _daily_sales_chart(orders, days=180, history=sales_history)
     if daily_fig is None:
         st.info("Nog geen orders om te tonen.")
     else:
