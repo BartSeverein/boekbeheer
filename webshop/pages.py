@@ -386,7 +386,7 @@ class Site:
             f'<p id="added" hidden><a href="{self.L("/winkelwagen/")}" class="il">{icon("cart")}{esc(self.t("p_view_cart"))}</a></p>'
         )
         cat_href, cat_name = (self.L(category_chain[-1][1]), category_chain[-1][0]) if category_chain else (self.L("/"), cfg["name"])
-        sold_html = (f'<p class="ship il">{icon("truck")}<span><strong>{esc(self.t("p_sold"))}</strong></span></p>'
+        sold_html = (f'<p class="ship il">{icon("truck_remove")}<span><strong>{esc(self.t("p_sold"))}</strong></span></p>'
                      f'<p><a href="{cat_href}" class="il">{icon("list")}{esc(self.t("p_sold_more", cat=cat_name))}</a></p>')
         if sold:
             buy = sold_html
