@@ -28,7 +28,7 @@ from pathlib import Path
 
 from . import i18n
 from .authors import build_authors
-from .common import NORM_MAP, eur, norm, shop_config, slugify
+from .common import NORM_MAP, address_for, eur, norm, phone_for, shop_config, slugify
 from .pages import Site
 
 HERE = Path(__file__).parent
@@ -143,6 +143,14 @@ def load_from_postgres(conn):
         images = {}
         for r in cur.fetchall():
             images.setdefault(r["book_id"], []).append(r)
+        # Eigen keuze van de voorkant (pagina 'Voorkanten' / Boekdetails): die foto komt vooraan, de rest houdt zijn volgorde.
+        try:
+            cur.execute("SELECT book_id, image_id FROM book_images WHERE is_front AND image_id <> -1")
+            for r in cur.fetchall():
+                imgs = images.get(r["book_id"]) or []
+                imgs.sort(key=lambda i, front=r["image_id"]: i["image_id"] != front)   # stabiel: alleen de voorkant verhuist
+        except Exception:   # kolom is_front bestaat nog niet (voorkant_keuze.sql): dan de eerste foto, zoals altijd
+            conn.rollback()
         cur.execute("SELECT id FROM orders WHERE platform = 'Webshop' AND COALESCE(stock_adjusted, FALSE) = TRUE")
         imported = {(-int(r["id"]) - 3_000_000_000) // 1000 for r in cur.fetchall()}
     books = []
@@ -361,9 +369,9 @@ def _fill(template, cfg, lang="nl"):
     abroad = abroad_t.replace("{klein}", small_t).replace("{groot}", large_t).replace("{lijst}", "; ".join(items)) if items else ""
     values = {
         "naam": cfg["name"] + "<br>", "eigenaar": line(cfg["owner_name"] or cfg["name"]),   # eenmanszaak: alleen de naam van de eigenaar
-        "iban": line("IBAN: " + cfg["iban"]) if cfg["iban"] else "", "adres": line(cfg["address"]),
+        "iban": line("IBAN: " + cfg["iban"]) if cfg["iban"] else "", "adres": line(address_for(cfg, lang)),
         "kvk": line(kvk_t.format(cfg["kvk"])) if cfg["kvk"] else "", "btw": line(vat_t.format(cfg["vat"])) if cfg["vat"] else "",
-        "telefoon": line(tel_t.format(cfg["phone"])) if cfg["phone"] else "", "email": cfg["contact_email"] or "info@example.invalid",
+        "telefoon": line(tel_t.format(phone_for(cfg, lang))) if phone_for(cfg, lang) else "", "email": cfg["contact_email"] or "info@example.invalid",
         "landen": ", ".join(i18n.country_name(c, lang) for c in cfg["countries"]), "toeslag": extra, "gratis": free,
         "buitenland": abroad, "contact": i18n.localize("/contact/", lang),
     }
