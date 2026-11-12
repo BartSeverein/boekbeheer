@@ -10,3 +10,6 @@ geen mappen binnen deze map.
 Kom je een nieuwe soort plaatshouder tegen? Bewaar hem hier als .png, .jpg, .gif of .webp (elke naam,
 elk formaat) en commit hem. De vergelijking is ongevoelig voor formaat en compressie, dus een
 voorbeeld is genoeg. De app leest nieuwe voorbeelden direct in, zonder herstart.
+
+Je kunt een voorbeeld ook vanuit de app toevoegen: Hulp en instellingen, onder "Nepfoto's", "Voorbeelden van nepfoto's
+bekijken en toevoegen". Die voorbeelden komen in de database (tabel placeholder_images), niet in deze map, en tellen net zo mee.
