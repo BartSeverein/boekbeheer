@@ -388,7 +388,9 @@ else:
                 st.markdown("**Prijs Bol:** niet ingesteld in de app")
             # Of er bij Bol daadwerkelijk een aanbieding bestaat, zoals de voorraadsync die het laatst zag.
             _bol_stock = get_bol_offer_stocks().get(str(b["ean"]).strip()) if pd.notna(b["ean"]) else None
-            st.markdown("**Bol-aanbieding:** " + (f"ja, voorraad {_bol_stock}" if _bol_stock is not None else "nee"))
+            _has_isbn = pd.notna(b["ean"]) and str(b["ean"]).strip() not in ("", "0")
+            _on_bol = "Nee, geen ISBN" if not _has_isbn else (f"Ja, voorraad Bol: {_bol_stock}" if _bol_stock is not None else "Nee")
+            st.markdown(f"**Op Bol?** {_on_bol}")
             if show_logistics:
                 st.markdown(f"**Verzendkosten webshop en BW:** €{format_price(b['shipping_cost'])}")
                 st.markdown(f"**Verzendformaat:** {shipping_format_label(b.get('shipping_format'))}")
