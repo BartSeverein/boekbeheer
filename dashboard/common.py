@@ -1919,6 +1919,32 @@ def _market_info_via_api(isbn, api_key):
         data = data["data"]   # de API pakt antwoorden in 'data' in; de website deed dat niet
     if not isinstance(data, dict):
         return None, f"Onverwacht antwoord van Boekwinkeltjes: {str(data)[:200]}"
+    if "offers" in data or "lastSoldDate" in data:
+        # De API gebruikt andere namen dan de website: omzetten naar de namen waar de rest van de app mee werkt.
+        # Voorbeeld: {"isbn": "...", "offers": 7, "lowestPrice": 9.8, "highestPrice": 17.5,
+        #             "lastSoldDate": "2025-11-17 12:46:32", "lastSoldPrice": 15}
+        sold_date = str(data.get("lastSoldDate") or "").strip()
+        match = re.match(r"(\d{4})-(\d{2})-(\d{2})", sold_date)
+        last_order = f"{match.group(3)}-{match.group(2)}-{match.group(1)}" if match else (sold_date or None)
+        sold_price = data.get("lastSoldPrice")
+        try:
+            last_price = "€ " + f"{float(sold_price):.2f}".replace(".", ",") if sold_price is not None else None
+        except (TypeError, ValueError):
+            last_price = str(sold_price)
+        try:
+            offers = int(data.get("offers") or 0)
+        except (TypeError, ValueError):
+            offers = 0
+        if offers == 0 and not last_order:
+            return None, "Geen gegevens gevonden voor dit ISBN."
+        return {
+            "status": True,
+            "activeAmount": offers,
+            "laagste_prijs": data.get("lowestPrice"),
+            "hoogste_prijs": data.get("highestPrice"),
+            "lastOrder": last_order,
+            "lastPrice": last_price if last_order else None,
+        }, None
     if not data.get("status") and not any(k in data for k in ("lastOrder", "lastPrice")):
         return None, "Geen gegevens gevonden voor dit ISBN."
     return data, None
