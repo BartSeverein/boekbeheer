@@ -51,6 +51,7 @@ from common import (
     get_top_category_pairs,
     set_web_extra,
     set_front_image,
+    get_book_bol_and_sales,
     MAX_WEB_EXTRA,
 )
 from categories import CATEGORY1_OPTIONS, CATEGORY2_OPTIONS, category1_label_for_value, category2_label_for_value
@@ -355,7 +356,9 @@ else:
         images = get_all_images(chosen_id)
         main_image_url = b.get("main_image_url")
 
-        default_idx = find_main_image_index(images, main_image_url)
+        # Een eigen voorkantkeuze (voor webshop en Bol) gaat voor op de hoofdfoto van Boekwinkeltjes: die foto is dan de voorkant.
+        own_front_idx = next((n for n, im in enumerate(images) if im.get("is_front")), None)
+        default_idx = own_front_idx if own_front_idx is not None else find_main_image_index(images, main_image_url)
 
         idx_key = f"selected_image_idx_{chosen_id}"
         if idx_key not in st.session_state:
@@ -398,8 +401,25 @@ else:
             st.markdown(f"**Categorie:** {' / '.join(categories) if categories else '–'}")
             st.markdown(f"**Taal:** {na(b['language'])}")
             st.markdown(f"**ISBN:** {format_isbn(b['ean'])}")
-            st.markdown(f"**Boeknummer:** {int(chosen_id)}")
             st.markdown(f"**Voorraad:** {na(b['amount'])}")
+            _own_number = b.get("book_number")
+            st.markdown(f"**Boeknummer:** {int(_own_number) if pd.notna(_own_number) else '–'}")
+            st.markdown(f"**Boeknummer BW:** {int(chosen_id)}")
+            try:
+                _extra = get_book_bol_and_sales(int(chosen_id), str(b["ean"]).strip() if pd.notna(b["ean"]) else "")
+            except Exception:
+                _extra = None   # deze extra regels mogen de pagina nooit stoppen
+            if _extra is not None:
+                st.markdown(f"**Offer-ID Bol:** {_extra['offer_id'] or '–'}")
+                st.markdown(f"**Conditie op Bol:** {_extra['condition'] or '–'}")
+                _sales = _extra["sales"]
+                if _sales:
+                    _parts = " / ".join(
+                        f"{d or 'datum onbekend'}, {pl}" + (f", € {format_price(pr)}" if pr is not None else "")
+                        for d, pl, pr in _sales)
+                    st.markdown(f"**Verkoopgeschiedenis:** {len(_sales)} keer verkocht ({_parts})")
+                else:
+                    st.markdown("**Verkoopgeschiedenis:** Nog niet verkocht")
             if show_logistics:
                 st.markdown(f"**Locatie:** {na(b['location'])}")
 
@@ -452,6 +472,8 @@ else:
                             is_current_main = bool(img.get("is_main"))
                         else:
                             is_current_main = bool(main_image_url) and main_image_url in image_identity_urls(img)
+                        if own_front_idx is not None:
+                            is_current_main = i == own_front_idx
                         if is_current_main:
                             st.markdown("<div style='text-align:center;'>⭐ Voorkant</div>", unsafe_allow_html=True)
                         if i == 0:
@@ -475,6 +497,8 @@ else:
                                 ok, msg = set_front_image(chosen_id, None if is_shop_front else img["ref_id"])
                                 if not ok:
                                     st.session_state[f"webextra_msg_{chosen_id}"] = msg
+                                else:
+                                    st.session_state.pop(idx_key, None)   # de grote foto volgt de nieuwe voorkant
                                 st.rerun()
                         b1, b2 = st.columns([1, 1])
                         with b1:
