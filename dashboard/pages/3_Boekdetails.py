@@ -17,6 +17,7 @@ from common import (
     get_long_description,
     load_orders,
     get_bol_offer_eans,
+    get_bol_offer_stocks,
     find_main_image_index,
     get_all_images,
     image_identity_urls,
@@ -49,6 +50,7 @@ from common import (
     abebooks_box_line,
     get_top_category_pairs,
     set_web_extra,
+    set_front_image,
     MAX_WEB_EXTRA,
 )
 from categories import CATEGORY1_OPTIONS, CATEGORY2_OPTIONS, category1_label_for_value, category2_label_for_value
@@ -380,7 +382,10 @@ else:
             if pd.notna(b["shipping_cost_bol"]):
                 st.markdown(f"**Prijs Bol:** €{format_price(b['shipping_cost_bol'])}")
             else:
-                st.markdown("**Prijs Bol:** niet op Bol")
+                st.markdown("**Prijs Bol:** niet ingesteld in de app")
+            # Of er bij Bol daadwerkelijk een aanbieding bestaat, zoals de voorraadsync die het laatst zag.
+            _bol_stock = get_bol_offer_stocks().get(str(b["ean"]).strip()) if pd.notna(b["ean"]) else None
+            st.markdown("**Bol-aanbieding:** " + (f"ja, voorraad {_bol_stock}" if _bol_stock is not None else "nee"))
             if show_logistics:
                 st.markdown(f"**Verzendkosten webshop en BW:** €{format_price(b['shipping_cost'])}")
                 st.markdown(f"**Verzendformaat:** {shipping_format_label(b.get('shipping_format'))}")
@@ -456,6 +461,18 @@ else:
                             if st.button("✔ Op webshop" if on_web else "Ook op webshop", key=f"webextra_btn_{chosen_id}_{i}",
                                          type="primary" if on_web else "secondary", use_container_width=True):
                                 ok, msg = set_web_extra(chosen_id, img["source"], img["ref_id"], not on_web)
+                                if not ok:
+                                    st.session_state[f"webextra_msg_{chosen_id}"] = msg
+                                st.rerun()
+                        if img["source"] == "confirmed":
+                            # Eigen voorkant voor de webshop en Bol, los van Boekwinkeltjes (daar ligt de eerste foto vast).
+                            is_shop_front = bool(img.get("is_front"))
+                            if st.button("✔ Voorkant webshop/Bol" if is_shop_front else "Voorkant webshop/Bol",
+                                         key=f"front_btn_{chosen_id}_{i}", type="primary" if is_shop_front else "secondary",
+                                         use_container_width=True,
+                                         help="Deze foto als voorkant op de webshop en bij Bol. Nog eens klikken haalt de keuze weg; "
+                                              "dan geldt weer de eerste foto. Bij Boekwinkeltjes verandert niets."):
+                                ok, msg = set_front_image(chosen_id, None if is_shop_front else img["ref_id"])
                                 if not ok:
                                     st.session_state[f"webextra_msg_{chosen_id}"] = msg
                                 st.rerun()
