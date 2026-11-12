@@ -596,6 +596,11 @@ def render_logo(path):
            Geen officiële instelling: herkent Streamlit deze namen na een update niet meer, dan is het menu weer als vanouds. */
         [data-testid="stSidebarNav"]:has([data-testid="stSidebarNavViewButton"])
             [data-testid="stSidebarNavItems"]:not(:has(li:nth-of-type(11))) li:nth-of-type(n+6) { display: none !important; }
+        /* Bij het wisselen van pagina tekent Streamlit het menu heel even voluit, nog zonder de knop, en klapt het dan in.
+           Dat flitsen voorkomen: staat het hele menu er (dertien regels of meer) maar is er nog geen knop, dan ook alleen de
+           eerste vijf tonen. Met dertien of meer pagina's komt die knop er altijd, dus er raakt niets onbereikbaar. */
+        [data-testid="stSidebarNav"]:not(:has([data-testid="stSidebarNavViewButton"]))
+            [data-testid="stSidebarNavItems"]:has(li:nth-of-type(13)) li:nth-of-type(n+6) { display: none !important; }
         /* De knop eronder: 'View 3 more' klopt niet meer met het korte menu, dus een eigen tekst (zonder getal). */
         [data-testid="stSidebarNavViewButton"], [data-testid="stSidebarNavViewButton"] * { font-size: 0 !important; }
         [data-testid="stSidebarNavViewButton"]::after { content: "Meer menu"; font-size: 0.875rem !important; }
@@ -1534,7 +1539,7 @@ def mark_fronts_checked(book_ids, mode="front"):
 
 def set_web_extra_quick(book_id, image_id, value):
     """
-    Zet een foto van Boekwinkeltjes wel/niet 'ook op de webshop', voor de pagina Voorkanten (één lichte schrijfactie).
+    Zet een foto van Boekwinkeltjes wel/niet 'ook op de webshop', voor de pagina Afbeeldingen (één lichte schrijfactie).
     Hoogstens MAX_WEB_EXTRA per boek; de voorkant telt niet mee. Geeft (gelukt, melding) terug.
     """
     conn = psycopg2.connect(get_db_url())
@@ -1556,7 +1561,7 @@ def set_web_extra_quick(book_id, image_id, value):
 
 def get_front_review_books(only_unchecked=True, only_bol=False, search="", limit=15, offset=0, mode="front"):
     """
-    Boeken voor de pagina 'Voorkanten': op voorraad, met genoeg foto's bij Boekwinkeltjes om iets te kiezen (voorkant: twee,
+    Boeken voor de pagina 'Afbeeldingen': op voorraad, met genoeg foto's bij Boekwinkeltjes om iets te kiezen (voorkant: twee,
     extra webshopfoto's: vier). Geeft (boeken, totaal) terug; elk boek is {'id', 'title', 'author', 'checked', 'on_bol',
     'images': [{'image_id', 'src', 'is_front', 'web_extra'}]} met de foto's in de volgorde van Boekwinkeltjes. Nieuwste eerst.
     """
