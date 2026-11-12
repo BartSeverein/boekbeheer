@@ -18,6 +18,7 @@ from common import (
     AMSTERDAM_TZ,
     delete_placeholder_uploads,
     list_placeholder_images,
+    raw_boekwinkeltjes_market_response,
     add_placeholder_image,
     delete_placeholder_image,
     find_placeholder_uploads,
@@ -547,3 +548,10 @@ if found_placeholders is not None:
                 f"{deleted_count} nepfoto('s) verwijderd. De boeken zelf zijn niet aangeraakt."
             )
             st.rerun()
+
+
+st.header("Test: marktgegevens van Boekwinkeltjes")
+st.caption("Toont het ruwe antwoord van de Boekwinkeltjes-API voor één ISBN (adres /books/market/:isbn). Alleen voor diagnose.")
+_market_test_isbn = st.text_input("ISBN", key="market_test_isbn")
+if st.button("Toon ruw antwoord", key="market_test_btn") and _market_test_isbn.strip():
+    st.code(raw_boekwinkeltjes_market_response(_market_test_isbn), language="json")
