@@ -256,6 +256,17 @@ ALTER TABLE revenue_history ENABLE ROW LEVEL SECURITY;
 ALTER TABLE book_images ADD COLUMN IF NOT EXISTS is_front BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE books ADD COLUMN IF NOT EXISTS front_checked_at TIMESTAMPTZ;
 
+-- Voorbeelden van plaatshouders ("geen omslag beschikbaar") die vanuit de app zijn toegevoegd (Hulp en instellingen),
+-- naast de vaste voorbeelden in dashboard/assets/placeholders/. De app maakt deze tabel zelf aan bij het eerste voorbeeld.
+CREATE TABLE IF NOT EXISTS placeholder_images (
+    id            BIGSERIAL PRIMARY KEY,
+    name          TEXT NOT NULL,
+    image_data    BYTEA NOT NULL,
+    content_type  TEXT,
+    added_at      TIMESTAMPTZ DEFAULT now()
+);
+ALTER TABLE placeholder_images ENABLE ROW LEVEL SECURITY;
+
 -- Verkochte boeken per dag uit de tijd dat de orders nog niet in het systeem stonden (bijvoorbeeld Bol voor oktober 2026).
 -- Voor een dag en platform met een aantal hier gebruikt de daggrafiek op Home dit aantal in plaats van de orders.
 CREATE TABLE IF NOT EXISTS sales_history (
