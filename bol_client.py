@@ -906,3 +906,51 @@ def get_open_invoice_requests():
         raise BolAPIError(f"Factuuraanvragen ophalen mislukt ({resp.status_code}): {_error_detail(resp)}", resp.status_code)
     data = resp.json() or {}
     return data.get("invoiceRequests") or []
+
+
+# ---------- Pilot Tweedekans: eigen foto's bij een aanbieding (bulk image import) ----------
+PILOT_IMAGE_MEDIA_TYPE = "application/vnd.retailer.v11-pilot-bulk-image-import+json"
+MAX_IMAGES_PER_IMPORT = 30
+
+
+def submit_offer_images(offer_id, urls):
+    """
+    Stuurt de foto's (publieke links, hooguit 30) van één aanbieding naar Bol; de eerste link wordt de hoofdfoto (PRIMARY).
+    Bol haalt de foto's zelf op. Geeft het batchnummer terug waarmee get_offer_image_import de uitkomst laat zien.
+    Alleen voor verkopers in de pilot: anders antwoordt Bol met 403.
+    """
+    urls = list(urls)[:MAX_IMAGES_PER_IMPORT]
+    if not urls:
+        raise BolAPIError("Geen foto's om in te sturen.")
+    assets = [{"url": u, "labels": ["PRIMARY"]} if i == 0 else {"url": u} for i, u in enumerate(urls)]
+    resp = _send(
+        "POST",
+        f"{BASE_URL}/offers/{offer_id}/image-imports",
+        headers={**_headers(accept=PILOT_IMAGE_MEDIA_TYPE), "Content-Type": PILOT_IMAGE_MEDIA_TYPE},
+        json={"assets": assets},
+        timeout=30,
+    )
+    if resp.status_code == 403:
+        raise BolAPIError(
+            "Bol weigert de foto-import (403): de toegang tot de pilot Tweedekans staat (nog) niet aan voor dit account. "
+            f"{_error_detail(resp)}", status_code=403)
+    if resp.status_code not in (200, 201, 202):
+        raise BolAPIError(f"Kon foto's niet insturen bij Bol ({resp.status_code}): {_error_detail(resp)}", status_code=resp.status_code)
+    batch_id = resp.json().get("batchId")
+    if batch_id is None:
+        raise BolAPIError(f"Bol nam de foto's aan, maar gaf geen batchnummer terug: {(resp.text or '')[:300]}")
+    return batch_id
+
+
+def get_offer_image_import(offer_id, batch_id):
+    """De uitkomst van een foto-import: {'batchId', 'status' (PROCESSING/COMPLETED), 'assets': [{'url', 'status', 'subStatus', ...}]}."""
+    resp = _send(
+        "GET",
+        f"{BASE_URL}/offers/{offer_id}/image-imports/{batch_id}",
+        headers=_headers(accept=PILOT_IMAGE_MEDIA_TYPE),
+        timeout=30,
+    )
+    if resp.status_code != 200:
+        raise BolAPIError(f"Kon de uitkomst van de foto-import niet ophalen ({resp.status_code}): {_error_detail(resp)}",
+                          status_code=resp.status_code)
+    return resp.json()

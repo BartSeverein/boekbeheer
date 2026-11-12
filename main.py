@@ -211,6 +211,13 @@ def main():
         # Gebruik: python main.py backfill-bol-shipments [ja]   (zonder 'ja' is het een proefrun)
         for line in sync.backfill_bol_orders_from_shipments(execute=len(sys.argv) > 2 and sys.argv[2].lower() == "ja"):
             print(line)
+    elif command == "test-bol-images":
+        # Gebruik: python main.py test-bol-images <boek-id> [ja]   (zonder 'ja' is het een proefrun)
+        if len(sys.argv) < 3 or not sys.argv[2].strip().lstrip("-").isdigit():
+            print("Geef het id van een boek dat op Bol staat, bijv. python main.py test-bol-images 12345 ja")
+            sys.exit(2)
+        for line in sync.test_bol_images(int(sys.argv[2]), execute=len(sys.argv) > 3 and sys.argv[3].lower() == "ja"):
+            print(line)
     elif command == "weekly-stock-snapshot":
         # Legt het aantal actieve titels/exemplaren (totaal en op Bol) vast voor de weekgrafieken op Home.
         for line in sync.take_weekly_stock_snapshot():

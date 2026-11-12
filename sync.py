@@ -4506,3 +4506,78 @@ def send_daily_csv_export():
 if __name__ == "__main__":
     result = full_sync()
     print(result)
+
+
+# ---------- Pilot Tweedekans (Bol): eigen foto's bij een aanbieding ----------
+def _bol_image_urls(cur, book_id):
+    """
+    Alle publieke fotolinks van een boek voor Bol: eerst de voorkant (books.main_image_url), dan de overige foto's in de
+    volgorde van Boekwinkeltjes (grote variant). Dubbele links en voorkanten die als tekst (data-URI) zijn opgeslagen vallen af.
+    """
+    cur.execute("SELECT main_image_url FROM books WHERE id = %(id)s", {"id": book_id})
+    row = cur.fetchone()
+    candidates = [row["main_image_url"] if row else None]
+    cur.execute("SELECT url_large, url_medium FROM book_images WHERE book_id = %(id)s AND image_id <> -1 ORDER BY position, image_id",
+                {"id": book_id})
+    candidates += [r["url_large"] or r["url_medium"] for r in cur.fetchall()]
+    urls, seen = [], set()
+    for u in candidates:
+        if not u or not u.strip().lower().startswith("http"):
+            continue
+        u = u.strip()
+        key = re.sub(r"/(large|medium|small)/", "/", _image_key(u))   # dezelfde foto in een andere maat telt als dezelfde
+        if key in seen:
+            continue
+        seen.add(key)
+        urls.append(u)
+    return urls
+
+
+def test_bol_images(book_id, execute=False, wait_seconds=90):
+    """
+    Proef voor de pilot Tweedekans: stuurt alle foto's van één boek naar zijn Bol-aanbieding en toont wat Bol ermee doet.
+    Proefrun (alleen tonen wat er verstuurd zou worden) tenzij execute=True. Geeft regels tekst terug.
+    """
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id, title, ean FROM books WHERE id = %(id)s", {"id": book_id})
+            book = cur.fetchone()
+            if not book:
+                return [f"Boek {book_id} bestaat niet."]
+            cur.execute("SELECT offer_id, bol_stock FROM bol_offer_mapping WHERE TRIM(ean) = TRIM(%(ean)s)", {"ean": book["ean"] or ""})
+            offer = cur.fetchone()
+            urls = _bol_image_urls(cur, book_id)
+    finally:
+        conn.close()
+    lines = [f"Boek {book['id']}: {book['title']} (EAN {book['ean']})"]
+    if not offer:
+        return lines + ["Dit boek heeft geen aanbieding op Bol (geen offerId bekend). Kies een boek dat op Bol staat."]
+    lines.append(f"Bol-aanbieding: {offer['offer_id']} (voorraad bij Bol: {offer['bol_stock']})")
+    if not urls:
+        return lines + ["Dit boek heeft geen publieke fotolinks."]
+    lines.append(f"{len(urls)} foto's" + (f", waarvan de eerste {bol_client.MAX_IMAGES_PER_IMPORT} worden verstuurd" if len(urls) > bol_client.MAX_IMAGES_PER_IMPORT else "") + ":")
+    urls = urls[:bol_client.MAX_IMAGES_PER_IMPORT]
+    lines += [f"  {'hoofdfoto' if i == 0 else f'foto {i + 1}'}: {u}" for i, u in enumerate(urls)]
+    if not execute:
+        return lines + ["PROEFRUN: er is niets naar Bol gestuurd. Draai opnieuw met 'ja' om het echt te doen."]
+    try:
+        batch_id = bol_client.submit_offer_images(offer["offer_id"], urls)
+    except bol_client.BolAPIError as exc:
+        return lines + [f"MISLUKT: {exc}"]
+    lines.append(f"Verstuurd. Batchnummer van Bol: {batch_id}")
+    result, waited = None, 0
+    while waited <= wait_seconds:
+        try:
+            result = bol_client.get_offer_image_import(offer["offer_id"], batch_id)
+        except bol_client.BolAPIError as exc:
+            return lines + [f"Uitkomst ophalen mislukt: {exc}"]
+        if result.get("status") == "COMPLETED":
+            break
+        time.sleep(10)
+        waited += 10
+    lines.append(f"Status van de batch: {result.get('status')}" + ("" if result.get("status") == "COMPLETED" else " (Bol is nog bezig; kijk later nog eens)"))
+    for a in result.get("assets") or []:
+        extra = f" - {a.get('subStatus')}: {a.get('subStatusDescription')}" if a.get("subStatus") else ""
+        lines.append(f"  {a.get('status')}: {a.get('url')}{extra}")
+    return lines
