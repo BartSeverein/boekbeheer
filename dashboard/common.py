@@ -596,6 +596,11 @@ def render_logo(path):
            Geen officiële instelling: herkent Streamlit deze namen na een update niet meer, dan is het menu weer als vanouds. */
         [data-testid="stSidebarNav"]:has([data-testid="stSidebarNavViewButton"])
             [data-testid="stSidebarNavItems"]:not(:has(li:nth-of-type(11))) li:nth-of-type(n+6) { display: none !important; }
+        /* De knop eronder: 'View 3 more' klopt niet meer met het korte menu, dus een eigen tekst (zonder getal). */
+        [data-testid="stSidebarNavViewButton"], [data-testid="stSidebarNavViewButton"] * { font-size: 0 !important; }
+        [data-testid="stSidebarNavViewButton"]::after { content: "Meer pagina's"; font-size: 0.875rem !important; }
+        [data-testid="stSidebarNav"]:has([data-testid="stSidebarNavItems"] li:nth-of-type(11))
+            [data-testid="stSidebarNavViewButton"]::after { content: "Minder pagina's"; }
         /* Het standaard rennende mannetje van Streamlit is niet nodig. */
         [data-testid="stStatusWidget"] { visibility: hidden !important; }
         @keyframes bezig-in { to { opacity: 1; } }
