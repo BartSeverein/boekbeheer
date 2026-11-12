@@ -122,23 +122,8 @@ for book in books:
                         _act(set_front_image(book["id"], None))
                 elif st.button("Kies", key=f"fronts_pick_{book['id']}_{im['image_id']}", use_container_width=True):
                     _act(set_front_image(book["id"], im["image_id"]))
-                # Prullenbak in twee stappen, want een misklik is hier snel gemaakt: eerst 🗑️, dan bevestigen.
-                arm_key = "fronts_delete_armed"
-                this = (book["id"], im["image_id"])
-                if st.session_state.get(arm_key) == this:
-                    d1, d2 = st.columns(2)
-                    with d1:
-                        if st.button("Weg", key=f"fronts_del_yes_{book['id']}_{im['image_id']}", type="primary", use_container_width=True,
-                                     help="Verwijdert deze foto, net als de prullenbak op Boekdetails."):
-                            delete_book_image(book["id"], "confirmed", im["image_id"])
-                            get_all_images.clear()
-                            st.session_state.pop(arm_key, None)
-                            st.rerun()
-                    with d2:
-                        if st.button("Nee", key=f"fronts_del_no_{book['id']}_{im['image_id']}", use_container_width=True):
-                            st.session_state.pop(arm_key, None)
-                            st.rerun()
-                elif st.button("🗑️", key=f"fronts_del_{book['id']}_{im['image_id']}", use_container_width=True,
-                               help="Deze foto verwijderen (vraagt eerst om bevestiging)."):
-                    st.session_state[arm_key] = this
+                if st.button("🗑️", key=f"fronts_del_{book['id']}_{im['image_id']}", use_container_width=True,
+                             help="Deze foto meteen verwijderen, net als de prullenbak op Boekdetails."):
+                    delete_book_image(book["id"], "confirmed", im["image_id"])
+                    get_all_images.clear()
                     st.rerun()
