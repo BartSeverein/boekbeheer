@@ -1,0 +1,44 @@
+name: Bol Tweedekans - foto's van één boek insturen (proef)
+
+# Pilot Tweedekans van Bol: stuurt alle foto's van één boek naar zijn Bol-aanbieding en toont wat Bol ermee doet.
+# Standaard een PROEFRUN (toont alleen welke foto's verstuurd zouden worden). Zet 'echt_uitvoeren' op "ja" om echt te versturen.
+# Raakt Boekwinkeltjes niet aan en heeft daarom een eigen groep: andere taken zitten deze niet in de weg.
+on:
+  workflow_dispatch:
+    inputs:
+      boek_id:
+        description: 'Id van een boek dat op Bol staat'
+        required: true
+        type: string
+      echt_uitvoeren:
+        description: 'Zet op "ja" om echt te versturen. Anders proefrun.'
+        required: false
+        type: string
+        default: "nee"
+
+concurrency:
+  group: bol-images
+  cancel-in-progress: false
+
+jobs:
+  test-bol-images:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt
+      - name: Foto's insturen
+        run: python main.py test-bol-images "$BOEK_ID" "$ECHT_UITVOEREN"
+        env:
+          BOEK_ID: ${{ github.event.inputs.boek_id }}
+          ECHT_UITVOEREN: ${{ github.event.inputs.echt_uitvoeren }}
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          BOL_CLIENT_ID: ${{ secrets.BOL_CLIENT_ID }}
+          BOL_CLIENT_SECRET: ${{ secrets.BOL_CLIENT_SECRET }}
+          BOEKWINKELTJES_ENV: ${{ secrets.BOEKWINKELTJES_ENV }}
+          BOEKWINKELTJES_API_KEY_SANDBOX: ${{ secrets.BOEKWINKELTJES_API_KEY_SANDBOX }}
+          BOEKWINKELTJES_API_KEY_LIVE: ${{ secrets.BOEKWINKELTJES_API_KEY_LIVE }}
+          PYTHONUNBUFFERED: "1"
