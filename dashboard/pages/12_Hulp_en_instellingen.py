@@ -17,6 +17,9 @@ from common import (
     active_daily_codes,
     AMSTERDAM_TZ,
     delete_placeholder_uploads,
+    list_placeholder_images,
+    add_placeholder_image,
+    delete_placeholder_image,
     find_placeholder_uploads,
     get_all_images,
     GITHUB_TOKEN_NEVER,
@@ -483,6 +486,38 @@ st.caption(
     "Dit geldt voor alle foto's die nog niet zijn doorgestuurd, niet alleen voor de bulk-wachtrij. Foto's die al bij "
     "Boekwinkeltjes staan, worden niet bekeken of aangeraakt. Je ziet eerst welke het zijn, en verwijdert ze zelf."
 )
+
+with st.expander("🖼️ Voorbeelden van nepfoto's bekijken en toevoegen"):
+    st.caption(
+        "Met deze voorbeelden herkent de app een nepfoto: elk plaatje dat op een voorbeeld lijkt, wordt als nep behandeld. "
+        "Voeg dus alleen echte plaatshouders toe, nooit een omslag of een logo. Eén voorbeeld per soort is genoeg; formaat en "
+        "compressie maken niet uit. Voorbeelden 'uit de repo' staan vast in dashboard/assets/placeholders/; wat je hier toevoegt, "
+        "staat in de database en kun je hier ook weer weghalen."
+    )
+    _ph_msg = st.session_state.pop("placeholder_example_message", None)
+    if _ph_msg:
+        (st.success if _ph_msg[0] else st.warning)(_ph_msg[1])
+    _examples = list_placeholder_images()
+    for _start in range(0, len(_examples), 6):
+        for _col, _ex in zip(st.columns(6), _examples[_start:_start + 6]):
+            with _col:
+                st.image(_ex["data"], width=130)
+                st.caption(f"{_ex['name']}  \n{'uit de repo' if _ex['source'] == 'repo' else 'toegevoegd in de app'}")
+                if _ex["source"] == "app" and st.button("🗑️", key=f"placeholder_example_del_{_ex['id']}", help="Dit voorbeeld weghalen."):
+                    delete_placeholder_image(_ex["id"])
+                    st.session_state["placeholder_example_message"] = (True, f"Voorbeeld '{_ex['name']}' is weggehaald.")
+                    st.rerun()
+    _new_examples = st.file_uploader("Nieuw voorbeeld toevoegen", type=["png", "jpg", "jpeg", "gif", "webp"],
+                                     accept_multiple_files=True, key=f"placeholder_example_upload_{st.session_state.get('placeholder_example_n', 0)}")
+    if _new_examples and st.button("Toevoegen als nepfoto-voorbeeld", type="primary", key="placeholder_example_add"):
+        _lines, _all_ok = [], True
+        for _f in _new_examples:
+            _ok, _m = add_placeholder_image(_f.name, _f.getvalue(), _f.type or "image/png")
+            _all_ok = _all_ok and _ok
+            _lines.append(f"{_f.name}: {'toegevoegd' if _ok else _m}")
+        st.session_state["placeholder_example_message"] = (_all_ok, "  \n".join(_lines))
+        st.session_state["placeholder_example_n"] = st.session_state.get("placeholder_example_n", 0) + 1
+        st.rerun()
 
 delete_message = st.session_state.pop("placeholder_delete_message", None)
 if delete_message:
