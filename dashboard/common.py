@@ -39,7 +39,7 @@ import streamlit as st
 from dotenv import load_dotenv
 
 from categories import CATEGORY1_OPTIONS, CATEGORY2_OPTIONS
-from cover_check import check_cover_image
+import cover_check
 
 load_dotenv()  # leest .env, ook als die in de bovenliggende (project)map staat
 
@@ -1247,6 +1247,99 @@ def find_main_image_index(images, main_image_url):
             if main_image_url in image_identity_urls(img):
                 return i
     return 0
+
+
+# ---------- Plaatshouders ("geen omslag beschikbaar") ----------
+# Voorbeelden staan op twee plekken: in de repo (dashboard/assets/placeholders/, vast) en in de tabel placeholder_images
+# (toegevoegd vanuit de app; de schijf van Streamlit Cloud bewaart niets, daarom de database).
+def _ensure_placeholder_table(cur):
+    cur.execute(
+        "CREATE TABLE IF NOT EXISTS placeholder_images (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL, image_data BYTEA NOT NULL, "
+        "content_type TEXT, added_at TIMESTAMPTZ DEFAULT now())")
+    cur.execute("ALTER TABLE placeholder_images ENABLE ROW LEVEL SECURITY")
+
+
+@st.cache_data(ttl=600)
+def _load_placeholder_rows():
+    """De plaatshouders uit de database als lijst {'id', 'name', 'data', 'content_type'}; leeg als de tabel nog niet bestaat."""
+    try:
+        conn = psycopg2.connect(get_db_url())
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT to_regclass('placeholder_images')")
+                if cur.fetchone()[0] is None:
+                    return []
+                cur.execute("SELECT id, name, image_data, content_type FROM placeholder_images ORDER BY id")
+                return [{"id": r[0], "name": r[1], "data": bytes(r[2]), "content_type": r[3] or "image/png"} for r in cur.fetchall()]
+        finally:
+            conn.close()
+    except Exception:
+        return []
+
+
+_placeholder_state = {}
+
+
+def check_cover_image(data):
+    """Als cover_check.check_cover_image, maar ook met de plaatshouders die vanuit de app zijn toegevoegd."""
+    rows = _load_placeholder_rows()
+    signature = tuple(r["id"] for r in rows)
+    if _placeholder_state.get("signature") != signature:   # vingerafdrukken alleen opnieuw berekenen als de lijst is veranderd
+        cover_check.set_extra_references([(r["name"], r["data"]) for r in rows])
+        _placeholder_state["signature"] = signature
+    return cover_check.check_cover_image(data)
+
+
+def list_placeholder_images():
+    """Alle voorbeelden: [{'source': 'repo'|'app', 'id', 'name', 'data', 'content_type'}]; die uit de repo kun je hier niet weghalen."""
+    result = []
+    try:
+        for name in sorted(os.listdir(cover_check.PLACEHOLDER_DIR)):
+            if name.lower().endswith((".png", ".jpg", ".jpeg", ".gif", ".webp")):
+                with open(os.path.join(cover_check.PLACEHOLDER_DIR, name), "rb") as fh:
+                    result.append({"source": "repo", "id": None, "name": name, "data": fh.read(), "content_type": "image/png"})
+    except OSError:
+        pass
+    return result + [{"source": "app", **r} for r in _load_placeholder_rows()]
+
+
+def add_placeholder_image(name, data, content_type):
+    """
+    Voegt een voorbeeld van een plaatshouder toe. Geeft (gelukt, melding) terug. Een onleesbaar of te klein plaatje, of een
+    plaatje dat al als plaatshouder wordt herkend, wordt niet toegevoegd.
+    """
+    verdict = check_cover_image(data)
+    if verdict == "unreadable":
+        return False, "Dit bestand is geen leesbaar plaatje."
+    if verdict == "too_small":
+        return False, "Dit plaatje is te klein om als voorbeeld te dienen."
+    if verdict == "placeholder":
+        return False, "Dit plaatje wordt al als plaatshouder herkend; toevoegen is niet nodig."
+    conn = psycopg2.connect(get_db_url())
+    try:
+        with conn.cursor() as cur:
+            _ensure_placeholder_table(cur)
+            cur.execute("INSERT INTO placeholder_images (name, image_data, content_type) VALUES (%(n)s, %(d)s, %(c)s)",
+                        {"n": name, "d": psycopg2.Binary(data), "c": content_type})
+        conn.commit()
+    finally:
+        conn.close()
+    _load_placeholder_rows.clear()
+    get_all_images.clear()
+    return True, ""
+
+
+def delete_placeholder_image(image_id):
+    """Haalt een vanuit de app toegevoegd voorbeeld weer weg."""
+    conn = psycopg2.connect(get_db_url())
+    try:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM placeholder_images WHERE id = %(id)s", {"id": int(image_id)})
+        conn.commit()
+    finally:
+        conn.close()
+    _load_placeholder_rows.clear()
+    get_all_images.clear()
 
 
 MAX_WEB_EXTRA = 2   # naast de voorkant gaan er hoogstens twee foto's extra naar de webshop

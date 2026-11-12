@@ -4,8 +4,8 @@ onleesbaar of te klein zijn. Bedoeld voor automatisch opgehaalde omslagen (Googl
 zodat zo'n plaatje niet als foto bij een boek komt en dan naar Boekwinkeltjes wordt gestuurd.
 
 De vergelijking is een 'vingerafdruk' van het plaatje (zie _fingerprint) en dus ongevoelig voor formaat en
-compressie. Voorbeelden van plaatshouders staan in assets/placeholders/; zet je daar een nieuw voorbeeld bij,
-dan wordt die soort ook herkend.
+compressie. Voorbeelden van plaatshouders staan in assets/placeholders/ (in de repo) en in de tabel
+placeholder_images (toegevoegd vanuit de app, via Hulp en instellingen); komt er een voorbeeld bij, dan wordt die soort ook herkend.
 """
 import io
 import os
@@ -21,6 +21,21 @@ MAX_DISTANCE = 6
 MIN_SIDE_PX = 50
 
 _reference_cache = {"signature": None, "fingerprints": []}
+# Extra voorbeelden die niet in de map staan maar in de database (toegevoegd via Hulp en instellingen): de app zet ze hier neer.
+_extra_references = []
+
+
+def set_extra_references(images):
+    """Zet de extra voorbeelden: 'images' is een lijst (naam, bytes). Onleesbare plaatjes worden overgeslagen."""
+    fingerprints = []
+    for name, data in images:
+        try:
+            with Image.open(io.BytesIO(data)) as im:
+                im.load()
+                fingerprints.append((name, _fingerprint(im)))
+        except Exception:
+            continue
+    _extra_references[:] = fingerprints
 
 
 def _to_gray(im):
@@ -91,7 +106,8 @@ def check_cover_image(data, reference_dir=None):
             dhash, ahash = _fingerprint(im)
     except Exception:
         return "unreadable"
-    for _name, (ref_dhash, ref_ahash) in _reference_fingerprints(reference_dir or PLACEHOLDER_DIR):
+    references = _reference_fingerprints(reference_dir or PLACEHOLDER_DIR) + (list(_extra_references) if reference_dir is None else [])
+    for _name, (ref_dhash, ref_ahash) in references:
         if _distance(dhash, ref_dhash) <= MAX_DISTANCE and _distance(ahash, ref_ahash) <= MAX_DISTANCE:
             return "placeholder"
     return "ok"
