@@ -255,6 +255,8 @@ ALTER TABLE revenue_history ENABLE ROW LEVEL SECURITY;
 -- front_checked_at: wanneer de voorkant van dit boek op de pagina 'Voorkanten' is nagekeken.
 ALTER TABLE book_images ADD COLUMN IF NOT EXISTS is_front BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE books ADD COLUMN IF NOT EXISTS front_checked_at TIMESTAMPTZ;
+-- web_photos_checked_at: wanneer de extra webshopfoto's van dit boek zijn nagekeken (de app maakt deze kolom zelf aan).
+ALTER TABLE books ADD COLUMN IF NOT EXISTS web_photos_checked_at TIMESTAMPTZ;
 
 -- Voorbeelden van plaatshouders ("geen omslag beschikbaar") die vanuit de app zijn toegevoegd (Hulp en instellingen),
 -- naast de vaste voorbeelden in dashboard/assets/placeholders/. De app maakt deze tabel zelf aan bij het eerste voorbeeld.
