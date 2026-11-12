@@ -250,6 +250,22 @@ CREATE TABLE IF NOT EXISTS revenue_history (
 );
 ALTER TABLE revenue_history ENABLE ROW LEVEL SECURITY;
 
+-- Eigen keuze van de voorkant voor de webshop en Bol, los van Boekwinkeltjes (daar ligt de eerste foto vast).
+-- is_front: deze foto is de voorkant op de webshop en bij Bol (hoogstens één per boek). Niets gekozen = de eerste foto.
+-- front_checked_at: wanneer de voorkant van dit boek op de pagina 'Voorkanten' is nagekeken.
+ALTER TABLE book_images ADD COLUMN IF NOT EXISTS is_front BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE books ADD COLUMN IF NOT EXISTS front_checked_at TIMESTAMPTZ;
+
+-- Verkochte boeken per dag uit de tijd dat de orders nog niet in het systeem stonden (bijvoorbeeld Bol voor oktober 2026).
+-- Voor een dag en platform met een aantal hier gebruikt de daggrafiek op Home dit aantal in plaats van de orders.
+CREATE TABLE IF NOT EXISTS sales_history (
+    day         DATE NOT NULL,
+    platform    TEXT NOT NULL,      -- 'BW', 'Bol' of 'Webshop'
+    quantity    INTEGER NOT NULL,
+    PRIMARY KEY (day, platform)
+);
+ALTER TABLE sales_history ENABLE ROW LEVEL SECURITY;
+
 -- Korte tekst per auteurspagina van de webshop (beheer: dashboard, pagina Auteursbeheer)
 CREATE TABLE IF NOT EXISTS author_texts (
     slug        TEXT PRIMARY KEY,           -- zoals in het adres: /auteur/<slug>/

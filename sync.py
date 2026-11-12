@@ -4511,20 +4511,20 @@ if __name__ == "__main__":
 # ---------- Pilot Tweedekans (Bol): eigen foto's bij een aanbieding ----------
 def _bol_image_urls(cur, book_id):
     """
-    Alle publieke fotolinks van een boek voor Bol: eerst de voorkant (books.main_image_url), dan de overige foto's in de
-    volgorde van Boekwinkeltjes (grote variant). Dubbele links en voorkanten die als tekst (data-URI) zijn opgeslagen vallen af.
+    Alle publieke fotolinks van een boek voor Bol (grote variant), met dezelfde voorkant als de webshop: de foto die als
+    voorkant is aangewezen (book_images.is_front), anders de eerste foto in de volgorde van Boekwinkeltjes. Daarna de rest
+    in die volgorde. Dubbele links vallen af.
     """
-    cur.execute("SELECT main_image_url FROM books WHERE id = %(id)s", {"id": book_id})
-    row = cur.fetchone()
-    candidates = [row["main_image_url"] if row else None]
-    cur.execute("SELECT url_large, url_medium FROM book_images WHERE book_id = %(id)s AND image_id <> -1 ORDER BY position, image_id",
-                {"id": book_id})
-    candidates += [r["url_large"] or r["url_medium"] for r in cur.fetchall()]
+    cur.execute("SELECT 1 FROM information_schema.columns WHERE table_name = 'book_images' AND column_name = 'is_front'")
+    front = "is_front" if cur.fetchone() else "FALSE"
+    cur.execute(f"SELECT url_large, url_medium, {front} AS is_front FROM book_images WHERE book_id = %(id)s AND image_id <> -1 "
+                "ORDER BY position, image_id", {"id": book_id})
+    rows = sorted(cur.fetchall(), key=lambda r: not r["is_front"])   # stabiel: alleen de gekozen voorkant verhuist naar voren
     urls, seen = [], set()
-    for u in candidates:
-        if not u or not u.strip().lower().startswith("http"):
+    for r in rows:
+        u = (r["url_large"] or r["url_medium"] or "").strip()
+        if not u.lower().startswith("http"):
             continue
-        u = u.strip()
         key = re.sub(r"/(large|medium|small)/", "/", _image_key(u))   # dezelfde foto in een andere maat telt als dezelfde
         if key in seen:
             continue
