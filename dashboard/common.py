@@ -1890,15 +1890,48 @@ def _boekwinkeltjes_login_session():
     return session, None
 
 
+BOEKWINKELTJES_API_BASE = "https://www.boekwinkeltjes.nl/webservice/v1"
+
+
+def _market_info_via_api(isbn, api_key):
+    """
+    Marktinfo via het officiële endpoint /books/market/:isbn van de verkoper-API (sinds november 2026; geeft dezelfde gegevens
+    als de website). Geeft (data, foutmelding) terug.
+    """
+    url = f"{BOEKWINKELTJES_API_BASE}/books/market/{isbn}"
+    try:
+        resp = requests.get(url, headers={"api-key": api_key, "Accept": "application/json"}, timeout=15)
+    except requests.RequestException as e:
+        return None, f"Kon geen verbinding maken met Boekwinkeltjes: {e}"
+    if resp.status_code == 404:
+        return None, "Geen gegevens gevonden voor dit ISBN."
+    if resp.status_code in (401, 403) and "json" not in (resp.headers.get("Content-Type") or "").lower():
+        return None, f"Boekwinkeltjes weigert de verbinding vanaf deze server ({resp.status_code}); dat is een blokkade aan hun kant."
+    if resp.status_code == 401:
+        return None, "Boekwinkeltjes accepteert de API-sleutel niet (401). Controleer BOEKWINKELTJES_API_KEY_LIVE in de secrets."
+    if not resp.ok:
+        return None, f"Boekwinkeltjes gaf een fout terug (status {resp.status_code}): {(resp.text or '')[:200]}"
+    try:
+        data = resp.json()
+    except ValueError:
+        return None, f"Boekwinkeltjes gaf geen leesbaar antwoord: {(resp.text or '')[:200]}"
+    if isinstance(data, dict) and isinstance(data.get("data"), dict):
+        data = data["data"]   # de API pakt antwoorden in 'data' in; de website deed dat niet
+    if not isinstance(data, dict):
+        return None, f"Onverwacht antwoord van Boekwinkeltjes: {str(data)[:200]}"
+    if not data.get("status") and not any(k in data for k in ("lastOrder", "lastPrice")):
+        return None, "Geen gegevens gevonden voor dit ISBN."
+    return data, None
+
+
 @st.cache_data(ttl=600)
 def lookup_boekwinkeltjes_market_info(isbn):
     """
-    Haalt marktinfo (aantal aanbieders, prijsrange, laatste verkoop) op via een
-    ONOFFICIEEL, niet-gedocumenteerd endpoint dat de website van Boekwinkeltjes
-    zelf gebruikt bij het invoeren van een ISBN. Dit maakt GEEN deel uit van de
-    officiële verkoper-API en kan zonder aankondiging veranderen of stoppen met
-    werken. Logt bij elke opzoekactie opnieuw in (zie _boekwinkeltjes_login_session),
-    dus er is geen verlopende sessie-cookie om bij te houden.
+    Haalt marktinfo (aantal aanbieders, prijsrange, laatste verkoop) op bij Boekwinkeltjes.
+
+    Met een API-sleutel in de secrets (BOEKWINKELTJES_API_KEY_LIVE) gaat dit via het officiële endpoint /books/market/:isbn.
+    Zonder sleutel valt het terug op de oude weg: inloggen op de website en het niet-gedocumenteerde adres dat de site zelf
+    gebruikt (dat wordt vanaf Streamlit Cloud geblokkeerd).
 
     Geeft (data, foutmelding) terug: data is None bij een fout (foutmelding legt
     uit wat er misging), of het opgezochte resultaat bij succes (foutmelding None).
@@ -1906,6 +1939,10 @@ def lookup_boekwinkeltjes_market_info(isbn):
     isbn = (isbn or "").strip()
     if not isbn or isbn == "0":
         return None, None
+
+    api_key = _get_secret("BOEKWINKELTJES_API_KEY_LIVE")
+    if api_key:
+        return _market_info_via_api(isbn, api_key)
 
     session, error = _boekwinkeltjes_login_session()
     if error:
