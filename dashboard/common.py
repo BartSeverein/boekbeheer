@@ -1352,6 +1352,20 @@ def mark_front_checked(book_id, checked=True):
     return True, ""
 
 
+def mark_fronts_checked(book_ids):
+    """Noteert in één keer dat de voorkant van al deze boeken is nagekeken en klopt."""
+    ids = [int(i) for i in book_ids]
+    if not ids or not _has_front_column():
+        return
+    conn = psycopg2.connect(get_db_url())
+    try:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE books SET front_checked_at = now() WHERE id = ANY(%(ids)s)", {"ids": ids})
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def get_front_review_books(only_unchecked=True, only_bol=False, search="", limit=15, offset=0):
     """
     Boeken voor de pagina 'Voorkanten': op voorraad, met minstens twee foto's bij Boekwinkeltjes. Geeft (boeken, totaal) terug;
@@ -1359,7 +1373,7 @@ def get_front_review_books(only_unchecked=True, only_bol=False, search="", limit
     volgorde van Boekwinkeltjes. Nieuwste boeken eerst.
     """
     where = ["COALESCE(b.amount, 0) > 0", "b.id > 0",
-             "(SELECT COUNT(*) FROM book_images i WHERE i.book_id = b.id AND i.image_id <> -1) >= 2"]
+             "b.id IN (SELECT book_id FROM book_images WHERE image_id <> -1 GROUP BY book_id HAVING COUNT(*) >= 2)"]
     params = {"limit": int(limit), "offset": int(offset)}
     if only_unchecked:
         where.append("b.front_checked_at IS NULL")
