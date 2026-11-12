@@ -1924,6 +1924,19 @@ def _market_info_via_api(isbn, api_key):
     return data, None
 
 
+def raw_boekwinkeltjes_market_response(isbn):
+    """Voor diagnose (Hulp en instellingen): het ruwe antwoord van /books/market/:isbn als tekst, zonder de sleutel."""
+    api_key = _get_secret("BOEKWINKELTJES_API_KEY_LIVE")
+    if not api_key:
+        return "Geen BOEKWINKELTJES_API_KEY_LIVE in de secrets."
+    url = f"{BOEKWINKELTJES_API_BASE}/books/market/{(isbn or '').strip()}"
+    try:
+        resp = requests.get(url, headers={"api-key": api_key, "Accept": "application/json"}, timeout=15)
+    except requests.RequestException as e:
+        return f"Geen verbinding: {e}"
+    return f"GET {url}\nstatus {resp.status_code}, {resp.headers.get('Content-Type')}\n\n{(resp.text or '')[:4000]}"
+
+
 @st.cache_data(ttl=600)
 def lookup_boekwinkeltjes_market_info(isbn):
     """
