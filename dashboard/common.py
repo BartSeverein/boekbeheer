@@ -722,6 +722,50 @@ def load_orders(include_tests=False):
     return orders
 
 
+BOL_CONDITION_LABELS = {"NEW": "nieuw", "AS_NEW": "als nieuw", "GOOD": "goed", "REASONABLE": "redelijk", "MODERATE": "matig"}
+NO_SALE_STATUSES = ("CANCELLED", "CANCELLATION_REQUESTED", "no_response", "sold_or_unavailable", "return_received")
+
+
+@st.cache_data(ttl=300)
+def get_book_bol_and_sales(book_id, ean):
+    """
+    Voor het detailblok van een boek: {'offer_id', 'condition', 'sales'}. 'condition' is de conditie op Bol in woorden (of None),
+    'sales' een lijst (datum, platform, prijs) van de verkopen van dit boek, oudste eerst. Geannuleerde orders, orders zonder
+    reactie en retouren tellen niet mee.
+    """
+    result = {"offer_id": None, "condition": None, "sales": []}
+    conn = psycopg2.connect(get_db_url())
+    try:
+        with conn.cursor() as cur:
+            if ean and str(ean).strip() not in ("", "0"):
+                try:
+                    cur.execute("SELECT offer_id, condition_category, condition_state FROM bol_offer_mapping WHERE TRIM(ean) = %(e)s",
+                                {"e": str(ean).strip()})
+                    row = cur.fetchone()
+                except psycopg2.Error:   # conditiekolommen bestaan nog niet
+                    conn.rollback()
+                    cur.execute("SELECT offer_id, NULL, NULL FROM bol_offer_mapping WHERE TRIM(ean) = %(e)s", {"e": str(ean).strip()})
+                    row = cur.fetchone()
+                if row:
+                    result["offer_id"] = row[0]
+                    category, state = (row[1] or "").upper(), (row[2] or "").upper()
+                    if category == "NEW":
+                        result["condition"] = "nieuw"
+                    elif category or state:
+                        result["condition"] = "tweedehands" + (f", {BOL_CONDITION_LABELS.get(state, state.lower())}" if state else "")
+            cur.execute(
+                "SELECT order_date, COALESCE(platform, 'BW'), book_price FROM orders WHERE book_id = %(id)s "
+                "AND COALESCE(status, '') <> ALL(%(skip)s) ORDER BY order_date",
+                {"id": int(book_id), "skip": list(NO_SALE_STATUSES)})
+            for order_date, platform, price in cur.fetchall():
+                date = pd.to_datetime(order_date, errors="coerce")
+                result["sales"].append((None if pd.isna(date) else date.strftime("%d-%m-%Y"), platform,
+                                        float(price) if price is not None else None))
+    finally:
+        conn.close()
+    return result
+
+
 @st.cache_data(ttl=300)
 def load_revenue_history():
     """Handmatig aangeleverde bruto omzet per maand en platform (tabel revenue_history), met kolommen month, platform, amount.
