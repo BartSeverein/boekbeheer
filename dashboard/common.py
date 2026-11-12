@@ -591,6 +591,11 @@ def render_logo(path):
             opacity: 0; pointer-events: none; white-space: nowrap;
             animation: bezig-in 0.2s ease-out 0.8s forwards, bezig-puls 1.4s ease-in-out 1s infinite;
         }
+        /* Kort menu: zolang het menu is ingeklapt (Streamlit toont dan tien regels en 'View more'), alleen de eerste vijf
+           pagina's tonen; de rest komt tevoorschijn met 'View more'. Ingeklapt = er is een 'View more'-knop en geen elfde regel.
+           Geen officiële instelling: herkent Streamlit deze namen na een update niet meer, dan is het menu weer als vanouds. */
+        [data-testid="stSidebarNav"]:has([data-testid="stSidebarNavViewButton"])
+            [data-testid="stSidebarNavItems"]:not(:has(li:nth-of-type(11))) li:nth-of-type(n+6) { display: none !important; }
         /* Het standaard rennende mannetje van Streamlit is niet nodig. */
         [data-testid="stStatusWidget"] { visibility: hidden !important; }
         @keyframes bezig-in { to { opacity: 1; } }
