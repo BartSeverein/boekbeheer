@@ -1,6 +1,9 @@
 """
 pages/13_Voorkanten.py — De voorkant van elk boek nakijken en zo nodig een andere foto als voorkant kiezen voor de webshop en
 Bol. Bij Boekwinkeltjes ligt de eerste foto vast; deze keuze staat daar los van en verandert daar niets.
+
+Snelheid: de lijst wordt één keer per blad geladen en in de sessie bewaard. Elk boek is een eigen 'fragment': een klik
+ververst alleen dat ene boek en doet één schrijfactie in de database, zonder de hele pagina opnieuw op te bouwen.
 """
 
 import html
@@ -14,6 +17,7 @@ from common import (
     get_front_review_books,
     set_front_image,
     mark_front_checked,
+    mark_fronts_checked,
     delete_book_image,
     get_all_images,
     _has_front_column,
@@ -25,9 +29,10 @@ require_login()
 st.title("🖼️ Voorkanten")
 
 st.caption(
-    "Kijk per boek of de foto met ⭐ de echte voorkant is. Klopt het, klik dan op '✔ Klopt'. Klopt het niet, klik dan op 'Kies' "
-    "onder de foto die de voorkant moet zijn. De keuze geldt voor de webshop en voor Bol; bij Boekwinkeltjes verandert niets. "
-    "Met 🗑️ haal je een foto weg (net als op Boekdetails). Alleen boeken op voorraad met minstens twee foto's staan hier. De webshop toont de nieuwe voorkant na de volgende volledige run."
+    "Klik alleen bij boeken waar iets mis is: 'Kies' onder de foto die de voorkant moet zijn (⭐ is de huidige), of 🗑️ om een foto "
+    "weg te halen. Klopt de rest, klik dan onderaan op 'Rest klopt, volgende'. De keuze geldt voor de webshop en voor Bol; bij "
+    "Boekwinkeltjes verandert niets. Alleen boeken op voorraad met minstens twee foto's staan hier. De webshop toont de nieuwe "
+    "voorkant na de volgende volledige run."
 )
 
 if not _has_front_column():
@@ -47,62 +52,70 @@ with f3:
     search = st.text_input("Zoek op titel, auteur of boek-id", key="fronts_search")
 only_unchecked = view == "Nog na te kijken"
 
-# Bij 'Nog na te kijken' verdwijnt een boek uit de lijst zodra het is nagekeken: dan altijd de eerste boeken tonen.
-page_key = f"fronts_page_{view}_{only_bol}_{search}"
-page = 0 if only_unchecked else int(st.session_state.get(page_key, 0))
-books, total = get_front_review_books(only_unchecked=only_unchecked, only_bol=only_bol, search=search,
-                                      limit=PER_PAGE, offset=page * PER_PAGE)
+# Het blad wordt alleen opnieuw geladen bij een ander filter, een ander blad of na 'volgende'.
+page = 0 if only_unchecked else int(st.session_state.get("fronts_page", 0))
+batch_key = (view, only_bol, search, page)
+batch = st.session_state.get("fronts_batch")
+if not batch or batch["key"] != batch_key or st.session_state.pop("fronts_reload", False):
+    books, total = get_front_review_books(only_unchecked=only_unchecked, only_bol=only_bol, search=search,
+                                          limit=PER_PAGE, offset=page * PER_PAGE)
+    for b in books:
+        b["done"] = False       # in deze sessie afgehandeld (nagekeken of voorkant gekozen)
+    batch = {"key": batch_key, "books": {b["id"]: b for b in books}, "order": [b["id"] for b in books], "total": total}
+    st.session_state["fronts_batch"] = batch
 
-_msg = st.session_state.pop("fronts_msg", None)
-if _msg:
-    st.warning(_msg)
-
-if not books:
+if not batch["order"]:
     st.success("Niets meer na te kijken." if only_unchecked else "Geen boeken gevonden.")
     st.stop()
 
+total = batch["total"]
 if only_unchecked:
-    st.markdown(f"**Nog {total} {'boek' if total == 1 else 'boeken'} na te kijken.**")
+    st.markdown(f"**Nog {total} {'boek' if total == 1 else 'boeken'} na te kijken** (bij het laden van dit blad).")
 else:
     pages = (total - 1) // PER_PAGE + 1
     n1, n2, n3 = st.columns([1, 3, 1])
     with n1:
         if st.button("← Vorige", disabled=page == 0, use_container_width=True):
-            st.session_state[page_key] = page - 1
+            st.session_state["fronts_page"] = page - 1
             st.rerun()
     with n2:
-        st.markdown(f"<div style='text-align:center;'>Pagina {page + 1} van {pages} ({total} boeken)</div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='text-align:center;'>Blad {page + 1} van {pages} ({total} boeken)</div>", unsafe_allow_html=True)
     with n3:
         if st.button("Volgende →", disabled=page + 1 >= pages, use_container_width=True):
-            st.session_state[page_key] = page + 1
+            st.session_state["fronts_page"] = page + 1
             st.rerun()
 
 
-def _act(ok_msg):
-    ok, msg = ok_msg
-    if not ok:
-        st.session_state["fronts_msg"] = msg
-    st.rerun()
-
-
-for book in books:
-    st.divider()
+@st.fragment
+def book_card(book_id):
+    book = st.session_state["fronts_batch"]["books"][book_id]
     images = book["images"]
+    title = html.escape(book["title"] or "(geen titel)")
+    if book["done"]:
+        c1, c2 = st.columns([8, 1])
+        with c1:
+            st.markdown(f"✔ <span style='opacity:0.6;'>{title}  ·  boek {book['id']}  ·  {book.get('done_text', 'nagekeken')}</span>",
+                        unsafe_allow_html=True)
+        with c2:
+            if st.button("Terug", key=f"fronts_undo_{book_id}", use_container_width=True, help="Dit boek opnieuw bekijken."):
+                book["done"] = False
+                st.rerun(scope="fragment")
+        return
     chosen = next((im for im in images if im["is_front"]), None)
-    front_id = (chosen or images[0])["image_id"]
+    front_id = (chosen or images[0])["image_id"] if images else None
     h1, h2, h3 = st.columns([6, 1, 1])
     with h1:
-        badges = ("  ·  op Bol" if book["on_bol"] else "") + ("  ·  ✔ nagekeken" if book["checked"] else "") \
+        badges = ("  ·  op Bol" if book["on_bol"] else "") + ("  ·  ✔ eerder nagekeken" if book["checked"] else "") \
                  + ("  ·  eigen voorkant gekozen" if chosen else "")
-        st.markdown(f"**{html.escape(book['title'] or '(geen titel)')}**  \n"
-                    f"{html.escape(book['author'] or '')}  ·  boek {book['id']}  ·  {len(images)} foto's{badges}")
+        st.markdown(f"**{title}**  \n{html.escape(book['author'] or '')}  ·  boek {book['id']}  ·  {len(images)} foto's{badges}")
     with h2:
-        if st.button("✔ Klopt", key=f"fronts_ok_{book['id']}", type="primary", use_container_width=True,
-                     disabled=book["checked"] and not only_unchecked):
-            _act(mark_front_checked(book["id"]))
+        if st.button("✔ Klopt", key=f"fronts_ok_{book_id}", type="primary", use_container_width=True):
+            mark_front_checked(book_id)
+            book["done"], book["checked"], book["done_text"] = True, True, "nagekeken"
+            st.rerun(scope="fragment")
     with h3:
-        if st.button("Openen", key=f"fronts_open_{book['id']}", use_container_width=True):
-            st.session_state["preselect_book_id"] = int(book["id"])
+        if st.button("Openen", key=f"fronts_open_{book_id}", use_container_width=True):
+            st.session_state["preselect_book_id"] = int(book_id)
             st.switch_page("pages/3_Boekdetails.py")
     for start in range(0, len(images), PER_ROW):
         cols = st.columns(PER_ROW)
@@ -117,13 +130,34 @@ for book in books:
                     st.caption("(geen voorbeeld)")
                 if is_front:
                     st.markdown("<div style='text-align:center;'>⭐ Voorkant</div>", unsafe_allow_html=True)
-                    if chosen and st.button("Keuze weghalen", key=f"fronts_clear_{book['id']}", use_container_width=True,
+                    if chosen and st.button("Keuze weghalen", key=f"fronts_clear_{book_id}", use_container_width=True,
                                             help="Weer de eerste foto als voorkant."):
-                        _act(set_front_image(book["id"], None))
-                elif st.button("Kies", key=f"fronts_pick_{book['id']}_{im['image_id']}", use_container_width=True):
-                    _act(set_front_image(book["id"], im["image_id"]))
-                if st.button("🗑️", key=f"fronts_del_{book['id']}_{im['image_id']}", use_container_width=True,
+                        set_front_image(book_id, None)
+                        for other in images:
+                            other["is_front"] = False
+                        st.rerun(scope="fragment")
+                elif st.button("Kies", key=f"fronts_pick_{book_id}_{im['image_id']}", use_container_width=True):
+                    set_front_image(book_id, im["image_id"])
+                    for other in images:
+                        other["is_front"] = other["image_id"] == im["image_id"]
+                    book["done"], book["checked"], book["done_text"] = True, True, "voorkant gekozen"
+                    st.rerun(scope="fragment")
+                if st.button("🗑️", key=f"fronts_del_{book_id}_{im['image_id']}", use_container_width=True,
                              help="Deze foto meteen verwijderen, net als de prullenbak op Boekdetails."):
-                    delete_book_image(book["id"], "confirmed", im["image_id"])
+                    delete_book_image(book_id, "confirmed", im["image_id"])
                     get_all_images.clear()
-                    st.rerun()
+                    book["images"] = [x for x in images if x["image_id"] != im["image_id"]]
+                    st.rerun(scope="fragment")
+
+
+for book_id in batch["order"]:
+    st.divider()
+    book_card(book_id)
+
+st.divider()
+if only_unchecked:
+    if st.button("✔ Rest klopt, volgende →", type="primary", use_container_width=True,
+                 help="Markeert alle boeken op dit blad die nog open staan als nagekeken en laadt de volgende."):
+        mark_fronts_checked([i for i in batch["order"] if not batch["books"][i]["done"]])
+        st.session_state["fronts_reload"] = True
+        st.rerun()
