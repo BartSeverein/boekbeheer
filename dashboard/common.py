@@ -247,6 +247,8 @@ def require_login():
                 del st.session_state["user"]
                 st.session_state["_uitgelogd"] = True
                 st.rerun()
+            st.markdown("<br><br>", unsafe_allow_html=True)
+            st.caption("© 2026, Severein Services")
         return user
 
     if get_user_count() == 0:
