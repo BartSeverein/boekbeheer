@@ -1298,6 +1298,107 @@ def set_web_extra(book_id, source, ref_id, value):
     return True, ""
 
 
+@st.cache_data(ttl=600)
+def _has_front_column():
+    """Bestaan de kolommen voor de eigen voorkantkeuze al? (voorkant_keuze.sql in Supabase.)"""
+    try:
+        conn = psycopg2.connect(get_db_url())
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT COUNT(*) FROM information_schema.columns WHERE (table_name = 'book_images' AND column_name = 'is_front') "
+                    "OR (table_name = 'books' AND column_name = 'front_checked_at')"
+                )
+                return cur.fetchone()[0] == 2
+        finally:
+            conn.close()
+    except Exception:
+        return False
+
+
+def set_front_image(book_id, image_id):
+    """
+    Wijst een foto aan als voorkant voor de webshop en Bol (image_id=None: weer de eerste foto) en noteert dat de voorkant
+    van dit boek is nagekeken. Verandert niets bij Boekwinkeltjes. Geeft (gelukt, melding) terug.
+    """
+    if not _has_front_column():
+        return False, "De database mist nog de kolommen voor de voorkantkeuze (voer voorkant_keuze.sql uit in Supabase)."
+    conn = psycopg2.connect(get_db_url())
+    try:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE book_images SET is_front = FALSE WHERE book_id = %(b)s AND is_front", {"b": int(book_id)})
+            if image_id is not None:
+                cur.execute("UPDATE book_images SET is_front = TRUE WHERE book_id = %(b)s AND image_id = %(i)s",
+                            {"b": int(book_id), "i": int(image_id)})
+            cur.execute("UPDATE books SET front_checked_at = now() WHERE id = %(b)s", {"b": int(book_id)})
+        conn.commit()
+    finally:
+        conn.close()
+    get_all_images.clear()
+    return True, ""
+
+
+def mark_front_checked(book_id, checked=True):
+    """Noteert dat de voorkant van dit boek is nagekeken en klopt (of haalt die notitie weg)."""
+    if not _has_front_column():
+        return False, "De database mist nog de kolommen voor de voorkantkeuze (voer voorkant_keuze.sql uit in Supabase)."
+    conn = psycopg2.connect(get_db_url())
+    try:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE books SET front_checked_at = " + ("now()" if checked else "NULL") + " WHERE id = %(b)s", {"b": int(book_id)})
+        conn.commit()
+    finally:
+        conn.close()
+    return True, ""
+
+
+def get_front_review_books(only_unchecked=True, only_bol=False, search="", limit=15, offset=0):
+    """
+    Boeken voor de pagina 'Voorkanten': op voorraad, met minstens twee foto's bij Boekwinkeltjes. Geeft (boeken, totaal) terug;
+    elk boek is {'id', 'title', 'author', 'checked', 'on_bol', 'images': [{'image_id', 'src', 'is_front'}]} met de foto's in de
+    volgorde van Boekwinkeltjes. Nieuwste boeken eerst.
+    """
+    where = ["COALESCE(b.amount, 0) > 0", "b.id > 0",
+             "(SELECT COUNT(*) FROM book_images i WHERE i.book_id = b.id AND i.image_id <> -1) >= 2"]
+    params = {"limit": int(limit), "offset": int(offset)}
+    if only_unchecked:
+        where.append("b.front_checked_at IS NULL")
+    on_bol = "EXISTS (SELECT 1 FROM bol_offer_mapping m WHERE TRIM(m.ean) = TRIM(b.ean) AND COALESCE(m.bol_stock, 0) > 0)"
+    if only_bol:
+        where.append(on_bol)
+    if search.strip():
+        where.append("(b.title ILIKE %(q)s OR b.author ILIKE %(q)s OR CAST(b.id AS TEXT) = %(exact)s)")
+        params["q"] = f"%{search.strip()}%"
+        params["exact"] = search.strip()
+    where_sql = " AND ".join(where)
+    conn = psycopg2.connect(get_db_url())
+    try:
+        with conn.cursor() as cur:
+            cur.execute(f"SELECT COUNT(*) FROM books b WHERE {where_sql}", params)
+            total = cur.fetchone()[0]
+            cur.execute(
+                f"SELECT b.id, b.title, b.author, b.front_checked_at IS NOT NULL, {on_bol} FROM books b WHERE {where_sql} "
+                "ORDER BY b.listing_date DESC NULLS LAST, b.id DESC LIMIT %(limit)s OFFSET %(offset)s", params)
+            books = [{"id": r[0], "title": r[1], "author": r[2], "checked": r[3], "on_bol": r[4], "images": []} for r in cur.fetchall()]
+            if books:
+                by_id = {b["id"]: b for b in books}
+                cur.execute(
+                    """
+                    SELECT book_id, image_id, url_medium, url_small, url_large, is_front,
+                           CASE WHEN url_medium IS NULL AND url_small IS NULL AND url_large IS NULL
+                                THEN COALESCE(image_medium_data, image_large_data) END
+                    FROM book_images WHERE book_id = ANY(%(ids)s) AND image_id <> -1 ORDER BY book_id, position, image_id
+                    """, {"ids": list(by_id)})
+                for book_id, image_id, url_medium, url_small, url_large, is_front, data in cur.fetchall():
+                    src = url_medium or url_small or url_large
+                    if not src and data:
+                        src = f"data:image/jpeg;base64,{base64.b64encode(bytes(data)).decode('ascii')}"
+                    by_id[book_id]["images"].append({"image_id": image_id, "src": src, "is_front": bool(is_front)})
+    finally:
+        conn.close()
+    return books, total
+
+
 @st.cache_data(ttl=300)
 def get_all_images(book_id):
     """
@@ -1313,6 +1414,7 @@ def get_all_images(book_id):
     has_extra = _has_web_extra_column()
     extra_up = "web_extra" if has_extra else "FALSE"
     extra_bi = "web_extra" if has_extra else "FALSE"
+    front_bi = "is_front" if _has_front_column() else "FALSE"
     conn = psycopg2.connect(get_db_url())
     try:
         with conn.cursor() as cur:
@@ -1346,14 +1448,14 @@ def get_all_images(book_id):
             # of anders de URL van Boekwinkeltjes zelf (bestaande boeken)
             cur.execute(
                 """
-                SELECT image_id, url_large, url_medium, url_small, image_large_data, image_medium_data, """ + extra_bi + """
+                SELECT image_id, url_large, url_medium, url_small, image_large_data, image_medium_data, """ + extra_bi + """, """ + front_bi + """
                 FROM book_images
                 WHERE book_id = %(book_id)s AND image_id != -1
                 ORDER BY position ASC
                 """,
                 {"book_id": book_id},
             )
-            for image_id, url_large, url_medium, url_small, large_data, medium_data, bi_extra in cur.fetchall():
+            for image_id, url_large, url_medium, url_small, large_data, medium_data, bi_extra, bi_front in cur.fetchall():
                 real_urls = [u for u in (url_large, url_medium, url_small) if u]
                 if large_data or medium_data:
                     large_src = (
@@ -1375,6 +1477,7 @@ def get_all_images(book_id):
                             "source": "confirmed",
                             "ref_id": image_id,
                             "web_extra": bool(bi_extra),
+                            "is_front": bool(bi_front),
                         }
                     )
                 else:
@@ -1387,6 +1490,7 @@ def get_all_images(book_id):
                             "source": "confirmed",
                             "ref_id": image_id,
                             "web_extra": bool(bi_extra),
+                            "is_front": bool(bi_front),
                         }
                     )
     finally:
