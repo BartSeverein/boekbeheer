@@ -21,7 +21,7 @@ function search_books($db, $tokens, $q, $per, $page) {
     $total = (int)$st->fetch()['n'];
     if ($total === 0) { return [0, []]; }
     // Titel die met de zoekterm begint of hem helemaal bevat gaat voor; daarna nieuwste eerst.
-    $st = $db->prepare("SELECT title, author, price_cents, path, img, iw, ih FROM books WHERE $cond
+    $st = $db->prepare("SELECT id, title, author, price_cents, ship_cents, big, amount, path, img, iw, ih FROM books WHERE $cond
         ORDER BY CASE WHEN instr(tnorm, ?) = 1 THEN 0 WHEN instr(tnorm, ?) > 0 THEN 1 ELSE 2 END, seq LIMIT $per OFFSET " . (($page - 1) * $per));
     $st->execute(array_merge($args, [$q, $q]));
     return [$total, $st->fetchAll()];
@@ -72,16 +72,20 @@ function fuzzy_tokens($db, $tokens, $table = 'books', $col = 'hay') {
 }
 
 // Niets gevonden: hoort de zoekterm bij een categorie? De termen komen uit Categoriebeheer (plus de categorienamen zelf).
-// Alle woorden moeten in één term voorkomen; een term die precies de zoekterm is gaat voor, daarna de categorie met de
+// Alle woorden moeten in één term voorkomen en samen het grootste deel van die term zijn; een term die precies de zoekterm is gaat voor, daarna de categorie met de
 // meeste passende termen. Lukt dat niet, dan nog een poging met verbeterde spelling. Geeft het categoriepad terug of null.
 function find_category($db, $tokens, $q) {
     foreach ($tokens as $t) { if (strlen($t) < 3) { return null; } }
     $pick = function ($tokens, $q) use ($db) {
-        $where = []; $args = [$q];
-        foreach ($tokens as $t) { $where[] = 'instr(term, ?) > 0'; $args[] = $t; }
+        $where = []; $args = []; $len = 0;
+        foreach ($tokens as $t) { $where[] = 'instr(term, ?) > 0'; $args[] = $t; $len += strlen($t); }
+        // De zoekterm moet het grootste deel van de term zijn (minstens 60% van de letters). Zo past 'detective' bij
+        // 'detectives', maar 'japan' niet bij 'detectives japan': zulke bijzaken in lange termen tellen niet mee.
+        $where[] = "? * 10 >= length(replace(term, ' ', '')) * 6";
+        $args[] = $len;
         $st = $db->prepare('SELECT cat FROM cat_terms WHERE ' . implode(' AND ', $where) .
             ' GROUP BY cat ORDER BY MAX(term = ?) DESC, COUNT(*) DESC, length(cat) DESC LIMIT 1');
-        $st->execute(array_merge(array_slice($args, 1), [$q]));
+        $st->execute(array_merge($args, [$q]));
         $r = $st->fetch();
         return $r ? $r['cat'] : null;
     };
@@ -136,7 +140,7 @@ try {
                 $st->execute([$cat, $cat]);
                 $n = (int)$st->fetch()['n'];
                 if ($n > 0) {
-                    $st = $db->prepare("SELECT title, author, price_cents, path, img, iw, ih FROM books WHERE cat = ? OR cat LIKE ? || '%'
+                    $st = $db->prepare("SELECT id, title, author, price_cents, ship_cents, big, amount, path, img, iw, ih FROM books WHERE cat = ? OR cat LIKE ? || '%'
                         ORDER BY seq LIMIT $per OFFSET " . (($page - 1) * $per));
                     $st->execute([$cat, $cat]);
                     $rows = $st->fetchAll();
@@ -151,8 +155,10 @@ try {
         // In de catalogus staat het Nederlandse pad (/boek/...); de link gaat naar de pagina in de taal van de bezoeker.
         $url = $r['path'];
         if (strpos($url, '/boek/') === 0) { $url = (i18n()['paths']['book'][$lang] ?? '/boek/') . substr($url, 6); }
+        // id, ship, big, max en path (het Nederlandse pad) zijn voor de knop 'in winkelwagen' op het kaartje.
         $items[] = ['title' => $r['title'], 'author' => $r['author'], 'price' => (int)$r['price_cents'], 'url' => $url,
-                    'img' => $r['img'], 'w' => (int)$r['iw'], 'h' => (int)$r['ih']];
+                    'img' => $r['img'], 'w' => (int)$r['iw'], 'h' => (int)$r['ih'], 'id' => (int)$r['id'],
+                    'ship' => (int)$r['ship_cents'], 'big' => (int)$r['big'], 'max' => (int)$r['amount'], 'path' => $r['path']];
     }
     $out = ['ok' => true, 'items' => $items, 'total' => $total, 'per_page' => $per];
     if ($meant !== null) { $out['meant'] = $meant; }
