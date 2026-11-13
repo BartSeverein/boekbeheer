@@ -228,7 +228,14 @@
       fetch('/search.php?q=' + encodeURIComponent(q) + '&page=' + page + '&lang=' + encodeURIComponent(LANG)).then(function (r) { return r.json(); }).then(function (r) {
         if (!r.ok) { info.textContent = r.error || T.s_fail; return; }
         r.items.forEach(function (b) { res.appendChild(card(b)); });
-        info.textContent = r.total ? r.total + ' ' + (r.total === 1 ? T.s_one : T.s_many) : T.s_none;
+        if (r.cat) {   // niets gevonden, maar de zoekterm hoort bij een categorie: die tonen we eronder
+          info.textContent = T.s_trycat + ' ';
+          info.appendChild(h('a', { href: r.cat.url, text: '\u201c' + r.cat.label + '\u201d' }));
+          info.appendChild(document.createTextNode('.'));
+          more.hidden = page * r.per_page >= r.total;
+          return;
+        }
+        info.textContent = (r.meant ? T.s_meant + ' \u201c' + r.meant + '\u201d: ' : '') + (r.total ? r.total + ' ' + (r.total === 1 ? T.s_one : T.s_many) : T.s_none);
         more.hidden = page * r.per_page >= r.total;
       }).catch(function () { info.textContent = T.s_fail; });
     };
