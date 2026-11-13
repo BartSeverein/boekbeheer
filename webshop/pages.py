@@ -181,8 +181,15 @@ class Site:
             load = 'fetchpriority="high" decoding="async"' if eager else 'loading="lazy" decoding="async"'
             img = f'<img src="{p}" width="{w}" height="{h}" alt="" {load}>'
         author = f"<p>{esc(b['author'])}</p>" if b.get("author") else ""
+        # Naast de prijs: knop om het boek direct in de winkelwagen te leggen (buiten de link, want een knop mag niet in een link).
+        th = b.get("thumb")
+        thumb_attr = f' data-img="{esc(th[0])}" data-ir="{th[1] / th[2]:.3f}"' if th and th[2] else ""
+        add_label = esc(self.t("p_add"))
+        quick = (f'<button type="button" class="qa" data-id="{b["id"]}" data-title="{esc(b["title"])}" data-price="{b["price_cents"]}" '
+                 f'data-ship="{b["ship_cents"]}" data-big="{b["big"]}" data-max="{b["amount"]}" data-url="{b["path"]}"{thumb_attr} '
+                 f'title="{add_label}" aria-label="{add_label}">{icon("cart_arrow_down")}</button>')
         return (f'<li class="card"><a href="{self.L(b["path"])}"><div class="ph">{img}</div><h3>{esc(b["title"])}</h3>'
-                f'{author}<p class="pr">{self.eur(b["price_cents"])}</p></a></li>')
+                f'{author}</a><p class="pr">{self.eur(b["price_cents"])} {quick}</p></li>')
 
     def grid(self, books, nolazy=False):
         return '<ul class="grid">' + "".join(self.card(b, eager=(i < 4 and not nolazy)) for i, b in enumerate(books)) + "</ul>"
