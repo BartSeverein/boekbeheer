@@ -389,7 +389,7 @@ class Site:
             f'{esc(self.t("p_ship_line" if len(cfg["countries"]) > 1 else "p_ship_line_one", ship=ship))}</span></p>'
             f'{free_line}'
             f'<p class="buyrow"><button type="button" class="add" data-id="{b["id"]}" data-title="{esc(b["title"])}" data-price="{b["price_cents"]}" '
-            f'data-ship="{b["ship_cents"]}" data-big="{b["big"]}" data-max="{b["amount"]}" data-url="{path}"{thumb_attr}>{icon("cart_plus")}<span>{esc(self.t("p_add"))}</span></button>{keur_i}</p>'
+            f'data-ship="{b["ship_cents"]}" data-big="{b["big"]}" data-max="{b["amount"]}" data-url="{path}"{thumb_attr}>{icon("cart_arrow_down")}<span>{esc(self.t("p_add"))}</span></button>{keur_i}</p>'
             f'<p id="added" hidden><a href="{self.L("/winkelwagen/")}" class="il">{icon("cart")}{esc(self.t("p_view_cart"))}</a></p>'
         )
         cat_href, cat_name = (self.L(category_chain[-1][1]), category_chain[-1][0]) if category_chain else (self.L("/"), cfg["name"])
