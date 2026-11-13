@@ -415,7 +415,7 @@ else:
                 st.markdown(f"**Offer-ID Bol:** {_extra['offer_id'] or '–'}")
                 st.markdown(f"**Conditie op Bol:** {_extra['condition'] or '–'}")
                 _listed = pd.to_datetime(b.get("listing_date"), errors="coerce")
-                st.markdown(f"**In verkoop sinds:** {_listed.strftime('%d-%m-%Y') if pd.notna(_listed) else '–'}")
+                st.markdown(f"**Toegevoegd op:** {_listed.strftime('%d-%m-%Y') if pd.notna(_listed) else '–'}")
                 _sales = _extra["sales"]
                 if _sales:
                     _parts = " / ".join(
