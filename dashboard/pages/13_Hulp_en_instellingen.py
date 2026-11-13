@@ -76,6 +76,9 @@ st.markdown(
     "**Support:** Bart, 06-20539792 of [klik hier voor Whatsapp](https://wa.me/0031620539792)"
 )
 
+st.divider()
+st.markdown("Het Boekbeheersysteem is © 2026, Severein Services")
+
 # ---------- Druppelsysteem Boekwinkeltjes ----------
 
 st.divider()
