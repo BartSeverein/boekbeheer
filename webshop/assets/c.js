@@ -75,6 +75,25 @@
     });
   }
 
+  // --- Snel in de winkelwagen vanuit een overzicht (knop naast de prijs op elk kaartje) ---
+  var ICON_QA = '<svg class="i" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false"><path d="M10 0v4H8l4 4l4-4h-2V0M1 2v2h2l3.6 7.6L5.2 14c-.1.3-.2.6-.2 1c0 1.1.9 2 2 2h12v-2H7.4c-.1 0-.2-.1-.2-.2v-.1l.9-1.7h7.4c.7 0 1.4-.4 1.7-1l3.9-7l-1.7-1l-3.9 7h-7L4.3 2M7 18c-1.1 0-2 .9-2 2s.9 2 2 2s2-.9 2-2s-.9-2-2-2m10 0c-1.1 0-2 .9-2 2s.9 2 2 2s2-.9 2-2s-.9-2-2-2"/></svg>';
+  var qaMark = function (b) {   // groen als het boek al in de winkelwagen ligt; uit als het maximum is bereikt
+    var it = load().filter(function (x) { return x.id === +b.dataset.id; })[0];
+    b.classList.toggle('in', !!it);
+    b.disabled = !!(it && it.q >= +b.dataset.max);
+    var lab = it ? T.in_cart : T.add; b.title = lab; b.setAttribute('aria-label', lab);
+  };
+  var qaAll = function () { var bs = document.querySelectorAll('button.qa'); for (var bi = 0; bi < bs.length; bi++) qaMark(bs[bi]); };
+  document.addEventListener('click', function (e) {
+    var b = e.target && e.target.closest ? e.target.closest('button.qa') : null;
+    if (!b) return;
+    var d = b.dataset, c = load(), it = c.filter(function (x) { return x.id === +d.id; })[0];
+    if (it) { if (it.q < +d.max) it.q++; }
+    else c.push({ id: +d.id, t: d.title, p: +d.price, s: +d.ship, g: +d.big || 0, u: d.url, m: +d.max, q: 1, i: d.img || '', r: +d.ir || 0 });
+    save(c); qaMark(b);
+  });
+  qaAll();
+
   // --- Toevoegen aan winkelwagen (boekpagina's) ---
   var add = document.querySelector('button.add');
   if (add) {
@@ -221,8 +240,15 @@
     var more = $('more'), info = $('info');
     var card = function (b) {
       var img = b.img ? h('img', { src: b.img, width: b.w, height: b.h, alt: '', loading: 'lazy' }) : null;
+      var pr = h('p', { class: 'pr', text: eur(b.price) + ' ' });
+      if (b.id && b.max > 0) {
+        var qa = h('button', { type: 'button', class: 'qa', 'data-id': b.id, 'data-title': b.title, 'data-price': b.price, 'data-ship': b.ship,
+          'data-big': b.big, 'data-max': b.max, 'data-url': b.path, 'data-img': b.img || '', 'data-ir': b.w && b.h ? (b.w / b.h).toFixed(3) : 0 });
+        qa.innerHTML = ICON_QA;  // vaste, eigen SVG (mdi cart-arrow-down); geen gegevens van buiten
+        qaMark(qa); pr.appendChild(qa);
+      }
       return h('li', { class: 'card' }, h('a', { href: b.url }, h('div', { class: 'ph' }, img),
-        h('h3', { text: b.title }), h('p', { text: b.author || '' }), h('p', { class: 'pr', text: eur(b.price) })));
+        h('h3', { text: b.title }), h('p', { text: b.author || '' })), pr);
     };
     var run = function () {
       fetch('/search.php?q=' + encodeURIComponent(q) + '&page=' + page + '&lang=' + encodeURIComponent(LANG)).then(function (r) { return r.json(); }).then(function (r) {
