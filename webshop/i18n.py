@@ -257,6 +257,10 @@ T = {
     "js_s_wait": ("Zoeken...", "Searching...", "Suche läuft...", "Recherche..."),
     "js_s_one": ("boek gevonden", "book found", "Buch gefunden", "livre trouvé"),
     "js_s_many": ("boeken gevonden", "books found", "Bücher gefunden", "livres trouvés"),
+    "js_s_meant": ("Niets gevonden met die spelling. Resultaten voor", "Nothing found with that spelling. Results for",
+                   "Mit dieser Schreibweise nichts gefunden. Ergebnisse für", "Aucun résultat avec cette orthographe. Résultats pour"),
+    "js_s_trycat": ("Geen boeken gevonden, probeer het eens in de categorie", "No books found, try the category",
+                    "Keine Bücher gefunden, versuchen Sie es in der Kategorie", "Aucun livre trouvé, essayez la catégorie"),
     "js_s_none": ("Geen boeken gevonden.", "No books found.", "Keine Bücher gefunden.", "Aucun livre trouvé."),
     "js_s_min": ("Vul minstens twee tekens in.", "Enter at least two characters.",
                  "Geben Sie mindestens zwei Zeichen ein.", "Saisissez au moins deux caractères."),
@@ -559,5 +563,6 @@ def php_data(langs, cfg):
     paths = {
         "book": {l: localize("/boek/", l) for l in langs},
         "thanks": {l: localize("/bedankt/", l) for l in langs},
+        "category": {l: localize("/categorie/", l) for l in langs},
     }
     return {"langs": list(langs), "msgs": msgs, "paths": paths, "locale": {l: LOCALE[l] for l in langs}}

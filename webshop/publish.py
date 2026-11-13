@@ -12,7 +12,7 @@ import time
 from pathlib import Path
 from pathlib import Path
 
-from .build import build_site, load_author_texts, load_from_postgres
+from .build import build_site, load_author_texts, load_category_terms, load_from_postgres
 from .common import shop_config
 from .deploy import (DeployError, connect_from_env, deploy, manifest_views, read_manifest)
 from .orders import import_shop_orders, sync_intime_status
@@ -101,6 +101,7 @@ def publish(mode="full", execute=False, max_minutes=120, allow_overwrite=False, 
         # 2. bouwen
         books, imported, fetch_image = load_from_postgres(conn)
         author_texts = load_author_texts(conn)
+        category_terms = load_category_terms(conn)
         try:   # kortingscodes uit de dashboard-instellingen mee de catalogus in
             import sync
             from .common import DISCOUNT_SETTING, parse_discount_codes
@@ -123,7 +124,8 @@ def publish(mode="full", execute=False, max_minutes=120, allow_overwrite=False, 
                 log("Geen WEBSHOP_DEEPL_KEY: beschrijvingen blijven Nederlands op de andere talen.")
         stats = build_site(books, out_dir, cfg, mode=mode, imported_order_ids=imported, known_images=images,
                            known_pages=pages, fetch_image=fetch_image, process_images=execute,
-                           image_deadline=image_deadline, translator=translator, author_texts=author_texts, log=log)
+                           image_deadline=image_deadline, translator=translator, author_texts=author_texts,
+                           category_terms=category_terms, log=log)
         log(f"Gebouwd: {stats.get('books')} boeken, {stats.get('pages', 0)} pagina's in {stats.get('seconds')} s.")
         if stats.get("author_pages") is not None:
             log(f"Auteurspagina's: {stats['author_pages']} per taal (auteurs met 3 of meer boeken).")

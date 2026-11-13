@@ -90,6 +90,20 @@ def load_author_texts(conn):
         return {}
 
 
+def load_category_terms(conn):
+    """
+    {(categorie1, categorie2 of ''): [term, ...]} uit de tabel category_subject_mapping (dashboard, pagina Categoriebeheer).
+    De zoekfunctie gebruikt ze om bij 'niets gevonden' een categorie voor te stellen. Zonder tabel of bij een fout: leeg.
+    """
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT boekwinkeltjes_category1 AS c1, boekwinkeltjes_category2 AS c2, subjects FROM category_subject_mapping")
+            return {(r["c1"], r["c2"] or ""): [t.strip() for t in (r["subjects"] or "").split("|") if t.strip()] for r in cur.fetchall()}
+    except Exception:
+        conn.rollback()
+        return {}
+
+
 def load_from_postgres(conn):
     """
     Leest alle boeken die te koop zijn plus hun afbeeldingen (zonder de bytes) en de al verwerkte webshop-orders.
@@ -531,7 +545,7 @@ Require all denied
 """
 
 
-def write_catalog(path, books, imported_ids, cfg, built_at):
+def write_catalog(path, books, imported_ids, cfg, built_at, category_terms=None):
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists():
         path.unlink()
@@ -540,8 +554,10 @@ def write_catalog(path, books, imported_ids, cfg, built_at):
         con.executescript(
             """
             CREATE TABLE books (id INTEGER PRIMARY KEY, title TEXT, author TEXT, isbn TEXT, price_cents INTEGER,
-                ship_cents INTEGER, big INTEGER, amount INTEGER, path TEXT, img TEXT, iw INTEGER, ih INTEGER, hay TEXT, tnorm TEXT, seq INTEGER, location TEXT);
+                ship_cents INTEGER, big INTEGER, amount INTEGER, path TEXT, img TEXT, iw INTEGER, ih INTEGER, hay TEXT, tnorm TEXT, seq INTEGER, location TEXT, cat TEXT);
             CREATE INDEX books_seq ON books(seq);
+            CREATE TABLE cats (cat TEXT PRIMARY KEY, label TEXT);
+            CREATE TABLE cat_terms (term TEXT, cat TEXT);
             CREATE TABLE imported_orders (id INTEGER PRIMARY KEY);
             CREATE TABLE meta (k TEXT PRIMARY KEY, v TEXT);
             CREATE TABLE discount_codes (code TEXT PRIMARY KEY, kind TEXT NOT NULL, pct INTEGER NOT NULL DEFAULT 0, until TEXT NOT NULL DEFAULT '');
@@ -556,9 +572,27 @@ def write_catalog(path, books, imported_ids, cfg, built_at):
         for b in books:
             th = b.get("thumb")
             hay = " " + norm(" ".join(filter(None, [b["title"], b["author"], b.get("publisher"), b.get("c1_label"), b.get("c2_label")]))) + " " + (b["isbn"] or "").lower() + " "
+            # cat: het (Nederlandse) pad van de meest specifieke categorie van het boek; search.php toont daarmee een categorie.
+            cat = f"/categorie/{b['c1_slug']}/" + (f"{b['c2_slug']}/" if b.get("c2_slug") else "")
             rows.append((b["id"], b["title"], b["author"], b["isbn"], b["price_cents"], b["ship_cents"], b["big"], b["amount"], b["path"],
-                         th[0] if th else None, th[1] if th else None, th[2] if th else None, hay, norm(b["title"]), b["seq"], b.get("location")))
-        con.executemany("INSERT INTO books VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
+                         th[0] if th else None, th[1] if th else None, th[2] if th else None, hay, norm(b["title"]), b["seq"], b.get("location"), cat))
+        con.executemany("INSERT INTO books VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
+        # Termen per categorie (Categoriebeheer), alleen voor categorieën waar nu boeken in staan: 'niets gevonden' op de
+        # zoekpagina stelt daarmee een categorie voor. De naam van de categorie zelf telt ook als term.
+        cats, by_key = {}, {}
+        for b in books:
+            main = f"/categorie/{b['c1_slug']}/"
+            cats[main] = b["c1_label"]
+            by_key[(b["c1"], "")] = main
+            if b.get("c2_slug"):
+                cats[main + f"{b['c2_slug']}/"] = b["c2_label"]
+                by_key[(b["c1"], b["c2"])] = main + f"{b['c2_slug']}/"
+        con.executemany("INSERT INTO cats VALUES (?,?)", sorted((c, (l or "").strip()[:1].upper() + (l or "").strip()[1:]) for c, l in cats.items()))
+        terms = {(norm(label), cat) for cat, label in cats.items()}
+        for key, words in (category_terms or {}).items():
+            if key in by_key:
+                terms.update((norm(w), by_key[key]) for w in words)
+        con.executemany("INSERT INTO cat_terms VALUES (?,?)", sorted(t for t in terms if len(t[0]) >= 3))
         con.executemany("INSERT INTO imported_orders VALUES (?)", [(int(i),) for i in sorted(imported_ids)])
         con.executemany("INSERT INTO meta VALUES (?,?)", [("built_at", built_at), ("count", str(len(rows)))])
         con.commit()
@@ -595,7 +629,7 @@ def _write_server_files(out_dir, cfg, data_dir):
 
 
 def build_site(raw_books, out_dir, cfg=None, *, mode="full", imported_order_ids=(), known_images=(), known_pages=None,
-               fetch_image=None, process_images=True, image_deadline=None, translator=None, author_texts=None, log=print):
+               fetch_image=None, process_images=True, image_deadline=None, translator=None, author_texts=None, category_terms=None, log=print):
     cfg = cfg or shop_config()
     if not cfg["data_key"] or len(cfg["data_key"]) < 12 or not all(c.isalnum() for c in cfg["data_key"]):
         raise RuntimeError("WEBSHOP_DATA_KEY ontbreekt of is te kort (minimaal 12 letters/cijfers, geen andere tekens).")
@@ -626,7 +660,7 @@ def build_site(raw_books, out_dir, cfg=None, *, mode="full", imported_order_ids=
             for n, img in enumerate(b["images"][:1]):
                 have = index.get((b["id"], n, _hash8(b["id"], img)), {})
                 b["thumb"] = have.get("t")
-        write_catalog(out_dir / data_dir / "catalog.sqlite", books, imported_order_ids, cfg, built_at)
+        write_catalog(out_dir / data_dir / "catalog.sqlite", books, imported_order_ids, cfg, built_at, category_terms)
         _write_assets(out_dir, cfg)   # ook het script, de stijl en de PHP-bestanden: die wijzigen vaak en zijn klein (alleen gewijzigde gaan mee)
         _write_server_files(out_dir, cfg, data_dir)
         stats.update(books=len(books), keep=[], seconds=round(time.time() - t0, 1))
@@ -933,7 +967,7 @@ def build_site(raw_books, out_dir, cfg=None, *, mode="full", imported_order_ids=
 
     # ---- PHP en data
     _write_server_files(out_dir, cfg, data_dir)
-    write_catalog(out_dir / data_dir / "catalog.sqlite", books, imported_order_ids, cfg, built_at)
+    write_catalog(out_dir / data_dir / "catalog.sqlite", books, imported_order_ids, cfg, built_at, category_terms)
 
     stats.update(author_pages=len(author_pages), pages=count_pages, new_images=new_imgs, failed_images=failed_imgs, keep=sorted(used_images),
                  seconds=round(time.time() - t0, 1))
@@ -947,7 +981,8 @@ def main_build(out_dir="webshop_dist", mode="full", known_images=(), known_pages
     try:
         books, imported, fetch_image = load_from_postgres(conn)
         stats = build_site(books, out_dir, mode=mode, imported_order_ids=imported, known_images=known_images,
-                           known_pages=known_pages, fetch_image=fetch_image, process_images=process_images)
+                           known_pages=known_pages, fetch_image=fetch_image, process_images=process_images,
+                           category_terms=load_category_terms(conn))
     finally:
         conn.close()
     return stats
