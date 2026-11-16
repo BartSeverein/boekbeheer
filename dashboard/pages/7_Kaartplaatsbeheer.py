@@ -18,7 +18,7 @@ require_login()
 st.title("🗺️ Kaartplaatsbeheer")
 K.toon_tabellen_melding()
 st.caption(
-    "De plaatsen waaruit je bij een kaart kiest, per provincie. Voeg een plaats toe, pas een schrijfwijze aan of voeg twee spellingen "
+    "De plaatsen waaruit je bij een ansichtkaart kiest, per provincie. Voeg een plaats toe, pas een schrijfwijze aan of voeg twee spellingen "
     "van dezelfde plaats samen. Bij het samenvoegen gaan alle kaarten mee en wordt de oude naam een afwijkende schrijfwijze."
 )
 
