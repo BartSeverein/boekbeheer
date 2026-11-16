@@ -591,16 +591,16 @@ def render_logo(path):
             opacity: 0; pointer-events: none; white-space: nowrap;
             animation: bezig-in 0.2s ease-out 0.8s forwards, bezig-puls 1.4s ease-in-out 1s infinite;
         }
-        /* Kort menu: zolang het menu is ingeklapt (Streamlit toont dan tien regels en 'View more'), alleen de eerste vijf
+        /* Kort menu: zolang het menu is ingeklapt (Streamlit toont dan tien regels en 'View more'), alleen de eerste zeven
            pagina's tonen; de rest komt tevoorschijn met 'View more'. Ingeklapt = er is een 'View more'-knop en geen elfde regel.
            Geen officiële instelling: herkent Streamlit deze namen na een update niet meer, dan is het menu weer als vanouds. */
         [data-testid="stSidebarNav"]:has([data-testid="stSidebarNavViewButton"])
-            [data-testid="stSidebarNavItems"]:not(:has(li:nth-of-type(11))) li:nth-of-type(n+6) { display: none !important; }
+            [data-testid="stSidebarNavItems"]:not(:has(li:nth-of-type(11))) li:nth-of-type(n+8) { display: none !important; }
         /* Bij het wisselen van pagina tekent Streamlit het menu heel even voluit, nog zonder de knop, en klapt het dan in.
            Dat flitsen voorkomen: staat het hele menu er (dertien regels of meer) maar is er nog geen knop, dan ook alleen de
-           eerste vijf tonen. Met dertien of meer pagina's komt die knop er altijd, dus er raakt niets onbereikbaar. */
+           eerste zeven tonen. Met dertien of meer pagina's komt die knop er altijd, dus er raakt niets onbereikbaar. */
         [data-testid="stSidebarNav"]:not(:has([data-testid="stSidebarNavViewButton"]))
-            [data-testid="stSidebarNavItems"]:has(li:nth-of-type(13)) li:nth-of-type(n+6) { display: none !important; }
+            [data-testid="stSidebarNavItems"]:has(li:nth-of-type(13)) li:nth-of-type(n+8) { display: none !important; }
         /* De knop eronder: 'View 3 more' klopt niet meer met het korte menu, dus een eigen tekst (zonder getal). */
         [data-testid="stSidebarNavViewButton"], [data-testid="stSidebarNavViewButton"] * { font-size: 0 !important; }
         [data-testid="stSidebarNavViewButton"]::after { content: "Meer menu"; font-size: 0.875rem !important; }
