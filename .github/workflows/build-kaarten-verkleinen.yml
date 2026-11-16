@@ -1,0 +1,24 @@
+name: Kaarten verkleinen - Windows-programma bouwen
+
+# Maakt van kaarten_verkleinen.py een Windows-programma (kaarten_verkleinen.exe) met een venster om mappen te kiezen.
+# Starten: tabblad Actions > deze workflow > Run workflow. Na ongeveer twee minuten staat het programma onderaan de run
+# bij 'Artifacts' (kaarten_verkleinen). Download het zipbestand, pak het uit en dubbelklik op kaarten_verkleinen.exe.
+on:
+  workflow_dispatch:
+
+jobs:
+  bouwen:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pillow pyinstaller
+      - run: pyinstaller --onefile --windowed --name kaarten_verkleinen kaarten_verkleinen.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kaarten_verkleinen
+          path: dist/kaarten_verkleinen.exe
+          retention-days: 30
