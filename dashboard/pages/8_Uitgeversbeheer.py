@@ -26,6 +26,8 @@ st.caption(
 
 st.markdown("")
 
+st.header("📚 Uitgevers van boeken")
+
 st.caption(
     "Gebruik voor boeken met een ISBN altijd dit formaat: uitgeversnaam ; adres huisnummer - postcode - plaats - NL ; contactadres  \n"
     "De puntkomma's zijn cruciaal voor de juiste werking en uitgevers die het niet hebben worden in de vroege ochtend automatisch verwijderd uit de keuzelijst. In de boekdetails blijven ze natuurlijk wel."
@@ -58,7 +60,7 @@ with col2:
 
 st.divider()
 
-st.subheader("Automatisch herkennen van uitgevers")
+st.subheader("Automatisch herkennen van uitgevers van boeken")
 st.caption(
     "Als bij het invoeren van een nieuw boek via ISBN een uitgeversnaam wordt gevonden "
     "(bij Boekwinkeltjes of ISBNdb), vergelijkt de app die met de naam vóór de eerste "
