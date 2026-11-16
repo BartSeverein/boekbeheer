@@ -616,22 +616,21 @@ def collect_images():
 @st.fragment
 def image_section():
     front_file = st.file_uploader(
-        "Voorkant",
+        "Voorkant (1 afbeelding, voor alle platformen)",
         type=["jpg", "jpeg", "png"],
         accept_multiple_files=False,
         key=k("front_upload"),
     )
     st.file_uploader(
-        "Extra foto's voor de webshop (hoogstens 2, naast de voorkant)",
+        "Extra foto's (maximaal 2, de beste, voor alle platformen)",
         type=["jpg", "jpeg", "png"],
         accept_multiple_files=True,
         key=k("web_upload"),
-        help="Bijvoorbeeld de achterkant. Deze foto's staan ook op de webshop; de overige foto's alleen bij Boekwinkeltjes en Bol.",
     )
     if len(st.session_state.get(k("web_upload")) or []) > 2:
         st.caption("Alleen de eerste twee gaan naar de webshop; de rest wordt een gewone foto.")
     st.file_uploader(
-        "Overige foto's (alleen Boekwinkeltjes en Bol)",
+        "Overige foto's (onbeperkt aantal, de rest, niet voor webshop)",
         type=["jpg", "jpeg", "png"],
         accept_multiple_files=True,
         key=k("images_upload"),
