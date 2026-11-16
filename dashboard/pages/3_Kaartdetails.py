@@ -33,7 +33,7 @@ if not rijen:
     st.stop()
 
 tabel = [{"Kaartnummer": r["kaartnummer"], "Titel": r["titel"], "Provincie": r["provincie"], "Plaats": r["plaats"],
-          "Prijs": float(r["prijs"]) if r["prijs"] is not None else None, "Voorraad": r["amount"], "Locatie": r["locatie"]}
+          "Prijs": float(r["prijs"]) if r["prijs"] is not None else None, "Voorraad": r["amount"]}
          for r in rijen]
 st.caption(f"{len(rijen)} kaarten getoond (de nieuwste eerst, hoogstens 200). Klik op een rij om de kaart te openen.")
 keuze = st.dataframe(tabel, width="stretch", hide_index=True, on_select="rerun", selection_mode="single-row", key="kd_tabel")
