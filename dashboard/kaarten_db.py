@@ -446,3 +446,43 @@ def verwijder_uitgever(uitgever_id):
         raise ValueError(f"Er hangen nog {gebruikt} kaarten aan deze uitgever.")
     _execute("DELETE FROM kaart_uitgevers WHERE id = %(i)s", {"i": uitgever_id})
     clear_lijsten()
+
+
+# ---------- Bulk: scans inlezen en daarna kaart voor kaart invullen ----------
+
+def bestaande_nummers(nummers):
+    """Welke van deze kaartnummers staan al in het systeem?"""
+    nummers = list(nummers)
+    if not nummers:
+        return set()
+    rows = _query("SELECT kaartnummer FROM kaarten WHERE kaartnummer = ANY(%(n)s)", {"n": nummers})
+    return {r["kaartnummer"] for r in rows}
+
+
+def maak_kaart_concept(kaartnummer, voorkant, achterkant, door):
+    """
+    Slaat een kaart op met alleen de twee scans; de rest (en vooral de prijs) komt later bij 'Invullen'.
+    Een kaart zonder prijs telt als 'nog in te vullen'. Zwart/wit, beschreven, gelopen en voorraad 1 zijn de standaard.
+    """
+    n = _execute(
+        """
+        INSERT INTO kaarten (kaartnummer, kleur, amount, voorkant, achterkant, created_by)
+        VALUES (%(n)s, 'Zwart/wit', 1, %(v)s, %(a)s, %(d)s)
+        ON CONFLICT (kaartnummer) DO NOTHING
+        """,
+        {"n": kaartnummer, "v": voorkant, "a": achterkant, "d": door},
+    )
+    return bool(n)
+
+
+def aantal_onvolledig():
+    return _query("SELECT count(*) AS n FROM kaarten WHERE prijs IS NULL")[0]["n"]
+
+
+def volgende_onvolledige(overslaan=()):
+    """Het eerstvolgende kaartnummer zonder prijs (op volgorde), behalve de kaarten die je net hebt overgeslagen."""
+    rows = _query(
+        "SELECT kaartnummer FROM kaarten WHERE prijs IS NULL AND NOT (kaartnummer = ANY(%(s)s)) ORDER BY kaartnummer LIMIT 1",
+        {"s": list(overslaan)},
+    )
+    return rows[0]["kaartnummer"] if rows else None
