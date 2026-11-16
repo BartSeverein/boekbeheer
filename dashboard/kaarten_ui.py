@@ -27,16 +27,18 @@ def velden_formulier(prefix, kaart=None):
     provincie = st.selectbox("Provincie", prov_opties, index=prov_opties.index(prov_start), key=key("provincie"),
                              format_func=lambda p: p or "(kies een provincie)")
 
-    plaats_id = None
+    plaats_naam = None
     if provincie:
         plaatsen = K.get_plaatsen(provincie)
-        ids = [None] + [i for i, _ in plaatsen]
-        namen = {i: n for i, n in plaatsen}
-        start = kaart.get("plaats_id") if kaart.get("plaats_id") in namen else None
+        namen = [n for _, n in plaatsen]
+        start_naam = next((n for i, n in plaatsen if i == kaart.get("plaats_id")), None)
+        opties = [""] + namen
         # Per provincie een eigen sleutel: wissel je van provincie, dan begint de plaatsenlijst weer leeg.
-        plaats_id = st.selectbox("Plaats", ids, index=ids.index(start), key=key(f"plaats_{provincie}"),
-                                 format_func=lambda i: namen.get(i, "(kies een plaats)"))
-        st.caption("Staat de plaats er niet bij? Voeg haar toe bij Kaartplaatsbeheer.")
+        plaats_naam = st.selectbox("Plaats", opties, index=opties.index(start_naam) if start_naam else 0,
+                                   key=key(f"plaats_{provincie}"), accept_new_options=True,
+                                   format_func=lambda n: n or "(kies of typ een plaats)")
+        if plaats_naam and plaats_naam.strip().lower() not in {n.lower() for n in namen}:
+            st.caption(f"'{plaats_naam.strip()}' is nieuw en wordt bij het opslaan toegevoegd aan {provincie} (tenzij het een bekende schrijfwijze is).")
     else:
         st.selectbox("Plaats", ["(eerst een provincie kiezen)"], disabled=True, key=key("plaats_leeg"))
 
@@ -65,29 +67,23 @@ def velden_formulier(prefix, kaart=None):
     gelopen = col2.checkbox("Gelopen", value=kaart.get("gelopen", True), key=key("gelopen"))
     stempel = col3.checkbox("Stempeldoordruk", value=kaart.get("stempeldoordruk", False), key=key("stempel"))
 
-    kleur_start = kaart.get("kleur") if kaart.get("kleur") in K.KLEUREN else None
-    kleur = st.radio("Kleur", K.KLEUREN, index=K.KLEUREN.index(kleur_start) if kleur_start else None,
-                     horizontal=True, key=key("kleur"))
+    kleur_start = kaart.get("kleur") if kaart.get("kleur") in K.KLEUREN else K.KLEUREN[0]   # zwart/wit is de standaard
+    kleur = st.radio("Kleur?", K.KLEUREN, index=K.KLEUREN.index(kleur_start), horizontal=True, key=key("kleur"))
 
-    col_pr, col_v, col_l = st.columns(3)
+    col_pr, col_v = st.columns(2)
     prijs = col_pr.number_input("Prijs (€)", min_value=0.0, step=0.25, format="%.2f",
                                 value=float(kaart["prijs"]) if kaart.get("prijs") is not None else 0.0, key=key("prijs"))
     amount = col_v.number_input("Voorraad", min_value=0, step=1, value=int(kaart.get("amount", 1)), key=key("amount"))
-    locatie = col_l.text_input("Locatie", value=kaart.get("locatie") or "", key=key("locatie"))
     opmerking = st.text_area("Opmerking", value=kaart.get("opmerking") or "", key=key("opmerking"), height=80)
 
     fout = None
-    if not provincie or not plaats_id:
-        fout = "Kies een provincie en een plaats."
-    elif not kleur:
-        fout = "Kies een kleur."
-    elif prijs <= 0:
+    if prijs <= 0:   # provincie en plaats zijn niet verplicht: een kaart (klederdracht bijvoorbeeld) hoeft niet plaatsgebonden te zijn
         fout = "Vul een prijs in."
 
     velden = {
-        "titel": titel.strip() or None, "provincie": provincie or None, "plaats_id": plaats_id, "uitgever_id": uitgever_id,
+        "titel": titel.strip() or None, "provincie": provincie or None, "plaats_id": None, "_plaats_naam": (plaats_naam or "").strip() or None, "uitgever_id": uitgever_id,
         "periode": periode or None, "jaar_uitgave": int(jaar) if jaar else None, "beschreven": beschreven, "gelopen": gelopen,
         "stempeldoordruk": stempel, "kleur": kleur, "prijs": prijs or None, "amount": int(amount),
-        "locatie": locatie.strip() or None, "opmerking": opmerking.strip() or None,
+        "locatie": None, "opmerking": opmerking.strip() or None,
     }
     return velden, themas, fout

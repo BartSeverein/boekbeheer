@@ -162,8 +162,43 @@ def _zet_themas(cur, kaartnummer, themas):
         )
 
 
+def plaats_id_voor(provincie, naam):
+    """
+    Het id van een plaats bij een provincie, op naam (hoofdletters maken niet uit; een bekende afwijkende schrijfwijze telt ook).
+    Bestaat de plaats nog niet, dan wordt ze hier aan die provincie toegevoegd. Geeft None bij een lege naam of provincie.
+    """
+    naam = re.sub(r"\s+", " ", (naam or "")).strip()
+    if not naam or not provincie:
+        return None
+    rows = _query("SELECT id FROM kaart_plaatsen WHERE provincie = %(p)s AND lower(naam) = lower(%(n)s)", {"p": provincie, "n": naam})
+    if not rows:
+        rows = _query(
+            """
+            SELECT p.id FROM kaart_plaats_alias a JOIN kaart_plaatsen p ON p.provincie = a.provincie AND p.naam = a.plaats
+            WHERE a.provincie = %(p)s AND lower(a.alias) = lower(%(n)s)
+            """,
+            {"p": provincie, "n": naam},
+        )
+    if rows:
+        return rows[0]["id"]
+    _execute("INSERT INTO kaart_plaatsen (provincie, naam) VALUES (%(p)s, %(n)s) ON CONFLICT (provincie, naam) DO NOTHING",
+             {"p": provincie, "n": naam})
+    clear_lijsten()
+    return _query("SELECT id FROM kaart_plaatsen WHERE provincie = %(p)s AND naam = %(n)s", {"p": provincie, "n": naam})[0]["id"]
+
+
+def _los_plaats_op(velden):
+    """Een getypte plaatsnaam ('_plaats_naam') wordt een plaats_id; een nieuwe plaats wordt daarbij toegevoegd."""
+    velden = dict(velden)
+    naam = velden.pop("_plaats_naam", None)
+    if naam:
+        velden["plaats_id"] = plaats_id_voor(velden.get("provincie"), naam)
+    return velden
+
+
 def maak_kaart(kaartnummer, velden, themas, voorkant, achterkant, door):
     """Slaat een nieuwe kaart op, met altijd twee scans. Gooit ValueError bij een fout die de gebruiker kan oplossen."""
+    velden = _los_plaats_op(velden)
     kaartnummer = (kaartnummer or "").strip()
     if not kaartnummer:
         raise ValueError("Vul een kaartnummer in.")
@@ -196,8 +231,10 @@ def maak_kaart(kaartnummer, velden, themas, voorkant, achterkant, door):
 
 def wijzig_kaart(kaartnummer, velden, themas, voorkant=None, achterkant=None):
     """Past een kaart aan. Een scan die None is blijft zoals hij was."""
-    sets = [f"{v} = %({v})s" for v in KAART_VELDEN]
-    params = {v: velden.get(v) for v in KAART_VELDEN}
+    velden = _los_plaats_op(velden)
+    bewerkbaar = [v for v in KAART_VELDEN if v != "locatie"]   # de locatie wordt niet meer gebruikt; een oude waarde blijft staan
+    sets = [f"{v} = %({v})s" for v in bewerkbaar]
+    params = {v: velden.get(v) for v in bewerkbaar}
     params["n"] = kaartnummer
     if voorkant:
         sets.append("voorkant = %(voorkant)s"); params["voorkant"] = voorkant
