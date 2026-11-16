@@ -69,6 +69,8 @@ def _s(value):
         pass
     return value
 
+MIN_PRIJS = 3.95   # lagere prijzen worden niet opgeslagen
+
 st.set_page_config(page_title="Boekdetails", page_icon="📖", layout="wide")
 render_logo(Path(__file__).parent.parent / "assets" / "logo_mail.png")
 current_user = require_login()
@@ -860,6 +862,17 @@ else:
 
             if submitted and int(edit_amount) > 0 and not (edit_category1 or "").strip():
                 st.error("Categorie 1 is verplicht voor een voorradig boek: zonder categorie is het boek in de webshop niet te vinden via de categorieën.")
+                submitted = False
+
+            if submitted and not (edit_price and float(edit_price) > 0):
+                st.error("De prijs moet groter zijn dan €0: Boekwinkeltjes weigert een boek zonder prijs. Er is niets opgeslagen.")
+                submitted = False
+
+            # Minimumprijs: een prijs onder €3,95 mag niet worden opgeslagen. Staat een bestaand boek al onder die prijs
+            # en blijft de prijs gelijk, dan kun je gewoon andere velden (zoals de locatie) blijven aanpassen.
+            _oude_prijs = float(b["price"]) if pd.notna(b["price"]) else None
+            if submitted and float(edit_price) < MIN_PRIJS and (_oude_prijs is None or round(float(edit_price), 2) != round(_oude_prijs, 2)):
+                st.error("De prijs is te laag: het minimum is €" + f"{MIN_PRIJS:.2f}".replace(".", ",") + ". Er is niets opgeslagen.")
                 submitted = False
 
             if submitted:

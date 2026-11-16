@@ -81,6 +81,9 @@ st.title("📑 Nieuw boek toevoegen")
 v = st.session_state.get("new_book_form_version", 0)
 
 
+MIN_PRIJS = 3.95   # lagere prijzen worden niet opgeslagen
+
+
 def k(name):
     """Bouwt een versie-afhankelijke widget-key, bijv. k('title') -> 'new_book_title_v3'."""
     return f"new_book_{name}_v{v}"
@@ -678,6 +681,8 @@ image_section()
 if st.button("Boek toevoegen", key="new_book_submit"):
     if not title or price <= 0:
         st.error("Titel en een prijs groter dan €0 zijn verplicht.")
+    elif price < MIN_PRIJS:
+        st.error("De prijs is te laag: het minimum is €" + f"{MIN_PRIJS:.2f}".replace(".", ",") + ". Er is niets opgeslagen.")
     elif st.session_state.get(k("category1"), "(leeg)") in ("(leeg)", ""):
         st.error("Categorie 1 is verplicht: zonder categorie is het boek in de webshop niet te vinden via de categorieën.")
     else:

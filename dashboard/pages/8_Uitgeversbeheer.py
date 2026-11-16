@@ -76,3 +76,64 @@ new_threshold = st.slider(
 if new_threshold != current_threshold:
     set_setting("publisher_match_threshold", new_threshold)
     st.success(f"Gevoeligheid ingesteld op {new_threshold}.")
+
+
+# ---------- Uitgevers van ansichtkaarten ----------
+
+import kaarten_db as K
+
+st.divider()
+st.header("📮 Uitgevers van ansichtkaarten")
+
+if not K.tabellen_aanwezig():
+    st.info("De tabellen voor de kaarten bestaan nog niet (kaarten_1_tabellen.sql en kaarten_3_uitgevers.sql in Supabase).")
+else:
+    st.caption(
+        f"De uitgevers die je bij een kaart kunt kiezen: {K.aantal_uitgevers()} stuks, in de vorm naam en vestigingsplaats. "
+        "Zoek eerst; je ziet hoogstens 200 uitgevers tegelijk. Pas een naam of plaats aan, voeg een regel toe met de '+', "
+        "of verwijder een regel (alleen mogelijk zolang er geen kaarten aan hangen). Klik daarna op 'Opslaan'."
+    )
+    melding = st.session_state.pop("ku_melding", None)
+    if melding:
+        st.success(melding)
+    zoek = st.text_input("Zoek een uitgever (naam of plaats)", key="ku_zoek")
+    rijen = K.zoek_uitgevers(zoek)
+    import pandas as pd
+    basis = pd.DataFrame([{"id": r["id"], "Naam": r["naam"], "Plaats": r["plaats"] or "", "Kaarten": r["kaarten"]} for r in rijen],
+                         columns=["id", "Naam", "Plaats", "Kaarten"])
+    bewerkt = st.data_editor(
+        basis, num_rows="dynamic", width="stretch", hide_index=True, key=f"ku_editor_{zoek}",
+        column_config={"id": None, "Naam": st.column_config.TextColumn("Naam", width="large"),
+                       "Plaats": st.column_config.TextColumn("Plaats", width="medium"),
+                       "Kaarten": st.column_config.NumberColumn("Kaarten", disabled=True)},
+    )
+    if st.button("Opslaan", key="ku_opslaan"):
+        oud = {int(r["id"]): (r["Naam"], r["Plaats"] or "") for _, r in basis.iterrows()}
+        fouten, gewijzigd, nieuw, weg = [], 0, 0, 0
+        nu_ids = set()
+        for _, r in bewerkt.iterrows():
+            naam, plaats = (r["Naam"] or ""), (r["Plaats"] or "")
+            if pd.isna(r["id"]):
+                if not str(naam).strip():
+                    continue
+                try:
+                    K.voeg_uitgever_toe(naam, plaats); nieuw += 1
+                except ValueError as exc:
+                    fouten.append(str(exc))
+            else:
+                uid = int(r["id"]); nu_ids.add(uid)
+                if oud.get(uid) != (naam, plaats):
+                    try:
+                        K.wijzig_uitgever(uid, naam, plaats); gewijzigd += 1
+                    except ValueError as exc:
+                        fouten.append(str(exc))
+        for uid in set(oud) - nu_ids:
+            try:
+                K.verwijder_uitgever(uid); weg += 1
+            except ValueError as exc:
+                fouten.append(f"{oud[uid][0]}: {exc}")
+        for f in fouten:
+            st.error(f)
+        if not fouten:
+            st.session_state["ku_melding"] = f"Opgeslagen: {nieuw} nieuw, {gewijzigd} aangepast, {weg} verwijderd."
+            st.rerun()
