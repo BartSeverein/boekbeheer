@@ -387,7 +387,7 @@ def _fill(template, cfg, lang="nl"):
         "kvk": line(kvk_t.format(cfg["kvk"])) if cfg["kvk"] else "", "btw": line(vat_t.format(cfg["vat"])) if cfg["vat"] else "",
         "telefoon": line(tel_t.format(phone_for(cfg, lang))) if phone_for(cfg, lang) else "", "email": cfg["contact_email"] or "info@example.invalid",
         "landen": ", ".join(i18n.country_name(c, lang) for c in cfg["countries"]), "toeslag": extra, "gratis": free,
-        "buitenland": abroad, "contact": i18n.localize("/contact/", lang),
+        "buitenland": abroad, "gratisbedrag": eur(cfg["free_shipping_from_cents"], lang) if cfg["free_shipping_from_cents"] else "het gratis-bedrag", "contact": i18n.localize("/contact/", lang),
     }
     for k, v in values.items():
         template = template.replace("{{" + k + "}}", v)
