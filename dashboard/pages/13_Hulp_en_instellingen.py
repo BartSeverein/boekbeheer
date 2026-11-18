@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pandas as pd
 import streamlit as st
-from i18n import t, tdf
+from i18n import t, tdf, is_english
 
 from dropbox_files import fetch_help_file
 from common import (
@@ -54,7 +54,12 @@ def _help_file(filename):
 
 
 st.subheader(t('Architectuur'))
-architecture_bytes, architecture_error = _help_file("Architectuur.png")
+if is_english():   # Engelse variant, zo niet aanwezig dan de Nederlandse
+    architecture_bytes, architecture_error = _help_file("Architecture.png")
+    if not architecture_bytes:
+        architecture_bytes, architecture_error = _help_file("Architectuur.png")
+else:
+    architecture_bytes, architecture_error = _help_file("Architectuur.png")
 if architecture_bytes:
     st.image(architecture_bytes, width="stretch")
 else:
@@ -74,11 +79,11 @@ else:
     st.info(t('De handleiding kon niet worden opgehaald: {0}', manual_error))
 
 st.markdown(
-    t('**Support:** Bart, 06-20539792 of [klik hier voor Whatsapp](https://wa.me/0031620539792)')
+    t('**Support:** Bart, +31 (0)6 20539792 of via Whatsapp (zelfde nummer)')
 )
 
 st.divider()
-st.markdown(t('Het Boekbeheersysteem is © 2026, Severein Services'))
+st.markdown(t('Het Boek- en kaartbeheersysteem is © 2026, Severein Services'))
 
 # ---------- Druppelsysteem Boekwinkeltjes ----------
 
@@ -327,86 +332,88 @@ else:
 
 # ---------- Kortingscodes webshop ----------
 
-DISCOUNT_SETTING = "webshop_discount_codes"
-DISCOUNT_KINDS = {"Percentage korting": "percent", "Gratis verzending": "shipping"}
+if not is_english():   # Engelse gebruikers zien de kortingscodes van de webshop niet
 
-st.divider()
-st.header(t('Kortingscodes webshop'))
-st.caption(
-    t('Codes die klanten bij het afrekenen op severein.nl kunnen invullen. Er zijn twee soorten: een percentage korting op de boekenprijs, of geen verzendkosten. Een code mag je uitzetten (vinkje) of laten verlopen met een einddatum (die dag geldt hij nog). Een wijziging staat in de webshop zodra de catalogus de eerstvolgende keer wordt bijgewerkt (binnen een half uur); de server controleert elke code bij het afrekenen opnieuw.')
-)
+    DISCOUNT_SETTING = "webshop_discount_codes"
+    DISCOUNT_KINDS = {"Percentage korting": "percent", "Gratis verzending": "shipping"}
+
+    st.divider()
+    st.header(t('Kortingscodes webshop'))
+    st.caption(
+        t('Codes die klanten bij het afrekenen op severein.nl kunnen invullen. Er zijn twee soorten: een percentage korting op de boekenprijs, of geen verzendkosten. Een code mag je uitzetten (vinkje) of laten verlopen met een einddatum (die dag geldt hij nog). Een wijziging staat in de webshop zodra de catalogus de eerstvolgende keer wordt bijgewerkt (binnen een half uur); de server controleert elke code bij het afrekenen opnieuw.')
+    )
 
 
-def _load_discount_rows():
-    try:
-        raw = json.loads(get_setting(DISCOUNT_SETTING, "[]") or "[]")
-    except ValueError:
-        raw = []
-    rows = []
-    for it in raw if isinstance(raw, list) else []:
-        if not isinstance(it, dict):
-            continue
-        until = None
+    def _load_discount_rows():
         try:
-            if it.get("until"):
-                until = pd.to_datetime(it["until"]).date()
-        except Exception:
-            until = None
-        rows.append({
-            "Code": it.get("code", ""),
-            "Omschrijving": it.get("description", ""),
-            "Soort": "Gratis verzending" if it.get("type") == "shipping" else "Percentage korting",
-            "Percentage": None if it.get("type") == "shipping" else it.get("percent"),
-            "Tot en met": until,
-            "Actief": bool(it.get("active", True)),
-        })
-    return pd.DataFrame(rows, columns=["Code", "Omschrijving", "Soort", "Percentage", "Tot en met", "Actief"])
-
-
-discount_df = st.data_editor(
-    _load_discount_rows(), num_rows="dynamic", hide_index=True, width="stretch", key="discount_editor",
-    column_config={
-        "Code": st.column_config.TextColumn(t("Code"), help=t("Letters en cijfers; hoofdletters maken niet uit."), max_chars=30),
-        "Omschrijving": st.column_config.TextColumn(t("Omschrijving"), help=t("Alleen voor jezelf: waar deze code voor bedoeld was. Klanten zien dit niet."), max_chars=200),
-        "Soort": st.column_config.SelectboxColumn(t("Soort"), options=list(DISCOUNT_KINDS), default="Percentage korting", required=True),
-        "Percentage": st.column_config.NumberColumn(t("Percentage (%)"), min_value=1, max_value=100, step=1, format="%d"),
-        "Tot en met": st.column_config.DateColumn(t("Tot en met (optioneel)"), format="DD-MM-YYYY"),
-        "Actief": st.column_config.CheckboxColumn(t("Actief"), default=True),
-    },
-)
-
-if st.button(t('Kortingscodes opslaan'), type="primary", key="save_discount_codes"):
-    problems, saved, seen = [], [], set()
-    for _, row in discount_df.iterrows():
-        code = re.sub(r"[^A-Z0-9_.\-]", "", str(row.get("Code") or "").strip().upper())[:30]
-        if not code:
-            if str(row.get("Code") or "").strip():
-                problems.append(f"'{row.get('Code')}' bevat geen bruikbare tekens.")
-            continue
-        if code in seen:
-            problems.append(f"De code {code} staat er twee keer in.")
-            continue
-        seen.add(code)
-        kind = DISCOUNT_KINDS.get(row.get("Soort"), "percent")
-        entry = {"code": code, "type": kind, "active": bool(row.get("Actief", True))}
-        description = str(row.get("Omschrijving") or "").strip()
-        if description and description.lower() != "nan":
-            entry["description"] = description[:200]
-        if kind == "percent":
-            pct = row.get("Percentage")
-            if pct is None or pd.isna(pct) or not 1 <= float(pct) <= 100:
-                problems.append(f"{code}: vul een percentage tussen 1 en 100 in.")
+            raw = json.loads(get_setting(DISCOUNT_SETTING, "[]") or "[]")
+        except ValueError:
+            raw = []
+        rows = []
+        for it in raw if isinstance(raw, list) else []:
+            if not isinstance(it, dict):
                 continue
-            entry["percent"] = int(round(float(pct)))
-        until = row.get("Tot en met")
-        if until is not None and not pd.isna(until):
-            entry["until"] = pd.to_datetime(until).strftime("%Y-%m-%d")
-        saved.append(entry)
-    if problems:
-        st.error(t("Niet opgeslagen — ") + " ".join(problems))
-    else:
-        set_setting(DISCOUNT_SETTING, json.dumps(saved, ensure_ascii=False))
-        st.success(t('Opgeslagen ({0} code(s)). Actief in de webshop na de eerstvolgende catalogus-update.', len(saved)))
+            until = None
+            try:
+                if it.get("until"):
+                    until = pd.to_datetime(it["until"]).date()
+            except Exception:
+                until = None
+            rows.append({
+                "Code": it.get("code", ""),
+                "Omschrijving": it.get("description", ""),
+                "Soort": "Gratis verzending" if it.get("type") == "shipping" else "Percentage korting",
+                "Percentage": None if it.get("type") == "shipping" else it.get("percent"),
+                "Tot en met": until,
+                "Actief": bool(it.get("active", True)),
+            })
+        return pd.DataFrame(rows, columns=["Code", "Omschrijving", "Soort", "Percentage", "Tot en met", "Actief"])
+
+
+    discount_df = st.data_editor(
+        _load_discount_rows(), num_rows="dynamic", hide_index=True, width="stretch", key="discount_editor",
+        column_config={
+            "Code": st.column_config.TextColumn(t("Code"), help=t("Letters en cijfers; hoofdletters maken niet uit."), max_chars=30),
+            "Omschrijving": st.column_config.TextColumn(t("Omschrijving"), help=t("Alleen voor jezelf: waar deze code voor bedoeld was. Klanten zien dit niet."), max_chars=200),
+            "Soort": st.column_config.SelectboxColumn(t("Soort"), options=list(DISCOUNT_KINDS), default="Percentage korting", required=True),
+            "Percentage": st.column_config.NumberColumn(t("Percentage (%)"), min_value=1, max_value=100, step=1, format="%d"),
+            "Tot en met": st.column_config.DateColumn(t("Tot en met (optioneel)"), format="DD-MM-YYYY"),
+            "Actief": st.column_config.CheckboxColumn(t("Actief"), default=True),
+        },
+    )
+
+    if st.button(t('Kortingscodes opslaan'), type="primary", key="save_discount_codes"):
+        problems, saved, seen = [], [], set()
+        for _, row in discount_df.iterrows():
+            code = re.sub(r"[^A-Z0-9_.\-]", "", str(row.get("Code") or "").strip().upper())[:30]
+            if not code:
+                if str(row.get("Code") or "").strip():
+                    problems.append(f"'{row.get('Code')}' bevat geen bruikbare tekens.")
+                continue
+            if code in seen:
+                problems.append(f"De code {code} staat er twee keer in.")
+                continue
+            seen.add(code)
+            kind = DISCOUNT_KINDS.get(row.get("Soort"), "percent")
+            entry = {"code": code, "type": kind, "active": bool(row.get("Actief", True))}
+            description = str(row.get("Omschrijving") or "").strip()
+            if description and description.lower() != "nan":
+                entry["description"] = description[:200]
+            if kind == "percent":
+                pct = row.get("Percentage")
+                if pct is None or pd.isna(pct) or not 1 <= float(pct) <= 100:
+                    problems.append(f"{code}: vul een percentage tussen 1 en 100 in.")
+                    continue
+                entry["percent"] = int(round(float(pct)))
+            until = row.get("Tot en met")
+            if until is not None and not pd.isna(until):
+                entry["until"] = pd.to_datetime(until).strftime("%Y-%m-%d")
+            saved.append(entry)
+        if problems:
+            st.error(t("Niet opgeslagen — ") + " ".join(problems))
+        else:
+            set_setting(DISCOUNT_SETTING, json.dumps(saved, ensure_ascii=False))
+            st.success(t('Opgeslagen ({0} code(s)). Actief in de webshop na de eerstvolgende catalogus-update.', len(saved)))
 
 
 # ---------- GitHub-sleutel ----------
