@@ -79,7 +79,7 @@ else:
     st.info(t('De handleiding kon niet worden opgehaald: {0}', manual_error))
 
 st.markdown(
-    t('**Support:** Bart, +31 (0)6 20539792 of via Whatsapp (zelfde nummer)')
+    t('**Support:** Bart, +31 (0)6 20539792 of [klik hier voor Whatsapp](https://wa.me/31620539792) (in het Nederlands of Engels)')
 )
 
 st.divider()
