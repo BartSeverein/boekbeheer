@@ -228,7 +228,7 @@ interval_minutes = st.slider(
     key="drip_interval",
 )
 
-if st.button("Opslaan", key="save_drip_settings"):
+if st.button("Opslaan", type="primary", key="save_drip_settings"):
     new_schedule, schedule_errors = _drip_grid_to_schedule(edited_grid)
     if schedule_errors:
         st.error("Niet opgeslagen — pas dit eerst aan:\n\n" + "\n".join(f"- {error}" for error in schedule_errors))
@@ -277,7 +277,7 @@ with shipping_col2:
         key="shipping_pakketpost",
     )
 
-if st.button("Opslaan", key="save_shipping_costs"):
+if st.button("Opslaan", type="primary", key="save_shipping_costs"):
     if shipping_briefpost <= 0 or shipping_pakketpost <= 0:
         st.error("Niet opgeslagen — vul bij allebei een bedrag in dat groter is dan 0.")
     else:
@@ -316,7 +316,7 @@ except (TypeError, ValueError):
 _daily_left, _daily_right = st.columns(2)
 daily_active = _daily_left.checkbox("Dagcode in de bevestigingsmail zetten", value=_daily_active_now, key="daily_active")
 daily_pct = _daily_right.number_input("Percentage korting", min_value=1, max_value=100, value=_daily_pct_now, step=1, key="daily_pct")
-if st.button("Dagcode-instelling opslaan", key="save_daily_code"):
+if st.button("Dagcode-instelling opslaan", type="primary", key="save_daily_code"):
     set_setting(DAILY_SETTING, json.dumps({"active": bool(daily_active), "percent": int(daily_pct)}))
     if daily_active:
         st.success("Opgeslagen. De mails en de webshop gebruiken dit na de eerstvolgende catalogus-update (binnen een half uur). "
@@ -395,7 +395,7 @@ discount_df = st.data_editor(
     },
 )
 
-if st.button("Kortingscodes opslaan", key="save_discount_codes"):
+if st.button("Kortingscodes opslaan", type="primary", key="save_discount_codes"):
     problems, saved, seen = [], [], set()
     for _, row in discount_df.iterrows():
         code = re.sub(r"[^A-Z0-9_.\-]", "", str(row.get("Code") or "").strip().upper())[:30]
@@ -452,7 +452,7 @@ token_expiry_input = st.date_input(
     disabled=token_never_expires,
     key="github_token_expiry_input",
 )
-if st.button("Opslaan", key="save_github_token_expiry"):
+if st.button("Opslaan", type="primary", key="save_github_token_expiry"):
     if token_never_expires:
         set_github_token_expiry(GITHUB_TOKEN_NEVER)
         st.success("Opgeslagen: de sleutel verloopt niet.")

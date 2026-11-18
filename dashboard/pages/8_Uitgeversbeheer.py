@@ -48,7 +48,7 @@ edited_df = st.data_editor(
 
 col1, col2 = st.columns([1, 5])
 with col1:
-    if st.button("Opslaan", key="save_publishers"):
+    if st.button("Opslaan", type="primary", key="save_publishers"):
         new_values = edited_df["Uitgever"].dropna().astype(str).tolist()
         replace_known_publishers(new_values)
         get_known_publishers.clear()
@@ -109,7 +109,7 @@ else:
                        "Plaats": st.column_config.TextColumn("Plaats", width="medium"),
                        "Kaarten": st.column_config.NumberColumn("Kaarten", disabled=True)},
     )
-    if st.button("Opslaan", key="ku_opslaan"):
+    if st.button("Opslaan", type="primary", key="ku_opslaan"):
         oud = {int(r["id"]): (r["Naam"], r["Plaats"] or "") for _, r in basis.iterrows()}
         fouten, gewijzigd, nieuw, weg = [], 0, 0, 0
         nu_ids = set()

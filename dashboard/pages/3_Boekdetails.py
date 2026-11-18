@@ -858,7 +858,7 @@ else:
                     key=f"{edit_prefix}_images_upload",
                 )
 
-                submitted = st.form_submit_button("Opslaan")
+                submitted = st.form_submit_button("Opslaan", type="primary")
 
             if submitted and int(edit_amount) > 0 and not (edit_category1 or "").strip():
                 st.error("Categorie 1 is verplicht voor een voorradig boek: zonder categorie is het boek in de webshop niet te vinden via de categorieën.")

@@ -141,11 +141,11 @@ if users:
                 if is_admin:
                     col_save, col_delete = st.columns(2)
                     with col_save:
-                        save_clicked = st.form_submit_button("Opslaan")
+                        save_clicked = st.form_submit_button("Opslaan", type="primary")
                     with col_delete:
                         delete_clicked = st.form_submit_button("Verwijderen", type="secondary")
                 else:
-                    save_clicked = st.form_submit_button("Opslaan")
+                    save_clicked = st.form_submit_button("Opslaan", type="primary")
                     delete_clicked = False
 
             if save_clicked:
