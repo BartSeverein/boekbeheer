@@ -66,7 +66,7 @@ def category_label(label):
     Categorielabel (Nederlands, zoals op Boekwinkeltjes) voor weergave: voor Engelse gebruikers de vertaling,
     anders ongewijzigd. Wat wordt opgeslagen blijft altijd het Nederlandse label.
     """
-    if not label or not is_english():
+    if not isinstance(label, str) or not label or not is_english():
         return label
     try:
         from categories import ENGLISH_TRANSLATIONS
@@ -74,7 +74,7 @@ def category_label(label):
         return label
     if label in EN:
         return EN[label]
-    english = ENGLISH_TRANSLATIONS.get(label.strip().lower())
+    english = {k.lower(): v for k, v in ENGLISH_TRANSLATIONS.items()}.get(label.strip().lower())
     if not english:
         return label
     return english[:1].upper() + english[1:]
