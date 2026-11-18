@@ -39,6 +39,7 @@ import streamlit as st
 from dotenv import load_dotenv
 
 from categories import CATEGORY1_OPTIONS, CATEGORY2_OPTIONS
+from i18n import t
 import cover_check
 
 load_dotenv()  # leest .env, ook als die in de bovenliggende (project)map staat
@@ -78,6 +79,24 @@ def get_user_count():
         with conn.cursor() as cur:
             cur.execute("SELECT COUNT(*) FROM app_users")
             return cur.fetchone()[0]
+    finally:
+        conn.close()
+
+
+_LANGUAGE_COLUMN_OK = False
+
+
+def ensure_language_column():
+    """Zorgt (eenmalig per sessie van de server) dat app_users de kolom 'language' heeft; 'nl' of 'en'."""
+    global _LANGUAGE_COLUMN_OK
+    if _LANGUAGE_COLUMN_OK:
+        return
+    conn = psycopg2.connect(get_db_url())
+    try:
+        with conn.cursor() as cur:
+            cur.execute("ALTER TABLE app_users ADD COLUMN IF NOT EXISTS language TEXT DEFAULT 'nl'")
+        conn.commit()
+        _LANGUAGE_COLUMN_OK = True
     finally:
         conn.close()
 
@@ -153,7 +172,7 @@ def _join_dutch_list(names):
         return ""
     if len(names) == 1:
         return names[0]
-    return ", ".join(names[:-1]) + " en " + names[-1]
+    return ", ".join(names[:-1]) + t(" en ") + names[-1]
 
 
 
@@ -239,11 +258,11 @@ def require_login():
         if st.session_state.pop("_zet_cookie", False):
             _write_cookie_js(_make_auth_token(user), AUTH_COOKIE_DAYS * 86400)
         with st.sidebar:
-            st.caption(f"Ingelogd als **{user['full_name']}**")
+            st.caption(t("Ingelogd als **{0}**", user['full_name']))
             other_active = get_active_users(user["short_name"])
             if other_active:
-                st.caption(f"Ook ingelogd: {_join_dutch_list(other_active)}")
-            if st.button("Uitloggen", key="logout_button"):
+                st.caption(t("Ook ingelogd: {0}", _join_dutch_list(other_active)))
+            if st.button(t("Uitloggen"), key="logout_button"):
                 del st.session_state["user"]
                 st.session_state["_uitgelogd"] = True
                 st.rerun()
@@ -284,7 +303,8 @@ def current_user_short_name():
 # ---------- Gebruikersbeheer ----------
 
 def get_users_with_stats():
-    """Lijst van gebruikers met hun leesbare wachtwoord, rol, laatste locatie, laatste login en activiteitentellingen."""
+    """Lijst van gebruikers met hun leesbare wachtwoord, rol, taal, laatste locatie, laatste login en activiteitentellingen."""
+    ensure_language_column()
     conn = _dict_connect()
     try:
         with conn.cursor() as cur:
@@ -292,13 +312,14 @@ def get_users_with_stats():
                 """
                 SELECT
                     u.id, u.full_name, u.short_name, u.email, u.password_plain, u.role,
+                    COALESCE(u.language, 'nl') AS language,
                     u.last_location, u.last_login_at,
                     COALESCE(SUM(CASE WHEN l.action = 'created' THEN 1 ELSE 0 END), 0) AS aantal_toegevoegd,
                     COALESCE(SUM(CASE WHEN l.action = 'edited' THEN 1 ELSE 0 END), 0) AS aantal_aangepast,
                     COALESCE(SUM(CASE WHEN l.action = 'created' AND l.occurred_at >= now() - interval '7 days' THEN 1 ELSE 0 END), 0) AS aantal_toegevoegd_7d
                 FROM app_users u
                 LEFT JOIN book_activity_log l ON l.user_short_name = u.short_name
-                GROUP BY u.id, u.full_name, u.short_name, u.email, u.password_plain, u.role,
+                GROUP BY u.id, u.full_name, u.short_name, u.email, u.password_plain, u.role, u.language,
                     u.last_location, u.last_login_at
                 ORDER BY u.full_name ASC
                 """
@@ -378,18 +399,20 @@ def delete_todo_extra(extra_id):
         conn.close()
 
 
-def create_user(full_name, short_name, email, password):
+def create_user(full_name, short_name, email, password, language="nl"):
     """Nieuwe gebruikers krijgen altijd de rol 'gebruiker' — 'beheerder' wordt niet via de UI uitgedeeld."""
+    ensure_language_column()
     digest, salt = _hash_password(password)
     conn = psycopg2.connect(get_db_url())
     try:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO app_users (full_name, short_name, email, password_hash, password_salt, password_plain, role)
-                VALUES (%(full_name)s, %(short_name)s, %(email)s, %(hash)s, %(salt)s, %(plain)s, 'gebruiker')
+                INSERT INTO app_users (full_name, short_name, email, password_hash, password_salt, password_plain, role, language)
+                VALUES (%(full_name)s, %(short_name)s, %(email)s, %(hash)s, %(salt)s, %(plain)s, 'gebruiker', %(language)s)
                 """,
                 {
+                    "language": language if language in ("nl", "en") else "nl",
                     "full_name": full_name,
                     "short_name": short_name,
                     "email": email,
@@ -403,8 +426,11 @@ def create_user(full_name, short_name, email, password):
         conn.close()
 
 
-def update_user(user_id, full_name, short_name, email, new_password=None, role=None):
-    """'role' alleen meegeven als een beheerder de rol mag/wil wijzigen; anders blijft de rol ongemoeid."""
+def update_user(user_id, full_name, short_name, email, new_password=None, role=None, language=None):
+    """'role' alleen meegeven als een beheerder de rol mag/wil wijzigen; anders blijft de rol ongemoeid.
+    'language' ('nl' of 'en') alleen meegeven om de taal te wijzigen; is het de ingelogde gebruiker zelf, dan
+    gaat de nieuwe taal meteen in."""
+    ensure_language_column()
     conn = psycopg2.connect(get_db_url())
     try:
         with conn.cursor() as cur:
@@ -415,9 +441,12 @@ def update_user(user_id, full_name, short_name, email, new_password=None, role=N
                     UPDATE app_users
                     SET full_name = %(full_name)s, short_name = %(short_name)s, email = %(email)s,
                         password_hash = %(hash)s, password_salt = %(salt)s, password_plain = %(plain)s
-                        {role_clause}
+                        {role_clause}{language_clause}
                     WHERE id = %(id)s
-                    """.format(role_clause=", role = %(role)s" if role is not None else ""),
+                    """.format(
+                        role_clause=", role = %(role)s" if role is not None else "",
+                        language_clause=", language = %(language)s" if language is not None else "",
+                    ),
                     {
                         "full_name": full_name,
                         "short_name": short_name,
@@ -426,6 +455,7 @@ def update_user(user_id, full_name, short_name, email, new_password=None, role=N
                         "salt": salt,
                         "plain": new_password,
                         "role": role,
+                        "language": language,
                         "id": user_id,
                     },
                 )
@@ -434,12 +464,19 @@ def update_user(user_id, full_name, short_name, email, new_password=None, role=N
                     """
                     UPDATE app_users
                     SET full_name = %(full_name)s, short_name = %(short_name)s, email = %(email)s
-                        {role_clause}
+                        {role_clause}{language_clause}
                     WHERE id = %(id)s
-                    """.format(role_clause=", role = %(role)s" if role is not None else ""),
-                    {"full_name": full_name, "short_name": short_name, "email": email, "role": role, "id": user_id},
+                    """.format(
+                        role_clause=", role = %(role)s" if role is not None else "",
+                        language_clause=", language = %(language)s" if language is not None else "",
+                    ),
+                    {"full_name": full_name, "short_name": short_name, "email": email, "role": role,
+                     "language": language, "id": user_id},
                 )
         conn.commit()
+        me = st.session_state.get("user")
+        if language is not None and me and me.get("id") == user_id:
+            me["language"] = language
     finally:
         conn.close()
 
@@ -920,8 +957,8 @@ ORDER_STATUS_LABELS = {
 def format_order_status(value):
     """Zet een ruwe orderstatuscode om naar een net Nederlands woord/zin."""
     if not value or pd.isna(value):
-        return "Onbekend"
-    return ORDER_STATUS_LABELS.get(value, value)
+        return t("Onbekend")
+    return t(ORDER_STATUS_LABELS.get(value, value))
 
 
 PAYMENT_STATUS_LABELS = {
@@ -934,8 +971,8 @@ PAYMENT_STATUS_LABELS = {
 def format_payment_status(value):
     """Zet de ruwe betaalstatus (paid/open/refunded) om naar een net Nederlands woord."""
     if not value or pd.isna(value):
-        return "Onbekend"
-    return PAYMENT_STATUS_LABELS.get(value, value)
+        return t("Onbekend")
+    return t(PAYMENT_STATUS_LABELS.get(value, value))
 
 
 def format_datetime_nl(value):
@@ -1076,10 +1113,12 @@ def shipping_format_label(value):
     """1 -> 'Brievenbuspakje'; leeg of onbekend -> 'nog niet ingesteld'."""
     try:
         if value is None or pd.isna(value):
-            return "nog niet ingesteld"
-        return SHIPPING_FORMAT_LABELS.get(int(value), f"onbekend ({int(value)})")
+            return t("nog niet ingesteld")
+        if int(value) in SHIPPING_FORMAT_LABELS:
+            return t(SHIPPING_FORMAT_LABELS[int(value)])
+        return t("onbekend ({0})", int(value))
     except (TypeError, ValueError):
-        return "nog niet ingesteld"
+        return t("nog niet ingesteld")
 
 
 def shipping_format_for_new_cost(cost, briefpost, pakketpost):
@@ -2870,28 +2909,29 @@ def github_token_banner(expiry, today=None):
     status = github_token_status(expiry, today)
     state, days = status["state"], status["days"]
     if state == "never":
-        return "caption", "GitHub-sleutel: verloopt niet (zo ingesteld)."
+        return "caption", t("GitHub-sleutel: verloopt niet (zo ingesteld).")
     if state == "unset":
-        return "warning", (
+        return "warning", t(
             "De einddatum van de GitHub-sleutel is niet ingesteld. Vul hem in bij Hulp en instellingen, dan waarschuwt de "
             "app je op tijd voordat de geplande taken stoppen."
         )
     date_text = expiry.strftime("%d-%m-%Y")
     if state == "expired":
-        return "error", (
-            f"🚨 De GitHub-sleutel is verlopen of verloopt vandaag ({date_text}). Daarna werken de geplande taken en de "
-            f"knoppen in dit dashboard niet meer. Vernieuw hem direct (zie Hulp en instellingen)."
+        return "error", t(
+            "🚨 De GitHub-sleutel is verlopen of verloopt vandaag ({0}). Daarna werken de geplande taken en de "
+            "knoppen in dit dashboard niet meer. Vernieuw hem direct (zie Hulp en instellingen).", date_text
         )
     if state == "urgent":
         return "error", (
-            f"🚨 De GitHub-sleutel verloopt over {days} {'dag' if days == 1 else 'dagen'}, op {date_text}. Daarna stoppen de "
-            f"geplande taken. Vernieuw hem nu (zie Hulp en instellingen)."
+            t("🚨 De GitHub-sleutel verloopt over {0} dag, op {1}. Daarna stoppen de geplande taken. Vernieuw hem nu (zie Hulp en instellingen).", days, date_text)
+            if days == 1 else
+            t("🚨 De GitHub-sleutel verloopt over {0} dagen, op {1}. Daarna stoppen de geplande taken. Vernieuw hem nu (zie Hulp en instellingen).", days, date_text)
         )
     if state == "soon":
-        return "warning", (
-            f"⚠️ De GitHub-sleutel verloopt over {days} dagen, op {date_text}. Vernieuw hem op tijd (zie Hulp en instellingen)."
+        return "warning", t(
+            "⚠️ De GitHub-sleutel verloopt over {0} dagen, op {1}. Vernieuw hem op tijd (zie Hulp en instellingen).", days, date_text
         )
-    return "caption", f"GitHub-sleutel verloopt op {date_text} (nog {days} dagen)."
+    return "caption", t("GitHub-sleutel verloopt op {0} (nog {1} dagen).", date_text, days)
 
 
 _PUBLISHER_NOISE_WORDS = {
@@ -3267,9 +3307,9 @@ def filter_queued_books(queued_books, user_short_name, view):
 
 def queued_caption(mine, total):
     """'20 boeken die ik heb toegevoegd in bulk wachten op handmatige controle, 44 in totaal.' (met 'boek ... wacht' bij 1)."""
-    woord = "boek dat" if mine == 1 else "boeken die"
-    werkwoord = "wacht" if mine == 1 else "wachten"
-    return f"{mine} {woord} ik heb toegevoegd in bulk {werkwoord} op handmatige controle, {total} in totaal."
+    if mine == 1:
+        return t("{0} boek dat ik heb toegevoegd in bulk wacht op handmatige controle, {1} in totaal.", mine, total)
+    return t("{0} boeken die ik heb toegevoegd in bulk wachten op handmatige controle, {1} in totaal.", mine, total)
 
 
 def queued_row_text(book):
@@ -3277,7 +3317,7 @@ def queued_row_text(book):
     'Titel — Auteur — ISBN 978… (Bart, 0413R)': tussen haakjes wie het boek heeft toegevoegd en waar het ligt.
     Is een van beide niet bekend, dan staat alleen de andere er; zijn ze allebei onbekend, dan geen haakjes.
     """
-    text = f"**{book['title'] or '(geen titel)'}** — {book['author'] or '–'} — ISBN {book['ean'] or '–'}"
+    text = f"**{book['title'] or t('(geen titel)')}** — {book['author'] or '–'} — ISBN {book['ean'] or '–'}"
     location = book.get("location")
     location = str(location).strip() if location is not None else ""
     details = [part for part in (book.get("added_by"), location) if part]
@@ -4509,7 +4549,9 @@ def cron_status_label(code):
     """De tekst voor een statuscode. Een code die we niet kennen toont de code zelf, nooit een streepje: dat zou een mislukking verbergen."""
     if code is None:
         return "–"
-    return CRON_JOB_STATUS_LABELS.get(code, f"⚠️ Onbekende status ({code})")
+    if code in CRON_JOB_STATUS_LABELS:
+        return t(CRON_JOB_STATUS_LABELS[code])
+    return t("⚠️ Onbekende status ({0})", code)
 
 
 def failed_cron_jobs(jobs):
@@ -4559,7 +4601,7 @@ def github_run_duration_label(run):
         return "–"
     if run["status"] != "completed":
         started = run.get("started") or run.get("created")
-        return f"bezig sinds {format_datetime_nl(started)[-8:-3]}" if started else "bezig"
+        return t("bezig sinds {0}", format_datetime_nl(started)[-8:-3]) if started else t("bezig")
     seconds = run.get("seconds")
     if seconds is None:
         return "–"
@@ -4576,9 +4618,12 @@ def github_run_label(run):
     if run is None:
         return "–"
     if run["status"] != "completed":
-        return "⏳ Bezig"
-    return {"success": "✅ Geslaagd", "failure": "❌ Mislukt", "cancelled": "⚪ Geannuleerd", "timed_out": "❌ Time-out",
-            "skipped": "⚪ Overgeslagen"}.get(run["conclusion"], f"⚠️ {run['conclusion'] or 'onbekend'}")
+        return t("⏳ Bezig")
+    labels = {"success": "✅ Geslaagd", "failure": "❌ Mislukt", "cancelled": "⚪ Geannuleerd", "timed_out": "❌ Time-out",
+              "skipped": "⚪ Overgeslagen"}
+    if run["conclusion"] in labels:
+        return t(labels[run["conclusion"]])
+    return f"⚠️ {run['conclusion'] or t('onbekend')}"
 
 
 def github_run_for_cron_job(job, max_gap_seconds=600):
