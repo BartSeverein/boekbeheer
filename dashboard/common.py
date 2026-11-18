@@ -2656,17 +2656,9 @@ def lookup_book_metadata_external(isbn):
     if result.get("description"):
         result["description"] = _strip_html(result["description"])
 
-    # Afmetingen: Google Books heeft voorkeur (nette, al-gestructureerde cm-waarden),
-    # anders de vrije-tekst maatvoering van ISBNdb als terugval.
-    google_candidates = result.pop("_google_dimension_candidates", [])
-    isbndb_candidates = result.pop("_isbndb_dimension_candidates", [])
-    length_cm, width_cm, thickness_cm = _assign_length_width_thickness(google_candidates)
-    if length_cm is None:
-        length_cm, width_cm, thickness_cm = _assign_length_width_thickness(isbndb_candidates)
-    if length_cm is not None:
-        result["length_cm"] = length_cm
-        result["width_cm"] = width_cm
-        result["thickness_cm"] = thickness_cm
+    # Afmetingen worden bewust niet meer overgenomen: de bronnen zijn te onbetrouwbaar.
+    result.pop("_google_dimension_candidates", None)
+    result.pop("_isbndb_dimension_candidates", None)
 
     has_content = any(
         result.get(k) for k in ("cover_bytes", "description", "title", "author", "publisher", "bijz", "prices")
@@ -3148,11 +3140,9 @@ def autofill_book_fields_from_isbn(isbn):
     # Bol als laatste aanvulling voor wat nog steeds ontbreekt (zie kanttekening
     # in lookup_bol_catalog_product: dit is best-effort, geen gegarandeerde koppeling)
     bol_product = None
-    metadata_has_dimensions = bool(metadata and metadata.get("length_cm"))
     if (
         not fields.get("title") or not fields.get("author") or not publisher_candidate
         or not fields.get("long_description") or not fields.get("short_description")
-        or not metadata_has_dimensions
     ):
         bol_product = lookup_bol_catalog_product(isbn)
         if bol_product:
@@ -3217,22 +3207,10 @@ def autofill_book_fields_from_isbn(isbn):
         fields["_cover_bytes"] = metadata["cover_bytes"]
         fields["_cover_content_type"] = metadata.get("cover_content_type", "image/jpeg")
 
-    # Afmetingen: Google Books/ISBNdb (via metadata) hebben voorkeur, anders Bol
-    # als laatste terugval. Op basis daarvan de verzendkosten bepalen (briefpost
-    # bij een busstuk, pakketpost bij een pakket; onbekend = het hoogste van de
-    # twee, zie determine_busstuk). De bedragen komen uit de instellingen.
-    length_cm = width_cm = thickness_cm = None
-    if metadata and metadata.get("length_cm"):
-        length_cm, width_cm, thickness_cm = metadata["length_cm"], metadata.get("width_cm"), metadata["thickness_cm"]
-    elif bol_product and bol_product.get("length_cm"):
-        length_cm, width_cm, thickness_cm = bol_product["length_cm"], bol_product.get("width_cm"), bol_product["thickness_cm"]
-
-    if length_cm is not None:
-        fields["length_cm"] = length_cm
-        fields["width_cm"] = width_cm
-        fields["thickness_cm"] = thickness_cm
+    # Afmetingen worden niet meer ingeschat (te onbetrouwbaar): de verzendkosten zijn
+    # altijd 'onbekend' = het hoogste van de twee ingestelde bedragen (zie determine_busstuk).
     briefpost_eur, pakketpost_eur = get_shipping_costs()
-    _, shipping_cost, _ = determine_busstuk(length_cm, thickness_cm, briefpost_eur, pakketpost_eur)
+    _, shipping_cost, _ = determine_busstuk(None, None, briefpost_eur, pakketpost_eur)
     fields["shipping_cost"] = shipping_cost
 
     # De prijssuggestie op basis van Bol (zie hierboven): Bol's laagste prijs, min
@@ -4069,12 +4047,7 @@ def lookup_bol_catalog_product(ean):
             if parsed:
                 bol_dimension_candidates.append(parsed)
 
-    if bol_dimension_candidates:
-        length_cm, width_cm, thickness_cm = _assign_length_width_thickness(bol_dimension_candidates)
-        if length_cm is not None:
-            result["length_cm"] = length_cm
-            result["width_cm"] = width_cm
-            result["thickness_cm"] = thickness_cm
+    # Afmetingen uit de Bol-catalogus worden bewust niet meer overgenomen (onbetrouwbaar).
 
     return result if result else None
 
