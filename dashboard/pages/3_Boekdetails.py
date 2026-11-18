@@ -741,16 +741,8 @@ else:
                     )
 
                     if show_logistics:
-                        # Advies busstuk/pakket op basis van de bij invoer opgeslagen afmetingen
-                        # (alleen een advies — de gekozen verzendkosten blijven zoals ze zijn).
-                        # Oudere boeken hebben geen opgeslagen afmetingen: die tonen 'onbekend'.
-                        book_length_cm = float(b["length_cm"]) if pd.notna(b.get("length_cm")) else None
-                        book_thickness_cm = float(b["thickness_cm"]) if pd.notna(b.get("thickness_cm")) else None
+                        # Het busstuk/pakket-advies is weggehaald: afmetingen waren te onbetrouwbaar.
                         shipping_briefpost, shipping_pakketpost = get_shipping_costs()
-                        _, _, busstuk_message = determine_busstuk(
-                            book_length_cm, book_thickness_cm, shipping_briefpost, shipping_pakketpost
-                        )
-                        st.info(busstuk_message)
 
                     current_shipping_cost = float(b["shipping_cost"]) if pd.notna(b["shipping_cost"]) else 0.0
                     if show_logistics:

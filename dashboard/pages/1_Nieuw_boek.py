@@ -410,20 +410,10 @@ if isbn_is_valid and st.session_state.get("new_book_prefilled_isbn") != ean:
                         bol_cat1, bol_cat2
                     )
 
-    # Afmetingen: Google Books/ISBNdb (via metadata) hebben voorkeur, anders Bol
-    # als laatste terugval — bepaalt het "Busstuk?"-veld en de voorgestelde
-    # verzendkosten hieronder.
-    length_cm = width_cm = thickness_cm = None
-    if metadata and metadata.get("length_cm"):
-        length_cm, width_cm, thickness_cm = metadata["length_cm"], metadata.get("width_cm"), metadata["thickness_cm"]
-    elif bol_product and bol_product.get("length_cm"):
-        length_cm, width_cm, thickness_cm = bol_product["length_cm"], bol_product.get("width_cm"), bol_product["thickness_cm"]
-    if length_cm is not None:
-        st.session_state[k("length_cm")] = length_cm
-        st.session_state[k("width_cm")] = width_cm
-        st.session_state[k("thickness_cm")] = thickness_cm
+    # Afmetingen worden niet meer ingeschat (te onbetrouwbaar): de voorgestelde
+    # verzendkosten zijn het hoogste van de twee ingestelde bedragen.
     _, suggested_shipping_cost, _ = determine_busstuk(
-        length_cm, thickness_cm, SHIPPING_BRIEFPOST, SHIPPING_PAKKETPOST
+        None, None, SHIPPING_BRIEFPOST, SHIPPING_PAKKETPOST
     )
     st.session_state[k("shipping_bw_choice")] = shipping_amount_label(suggested_shipping_cost)
 
@@ -462,12 +452,9 @@ with col_a:
 
     price = st.number_input("Prijs webshop en Boekwinkeltjes (€) *", min_value=0.0, step=0.5, key=k("price"))
 
-    busstuk_length_cm = st.session_state.get(k("length_cm"))
-    busstuk_thickness_cm = st.session_state.get(k("thickness_cm"))
-    _, shipping_cost_unknown, busstuk_message = determine_busstuk(
-        busstuk_length_cm, busstuk_thickness_cm, SHIPPING_BRIEFPOST, SHIPPING_PAKKETPOST
+    _, shipping_cost_unknown, _ = determine_busstuk(
+        None, None, SHIPPING_BRIEFPOST, SHIPPING_PAKKETPOST
     )
-    st.info(busstuk_message)
 
     # Zonder keuze (bijv. nog geen ISBN ingevuld) gaan we uit van 'onbekend': het hoogste
     # bedrag, net als het advies hierboven. Staat er nog een oude keuze die niet meer in
