@@ -10,6 +10,7 @@ handmatig heeft gecontroleerd.
 from pathlib import Path
 
 import streamlit as st
+from i18n import category_option, t
 
 from common import (
     render_logo,
@@ -39,31 +40,26 @@ from categories import CATEGORY1_OPTIONS, CATEGORY2_OPTIONS
 st.set_page_config(page_title="Toevoegen in bulk", page_icon="📥", layout="wide")
 render_logo(Path(__file__).parent.parent / "assets" / "logo_mail.png")
 require_login()
-st.title("📥 Toevoegen in bulk")
+st.title(t('📥 Toevoegen in bulk'))
 
 st.caption(
-    "Upload een tekstbestand met ISBN's. Pas als je een boek hieronder hebt gecontroleerd en "
-    "in het boek de wachtrij op 'Nee' blijft, gaat het mee met "
-    "[de eerstvolgende synchronisatie](https://boekbeheer.streamlit.app/Hulp_en_instellingen#druppelsysteem-boekwinkeltjes) "
-    "naar de webshop, Bol en Boekwinkeltjes. Zie [de handleiding](https://boekbeheer.streamlit.app/Hulp_en_instellingen) voor meer info."
+    t("Upload een tekstbestand met ISBN's. Pas als je een boek hieronder hebt gecontroleerd en in het boek de wachtrij op 'Nee' blijft, gaat het mee met [de eerstvolgende synchronisatie](https://boekbeheer.streamlit.app/Hulp_en_instellingen#druppelsysteem-boekwinkeltjes) naar de webshop, Bol en Boekwinkeltjes. Zie [de handleiding](https://boekbeheer.streamlit.app/Hulp_en_instellingen) voor meer info.")
 )
 
 st.warning(
-    "Dit doet meerdere opzoekingen per ISBN (Boekwinkeltjes, Bol, ISBNdb, Google "
-    "Books/Open Library), bij veel ISBN's tegelijk kan dit een flink deel van je "
-    "ISBNdb-dagquotum opeisen en enige tijd duren."
+    t("Dit doet meerdere opzoekingen per ISBN (Boekwinkeltjes, Bol, ISBNdb, Google Books/Open Library), bij veel ISBN's tegelijk kan dit een flink deel van je ISBNdb-dagquotum opeisen en enige tijd duren.")
 )
 
 bulk_duplicates = st.session_state.get("bulk_import_duplicates", None)
 if bulk_duplicates:
-    st.warning(f"{len(bulk_duplicates)} ISBN('s) uit de laatste import stonden al in je database:")
+    st.warning(t("{0} ISBN('s) uit de laatste import stonden al in je database:", len(bulk_duplicates)))
     for isbn, existing in bulk_duplicates:
         dup_col_info, dup_col_increase, dup_col_button = st.columns([4, 1.3, 1])
         with dup_col_info:
-            location_text = f", op {existing['location']}" if existing.get("location") else ""
-            st.write(f"{isbn} — **{existing['title'] or '(geen titel)'}** (voorraad: {existing['amount']}{location_text})")
+            location_text = t(", op {0}", existing['location']) if existing.get("location") else ""
+            st.write(t("{0} — **{1}** (voorraad: {2}{3})", isbn, existing['title'] or t('(geen titel)'), existing['amount'], location_text))
         with dup_col_increase:
-            if st.button("Voorraad +1", key=f"bulk_dup_increase_{existing['id']}"):
+            if st.button(t('Voorraad +1'), key=f"bulk_dup_increase_{existing['id']}"):
                 save_book_edits(
                     existing["id"],
                     {"amount": (existing["amount"] or 0) + 1},
@@ -74,16 +70,16 @@ if bulk_duplicates:
                 st.session_state["bulk_import_duplicates"] = [
                     pair for pair in bulk_duplicates if pair[1]["id"] != existing["id"]
                 ]
-                st.success(f"Voorraad verhoogd naar {(existing['amount'] or 0) + 1}.")
+                st.success(t('Voorraad verhoogd naar {0}.', (existing['amount'] or 0) + 1))
                 st.rerun()
         with dup_col_button:
-            st.link_button("Naar boek", f"Boekdetails?book_id={existing['id']}")
+            st.link_button(t('Naar boek'), f"Boekdetails?book_id={existing['id']}")
 
 default_location_prefill = get_user_last_location(current_user_short_name()) or ""
 loc_col, cat1_col, cat2_col = st.columns(3)
 with loc_col:
     import_location = st.text_input(
-        "Locatie voor deze import",
+        t('Locatie voor deze import'),
         value=default_location_prefill,
         key="bulk_import_location",
     )
@@ -91,7 +87,7 @@ with cat1_col:
     bulk_cat1_labels = ["(automatisch bepalen per boek)"] + [label for _, label in CATEGORY1_OPTIONS]
     bulk_cat1_values = [""] + [value for value, _ in CATEGORY1_OPTIONS]
     chosen_bulk_cat1_label = st.selectbox(
-        "Standaardcategorie 1 voor deze import (optioneel)", bulk_cat1_labels, key="bulk_import_category1"
+        t('Standaardcategorie 1 voor deze import (optioneel)'), bulk_cat1_labels, key="bulk_import_category1", format_func=category_option
     )
     import_category1 = bulk_cat1_values[bulk_cat1_labels.index(chosen_bulk_cat1_label)]
 with cat2_col:
@@ -100,9 +96,10 @@ with cat2_col:
         bulk_cat2_labels = [label for _, label in cat2_options]
         bulk_cat2_values = [value for value, _ in cat2_options]
         chosen_bulk_cat2_label = st.selectbox(
-            "Standaardcategorie 2 voor deze import",
+            t('Standaardcategorie 2 voor deze import'),
             bulk_cat2_labels,
             key=f"bulk_import_category2_{import_category1}",
+            format_func=category_option,
         )
         import_category2 = bulk_cat2_values[bulk_cat2_labels.index(chosen_bulk_cat2_label)]
     else:
@@ -110,20 +107,18 @@ with cat2_col:
 
 if import_category1:
     st.caption(
-        "Deze categorie wordt alleen gebruikt als de automatische opzoeking voor een "
-        "boek zelf geen categorie oplevert — vindt Boekwinkeltjes/ISBNdb wél een "
-        "categorie, dan blijft die leidend."
+        t('Deze categorie wordt alleen gebruikt als de automatische opzoeking voor een boek zelf geen categorie oplevert — vindt Boekwinkeltjes/ISBNdb wél een categorie, dan blijft die leidend.')
     )
 
-st.markdown("**Tekstbestand met één ISBN per regel, mag ISBN-10 of ISBN-13 zijn**")
-uploaded_file = st.file_uploader("Tekstbestand", type=["txt"], label_visibility="collapsed")
+st.markdown(t('**Tekstbestand met één ISBN per regel, mag ISBN-10 of ISBN-13 zijn**'))
+uploaded_file = st.file_uploader(t('Tekstbestand'), type=["txt"], label_visibility="collapsed")
 
 if uploaded_file is not None:
     raw_lines = uploaded_file.getvalue().decode("utf-8", errors="ignore").splitlines()
     isbns = [normalize_isbn(line.strip()) for line in raw_lines if line.strip()]
-    st.caption(f"{len(isbns)} ISBN('s) gevonden in het bestand.")
+    st.caption(t("{0} ISBN('s) gevonden in het bestand.", len(isbns)))
 
-    if isbns and st.button("Start bulk-import", key="start_bulk_import"):
+    if isbns and st.button(t('Start bulk-import'), key="start_bulk_import"):
         progress = st.progress(0, text="Bezig...")
         created = 0
         failed = []
@@ -161,17 +156,16 @@ if uploaded_file is not None:
             progress.progress((i + 1) / len(isbns), text=f"{i + 1}/{len(isbns)}: {isbn}")
         progress.empty()
         load_books.clear()
-        st.success(f"{created} boek(en) toegevoegd aan de wachtrij.")
+        st.success(t('{0} boek(en) toegevoegd aan de wachtrij.', created))
         st.session_state["bulk_import_duplicates"] = duplicates
         if failed:
             st.error(
-                "Niet gelukt voor: "
-                + ", ".join(f"{isbn} ({err})" for isbn, err in failed)
+                t("Niet gelukt voor: {0}", ", ".join(f"{isbn} ({err})" for isbn, err in failed))
             )
         st.rerun()
 
 st.divider()
-st.subheader("📋 Boeken die wachten op controle")
+st.subheader(t('📋 Boeken die wachten op controle'))
 
 if "bulk_queue_loc_done" in st.session_state:
     st.success(st.session_state.pop("bulk_queue_loc_done"))
@@ -182,17 +176,17 @@ else:
     my_name = current_user_short_name()
     n_mine, n_total = queued_counts(queued_books, my_name)
     queue_view = st.radio(
-        "Toon", [QUEUE_VIEW_MINE, QUEUE_VIEW_ALL], horizontal=True, key="bulk_queue_view", label_visibility="collapsed"
+        t('Toon'), [QUEUE_VIEW_MINE, QUEUE_VIEW_ALL], horizontal=True, format_func=t, key="bulk_queue_view", label_visibility="collapsed"
     )
     st.caption(queued_caption(n_mine, n_total))
     shown_books = filter_queued_books(queued_books, my_name, queue_view)
     if not shown_books:
-        info_box(f"Je hebt geen boeken in de wachtrij staan. Kies '{QUEUE_VIEW_ALL}' om de rest te zien.")
+        info_box(t("Je hebt geen boeken in de wachtrij staan. Kies '{0}' om de rest te zien.", t(QUEUE_VIEW_ALL)))
     if shown_books:
         # Eén locatie voor alle boeken die hieronder getoond worden (kies 'Alle boeken' voor de hele wachtrij).
-        with st.expander(f"📍 Locatie wijzigen voor alle {len(shown_books)} getoonde boeken"):
-            new_location = st.text_input("Nieuwe locatie", key="bulk_queue_new_location", placeholder="bijv. 0471AR").strip()
-            if st.button(f"Locatie van {len(shown_books)} boeken wijzigen", key="bulk_queue_set_location", disabled=not new_location):
+        with st.expander(t('📍 Locatie wijzigen voor alle {0} getoonde boeken', len(shown_books))):
+            new_location = st.text_input(t('Nieuwe locatie'), key="bulk_queue_new_location", placeholder=t('bijv. 0471AR')).strip()
+            if st.button(t('Locatie van {0} boeken wijzigen', len(shown_books)), key="bulk_queue_set_location", disabled=not new_location):
                 _me = current_user_short_name()
                 for _b in shown_books:
                     save_book_edits(_b["id"], {"location": new_location}, user_short_name=_me,
@@ -205,12 +199,12 @@ else:
         with col_info:
             st.write(queued_row_text(book))
         with col_edit:
-            if st.button("Bewerken", key=f"edit_queued_{book['id']}"):
+            if st.button(t('Bewerken'), key=f"edit_queued_{book['id']}"):
                 st.session_state["preselect_book_id"] = book["id"]
                 st.switch_page("pages/3_Boekdetails.py")
         with col_delete:
-            if st.button("Verwijderen", key=f"delete_queued_{book['id']}"):
+            if st.button(t('Verwijderen'), key=f"delete_queued_{book['id']}"):
                 delete_book(book["id"])
                 load_books.clear()
-                st.success(f"'{book['title'] or book['ean'] or book['id']}' verwijderd.")
+                st.success(t("'{0}' verwijderd.", book['title'] or book['ean'] or book['id']))
                 st.rerun()

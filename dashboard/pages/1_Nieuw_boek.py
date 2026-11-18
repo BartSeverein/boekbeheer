@@ -28,6 +28,8 @@ import re
 from concurrent.futures import ThreadPoolExecutor
 
 import streamlit as st
+from i18n import category_option, is_english, t
+from bijz_en import bijz_input, finalize as finalize_bijz
 
 from common import (
     create_new_book_draft,
@@ -73,7 +75,7 @@ current_user = require_login()
 # Alleen de beheerder mag een nieuw boek meteen laten synchroniseren; voor iedereen anders staat 'Synchronisatie' vast op 'Geen push'
 # (het boek ligt dan misschien nog thuis). Zonder gebruikers (opstartfase) geldt alles als beheerder.
 is_admin = current_user is None or current_user.get("role") == "beheerder"
-st.title("📑 Nieuw boek toevoegen")
+st.title(t('📑 Nieuw boek toevoegen'))
 
 # 'v' bepaalt de sleutel-suffix van elk veld (behalve Locatie). Na een succesvolle
 # opslag gaat dit nummer omhoog, waardoor elk veld daarna een gegarandeerd nieuwe,
@@ -110,11 +112,11 @@ if _saved_msg:
 
 # ---------- ISBN eerst: marktinfo + voorinvullen van een paar velden ----------
 
-ean_typed = st.text_input("ISBN", key=k("ean"))
+ean_typed = st.text_input(t('ISBN'), key=k("ean"))
 # Een ISBN-10 wordt automatisch een ISBN-13 (zoals ook bij 'Toevoegen in bulk'); alles hieronder gebruikt het ISBN-13.
 ean = normalize_isbn(ean_typed.strip()) if ean_typed.strip() else ean_typed
 if ean != ean_typed.strip() and ean_typed.strip():
-    st.caption(f"ISBN-10 omgezet naar ISBN-13: {ean}")
+    st.caption(t('ISBN-10 omgezet naar ISBN-13: {0}', ean))
 
 isbn_clean = ean.strip()
 isbn_is_valid = len(re.sub(r"\D", "", isbn_clean)) >= 10
@@ -126,14 +128,14 @@ if isbn_is_valid:
         st.session_state["new_book_existing_for"] = isbn_clean
     existing_book = st.session_state["new_book_existing"]
     if existing_book:
-        location_text = f", op {existing_book['location']}" if existing_book.get("location") else ""
+        location_text = t(", op {0}", existing_book['location']) if existing_book.get("location") else ""
         st.warning(
-            f"Dit ISBN staat al in je database: **{existing_book['title'] or '(geen titel)'}** "
-            f"(voorraad: {existing_book['amount']}{location_text})."
+            t("Dit ISBN staat al in je database: **{0}** (voorraad: {1}{2}).",
+              existing_book['title'] or t('(geen titel)'), existing_book['amount'], location_text)
         )
         existing_col_increase, existing_col_button = st.columns([1.3, 1])
         with existing_col_increase:
-            if st.button("Voorraad +1", key="existing_book_increase"):
+            if st.button(t('Voorraad +1'), key="existing_book_increase"):
                 save_book_edits(
                     existing_book["id"],
                     {"amount": (existing_book["amount"] or 0) + 1},
@@ -142,9 +144,9 @@ if isbn_is_valid:
                 )
                 load_books.clear()
                 st.session_state.pop("new_book_existing_for", None)
-                st.success(f"Voorraad verhoogd naar {(existing_book['amount'] or 0) + 1}.")
+                st.success(t('Voorraad verhoogd naar {0}.', (existing_book['amount'] or 0) + 1))
         with existing_col_button:
-            st.link_button("Naar boek", f"Boekdetails?book_id={existing_book['id']}")
+            st.link_button(t('Naar boek'), f"Boekdetails?book_id={existing_book['id']}")
 
 
 # De verzendkosten voor briefpost en pakketpost komen uit de instellingen (pagina
@@ -213,7 +215,7 @@ elif market_error == "Geen gegevens gevonden voor dit ISBN.":
     bw_no_offers = True
     box_lines.append("Bij Boekwinkeltjes wordt dit boek momenteel niet aangeboden.")
 elif ean.strip() and ean.strip() != "0":
-    st.caption(f"Kon geen marktgegevens ophalen: {market_error}")
+    st.caption(t('Kon geen marktgegevens ophalen: {0}', market_error))
 
 if external_metadata_preview and external_metadata_preview.get("prices"):
     box_lines.append("Externe prijzen: " + ", ".join(external_metadata_preview["prices"]))
@@ -247,24 +249,23 @@ if isbn_is_valid:
         with box_col:
             info_box("<br>".join(box_lines))
         with bol_col:
-            st.link_button("Open op Bol", bol_url, width="stretch")
+            st.link_button(t('Open op Bol'), bol_url, width="stretch")
     else:
-        st.link_button("Open op Bol", bol_url)
+        st.link_button(t('Open op Bol'), bol_url)
 
 if abebooks_result:
-    st.link_button("Zoek op Abebooks", f"https://www.abebooks.com/servlet/SearchResults?isbn={isbn_clean}")
-    with st.expander("Technische details van de Abebooks-opzoeking"):
+    st.link_button(t('Zoek op Abebooks'), f"https://www.abebooks.com/servlet/SearchResults?isbn={isbn_clean}")
+    with st.expander(t('Technische details van de Abebooks-opzoeking')):
         st.caption(
-            "Wat Abebooks teruggaf. Handig om te controleren of het bedrag klopt, of om door te geven "
-            "als er iets niet goed gelezen wordt."
+            t('Wat Abebooks teruggaf. Handig om te controleren of het bedrag klopt, of om door te geven als er iets niet goed gelezen wordt.')
         )
         if abebooks_result["status"] == "price":
-            st.write("Bedrag gelezen uit het veld:")
+            st.write(t('Bedrag gelezen uit het veld:'))
             st.code(abebooks_result["source"] or "(onbekend)", language=None)
             if abebooks_result.get("rate_note"):
-                st.write(f"Omrekening naar euro: {abebooks_result['rate_note']}.")
+                st.write(t('Omrekening naar euro: {0}.', abebooks_result['rate_note']))
         elif abebooks_result["message"]:
-            st.write(f"Melding: {abebooks_result['message']}.")
+            st.write(t('Melding: {0}.', abebooks_result['message']))
         st.code(abebooks_result["raw"] or "(geen antwoord ontvangen)", language="json")
 
 # Titel/Auteur/Taal/Bijzonderheden/Uitgever (marktinfo + ISBNdb) en omslagfoto/
@@ -437,20 +438,20 @@ CAT1_LABELS = ["(leeg)"] + [label for _, label in CATEGORY1_OPTIONS]
 CAT1_VALUES = [""] + [value for value, _ in CATEGORY1_OPTIONS]
 
 with col_a:
-    title = st.text_input("Titel *", key=k("title"))
-    author = st.text_input("Auteur", key=k("author"))
+    title = st.text_input(t('Titel *'), key=k("title"))
+    author = st.text_input(t('Auteur'), key=k("author"))
 
     pub_options = [NEW_PUBLISHER_SENTINEL] + known_publishers
-    chosen_publisher_option = st.selectbox("Uitgever", pub_options, key=k("publisher_dd"))
+    chosen_publisher_option = st.selectbox(t('Uitgever'), pub_options, key=k("publisher_dd"))
     if chosen_publisher_option == NEW_PUBLISHER_SENTINEL:
         publisher = st.text_input(
-            "Nieuwe uitgever (vorm: naam ; adres - plaats - NL ; contact)",
+            t('Nieuwe uitgever (vorm: naam ; adres - plaats - NL ; contact)'),
             key=k("publisher_new"),
         )
     else:
         publisher = chosen_publisher_option
 
-    price = st.number_input("Prijs webshop en Boekwinkeltjes (€) *", min_value=0.0, step=0.5, key=k("price"))
+    price = st.number_input(t('Prijs webshop en Boekwinkeltjes (€) *'), min_value=0.0, step=0.5, key=k("price"))
 
     _, shipping_cost_unknown, _ = determine_busstuk(
         None, None, SHIPPING_BRIEFPOST, SHIPPING_PAKKETPOST
@@ -466,11 +467,11 @@ with col_a:
     shipping_bw_default = st.session_state.get(k("shipping_bw_choice"), shipping_bw_fallback)
     shipping_bw_index = SHIPPING_BW_OPTIONS.index(shipping_bw_default)
     shipping_bw_choice = st.selectbox(
-        "Verzendkosten webshop en Boekwinkeltjes (€)", SHIPPING_BW_OPTIONS, index=shipping_bw_index, key=k("shipping_bw_choice")
+        t('Verzendkosten webshop en Boekwinkeltjes (€)'), SHIPPING_BW_OPTIONS, index=shipping_bw_index, key=k("shipping_bw_choice")
     )
     if shipping_bw_choice == "Vrije invoer":
         shipping_cost = st.number_input(
-            "Verzendkosten webshop en Boekwinkeltjes - vrij bedrag (€)",
+            t('Verzendkosten webshop en Boekwinkeltjes - vrij bedrag (€)'),
             min_value=0.0,
             step=0.25,
             key=k("shipping_bw_free"),
@@ -478,16 +479,16 @@ with col_a:
     else:
         shipping_cost = float(shipping_bw_choice.replace(",", "."))
 
-    amount = st.number_input("Voorraad *", min_value=0, step=1, value=1, key=k("amount"))
+    amount = st.number_input(t('Voorraad *'), min_value=0, step=1, value=1, key=k("amount"))
 
     isbn_present = isbn_is_valid
     if isbn_present:
         bol_unsuitable = st.checkbox(
-            "Boek is ongeschikt voor Bol (bijv. verboden type)", key=k("bol_unsuitable")
+            t('Boek is ongeschikt voor Bol (bijv. verboden type)'), key=k("bol_unsuitable")
         )
         if bol_unsuitable:
-            st.markdown("**Prijs Bol, incl. verzendkosten en commissie (€)**")
-            st.write("Boek ongeschikt voor Bol")
+            st.markdown(t('**Prijs Bol, incl. verzendkosten en commissie (€)**'))
+            st.write(t('Boek ongeschikt voor Bol'))
             shipping_cost_bol = None
         else:
             floor_bol = round(price + shipping_cost + 2.25, 2)
@@ -497,16 +498,16 @@ with col_a:
             else:
                 suggested_bol = floor_bol
             shipping_cost_bol = st.number_input(
-                "Prijs Bol, incl. verzendkosten en commissie (€)",
+                t('Prijs Bol, incl. verzendkosten en commissie (€)'),
                 min_value=0.0,
                 step=0.5,
                 value=suggested_bol,
                 key=k("shipping_bol"),
             )
-            st.caption("(aanpasbare suggestie)")
+            st.caption(t('(aanpasbare suggestie)'))
     else:
-        st.markdown("**Prijs Bol, incl. verzendkosten en commissie (€)**")
-        st.write("Boek ongeschikt voor Bol")
+        st.markdown(t('**Prijs Bol, incl. verzendkosten en commissie (€)**'))
+        st.write(t('Boek ongeschikt voor Bol'))
         shipping_cost_bol = None
 
 with col_b:
@@ -516,7 +517,7 @@ with col_b:
         )
     default_location = st.session_state["new_book_default_location"]
     location = st.text_input(
-        "Locatie",
+        t('Locatie'),
         value=default_location,
         key="new_book_location",  # geen versie: blijft bewust staan voor de volgende invoer
     )
@@ -547,40 +548,44 @@ with col_b:
     @st.fragment
     def category_pickers():
         if quick_by_label:
-            st.radio("Snelkeuze categorie (de meest gebruikte)", list(quick_by_label), index=None, horizontal=True,
-                     key=k("quick_category"), on_change=_apply_quick_category)
-        chosen_cat1_label = st.selectbox("Categorie 1 *", CAT1_LABELS, key=k("category1"))
+            st.radio(t('Snelkeuze categorie (de meest gebruikte)'), list(quick_by_label), index=None, horizontal=True,
+                     key=k("quick_category"), on_change=_apply_quick_category, format_func=category_option)
+        chosen_cat1_label = st.selectbox(t('Categorie 1 *'), CAT1_LABELS, key=k("category1"), format_func=category_option)
         cat1_value = CAT1_VALUES[CAT1_LABELS.index(chosen_cat1_label)]
         if cat1_value in CATEGORY2_OPTIONS:
-            st.selectbox("Categorie 2", [label for _, label in CATEGORY2_OPTIONS[cat1_value]], key=k(f"category2_dd_{cat1_value}"))
+            st.selectbox(t('Categorie 2'), [label for _, label in CATEGORY2_OPTIONS[cat1_value]], key=k(f"category2_dd_{cat1_value}"), format_func=category_option)
         else:
-            st.text_input("Categorie 2", key=k("category2_txt"))
+            st.text_input(t('Categorie 2'), key=k("category2_txt"))
 
     category_pickers()
 
-    category3 = st.text_input("Categorie 3", key=k("category3"))
-    language = st.text_input("Taal", value="NL", key=k("language"))
-    short_description = st.text_area(
-        "Bijzonderheden (jaar, pagina's, vorm, staat)", height=100, key=k("short")
-    )
+    category3 = st.text_input(t('Categorie 3'), key=k("category3"))
+    language = st.text_input(t('Taal'), value="NL", key=k("language"))
+    if is_english():
+        _bijz_state = bijz_input(k("short"), new=True)
+        short_description = ""   # wordt bij het opslaan samengesteld (en zo nodig vertaald)
+    else:
+        _bijz_state = None
+        short_description = st.text_area(
+            t("Bijzonderheden (jaar, pagina's, vorm, staat)"), height=100, key=k("short")
+        )
     long_description = st.text_area(
-        "Meer info (in Nederlands)", height=150, key=k("long")
+        t('Meer info (in Nederlands)'), height=150, key=k("long")
     )
     _push_options = ["Push naar de webshop, Boekwinkeltjes en eventueel Bol", "Geen push (alleen lokaal bewaren)"]
     if is_admin:
-        push_enabled_choice = st.selectbox("Synchronisatie", options=_push_options, key=k("push_enabled"))
+        push_enabled_choice = st.selectbox(t('Synchronisatie'), options=_push_options, key=k("push_enabled"))
     else:
         push_enabled_choice = st.selectbox(
-            "Synchronisatie", options=_push_options, index=1, disabled=True, key=k("push_enabled"),
-            help="Het boek wordt pas online gezet nadat de beheerder het vrijgeeft, als het boek in de opslag ligt.",
+            t('Synchronisatie'), options=_push_options, index=1, disabled=True, key=k("push_enabled"),
+            help=t('Het boek wordt pas online gezet nadat de beheerder het vrijgeeft, als het boek in de opslag ligt.'),
         )
-        st.caption("Het boek komt pas online nadat de beheerder het vrijgeeft (zodra het in de opslag ligt).")
+        st.caption(t('Het boek komt pas online nadat de beheerder het vrijgeeft (zodra het in de opslag ligt).'))
 
 st.divider()
-st.subheader("📷 Afbeeldingen")
+st.subheader(t('📷 Afbeeldingen'))
 st.caption(
-    "Kies de voorkant en eventueel twee extra foto's voor de webshop en overige foto's. De voorkant gaat als eerste naar Boekwinkeltjes en wordt daar de "
-    "hoofdafbeelding. Daar hoef je na het opslaan dus niets meer aan te doen."
+    t("Kies de voorkant en eventueel twee extra foto's voor de webshop en overige foto's. De voorkant gaat als eerste naar Boekwinkeltjes en wordt daar de hoofdafbeelding. Daar hoef je na het opslaan dus niets meer aan te doen.")
 )
 
 
@@ -606,21 +611,21 @@ def collect_images():
 @st.fragment
 def image_section():
     front_file = st.file_uploader(
-        "Voorkant (1 afbeelding, voor alle platformen)",
+        t('Voorkant (1 afbeelding, voor alle platformen)'),
         type=["jpg", "jpeg", "png"],
         accept_multiple_files=False,
         key=k("front_upload"),
     )
     st.file_uploader(
-        "Extra foto's (maximaal 2, de beste, voor alle platformen)",
+        t("Extra foto's (maximaal 2, de beste, voor alle platformen)"),
         type=["jpg", "jpeg", "png"],
         accept_multiple_files=True,
         key=k("web_upload"),
     )
     if len(st.session_state.get(k("web_upload")) or []) > 2:
-        st.caption("Alleen de eerste twee gaan naar de webshop; de rest wordt een gewone foto.")
+        st.caption(t('Alleen de eerste twee gaan naar de webshop; de rest wordt een gewone foto.'))
     st.file_uploader(
-        "Overige foto's (onbeperkt aantal, de rest, niet voor webshop)",
+        t("Overige foto's (onbeperkt aantal, de rest, niet voor webshop)"),
         type=["jpg", "jpeg", "png"],
         accept_multiple_files=True,
         key=k("images_upload"),
@@ -631,12 +636,12 @@ def image_section():
     cover_note = st.session_state.get(k("cover_note"))
     if front_file is not None:
         if external_images:
-            st.caption("De automatisch gevonden omslag wordt niet gebruikt, omdat je zelf een voorkant hebt gekozen.")
+            st.caption(t('De automatisch gevonden omslag wordt niet gebruikt, omdat je zelf een voorkant hebt gekozen.'))
     elif not external_images and cover_note:
         st.caption(cover_note)
 
     if all_images and front_image is None:
-        st.warning("Je hebt geen voorkant gekozen: de eerste overige foto wordt nu de hoofdafbeelding.")
+        st.warning(t('Je hebt geen voorkant gekozen: de eerste overige foto wordt nu de hoofdafbeelding.'))
 
     thumbs_per_row = 5
     for row_start in range(0, len(all_images), thumbs_per_row):
@@ -647,31 +652,30 @@ def image_section():
             with thumb_cols[offset]:
                 image_b64 = base64.b64encode(img["data"]).decode("ascii")
                 st.markdown(
-                    f'<img src="data:{img["content_type"]};base64,{image_b64}" '
-                    f'style="height:320px; width:auto; max-width:100%; object-fit:contain;" />',
+                    t('<img src="data:{0};base64,{1}" style="height:320px; width:auto; max-width:100%; object-fit:contain;" />', img["content_type"], image_b64),
                     unsafe_allow_html=True,
                 )
                 st.caption(img["label"])
                 if i == 0:
                     st.markdown(
-                        "<div style='text-align:center;'>⭐ Hoofdafbeelding</div>",
+                        t("<div style='text-align:center;'>⭐ Hoofdafbeelding</div>"),
                         unsafe_allow_html=True,
                     )
                 if img in external_images and front_file is None:
-                    if st.button("Verwijderen", key=k(f"remove_external_{i}")):
+                    if st.button(t('Verwijderen'), key=k(f"remove_external_{i}")):
                         st.session_state[k("external_images")] = []
                         st.rerun(scope="fragment")
 
 
 image_section()
 
-if st.button("Boek toevoegen", type="primary", key="new_book_submit"):
+if st.button(t('Boek toevoegen'), type="primary", key="new_book_submit"):
     if not title or price <= 0:
-        st.error("Titel en een prijs groter dan €0 zijn verplicht.")
+        st.error(t('Titel en een prijs groter dan €0 zijn verplicht.'))
     elif price < MIN_PRIJS:
-        st.error("De prijs is te laag: het minimum is €" + f"{MIN_PRIJS:.2f}".replace(".", ",") + ". Er is niets opgeslagen.")
+        st.error(t("De prijs is te laag: het minimum is €{0}. Er is niets opgeslagen.", f"{MIN_PRIJS:.2f}".replace(".", ",")))
     elif st.session_state.get(k("category1"), "(leeg)") in ("(leeg)", ""):
-        st.error("Categorie 1 is verplicht: zonder categorie is het boek in de webshop niet te vinden via de categorieën.")
+        st.error(t('Categorie 1 is verplicht: zonder categorie is het boek in de webshop niet te vinden via de categorieën.'))
     else:
         if chosen_publisher_option == NEW_PUBLISHER_SENTINEL and publisher.strip():
             add_known_publisher(publisher)
@@ -684,6 +688,8 @@ if st.button("Boek toevoegen", type="primary", key="new_book_submit"):
             category2 = next((value for value, label in _c2_options if label == _c2_label), _c2_options[0][0])
         else:
             category2 = st.session_state.get(k("category2_txt"), "")
+        if _bijz_state is not None:
+            short_description = finalize_bijz(_bijz_state)
         temp_id = create_new_book_draft(
             {
                 "title": title,
