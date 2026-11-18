@@ -68,15 +68,26 @@ else:
 st.divider()
 
 manual_bytes, manual_error = _help_file("boekbeheer.pdf")
+manual_en_bytes, manual_en_error = _help_file("boekbeheer_en.pdf")
+_m1, _m2, _ = st.columns([1, 1, 2])
 if manual_bytes:
-    st.download_button(
-        t('Download handleiding (PDF, {0} Kb)', round(len(manual_bytes) / 1024)),
+    _m1.download_button(
+        t('Download Nederlandse handleiding (PDF, {0} Kb)', round(len(manual_bytes) / 1024)),
         data=manual_bytes,
         file_name="boekbeheer.pdf",
         mime="application/pdf",
     )
 else:
     st.info(t('De handleiding kon niet worden opgehaald: {0}', manual_error))
+if manual_en_bytes:
+    _m2.download_button(
+        t('Download Engelse handleiding (PDF, {0} Kb)', round(len(manual_en_bytes) / 1024)),
+        data=manual_en_bytes,
+        file_name="boekbeheer_en.pdf",
+        mime="application/pdf",
+    )
+else:
+    st.info(t('De Engelse handleiding kon niet worden opgehaald: {0}', manual_en_error))
 
 st.markdown(
     t('**Support:** Bart, +31 (0)6 20539792 of [klik hier voor Whatsapp](https://wa.me/31620539792) (in het Nederlands of Engels)')
