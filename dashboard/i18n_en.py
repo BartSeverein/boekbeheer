@@ -454,7 +454,7 @@ EN.update({
 EN.update({
     'ℹ️ Hulp en instellingen': 'ℹ️ Help and settings',
     'Architectuur': 'Architecture',
-    '**Support:** Bart, +31 (0)6 20539792 of via Whatsapp (zelfde nummer)': '**Support:** Bart, +31 (0)6 20539792 or via WhatsApp (same number)',
+    '**Support:** Bart, +31 (0)6 20539792 of [klik hier voor Whatsapp](https://wa.me/31620539792) (in het Nederlands of Engels)': '**Support:** Bart, +31 (0)6 20539792 or [click here for WhatsApp](https://wa.me/31620539792) (in Dutch or English)',
     'Het Boek- en kaartbeheersysteem is © 2026, Severein Services': 'The Book & Postcard Management System is © 2026, Severein Services',
     'Druppelsysteem Boekwinkeltjes': 'Boekwinkeltjes drip system',
     'Boeken worden druppelsgewijs aan Boekwinkeltjes toegevoegd, voor optimale zichtbaarheid en verkoopkansen. Dat gaat in drie drukke bezoekperioden: de lunchpauze, einde werktijd en de avond. Kies hieronder voor elke dag van de week wat die perioden zijn, en om de hoeveel minuten een boek moet worden toegevoegd. Laat een blokje leeg als er in die periode niet gedruppeld mag worden.': 'Books are added to Boekwinkeltjes drop by drop, for optimal visibility and sales chances. This happens in three busy visiting periods: the lunch break, the end of the working day and the evening. Below, choose for each day of the week what those periods are, and how many minutes apart a book should be added. Leave a block empty if nothing may be dripped in that period.',
