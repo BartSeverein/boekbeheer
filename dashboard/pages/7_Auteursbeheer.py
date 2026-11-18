@@ -106,8 +106,9 @@ else:
 if parked:
     st.divider()
     st.subheader("Bewaarde teksten zonder pagina")
-    st.caption(
-        "Van deze auteurs staan nu minder dan 3 boeken in de webshop, dus er is geen pagina. De tekst blijft bewaard en komt "
+    st.markdown(
+        (f"Van deze **{len(parked)}** auteurs staan" if len(parked) != 1 else "Van deze **1** auteur staan")
+        + " nu minder dan 3 boeken in de webshop, dus er is geen pagina. De tekst blijft bewaard en komt "
         "terug zodra er weer 3 boeken te koop staan."
     )
     _flash = st.session_state.pop("parked_saved", None)
