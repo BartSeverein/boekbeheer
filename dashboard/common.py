@@ -618,7 +618,7 @@ def render_logo(path):
         /* Opvallende "bezig"-melding bovenin: alleen zolang Streamlit aan het werk is, en pas na een halve seconde
            (zodat snelle acties niet flitsen). Het standaard rennende mannetje is verborgen. */
         body:has([data-testid="stStatusWidget"])::after {
-            content: "Even geduld, bezig…";
+            content: var(--bezig-tekst, "Even geduld, bezig…");
             position: fixed; top: 0.7rem; left: 50%; transform: translateX(-50%);
             z-index: 999999; padding: 0.55rem 1.4rem 0.55rem 3.7rem; border-radius: 2rem;
             background-color: #7c4dcc; color: #fff; font-weight: 600; font-size: 1rem;
@@ -651,6 +651,9 @@ def render_logo(path):
         """,
         unsafe_allow_html=True,
     )
+    from i18n import is_english
+    if is_english():
+        st.markdown('<style>:root { --bezig-tekst: "Reading..."; }</style>', unsafe_allow_html=True)
 
 
 def _get_secret(name):

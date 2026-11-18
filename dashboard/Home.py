@@ -60,7 +60,7 @@ pages = []
 for pad, titel, icoon, url in PAGINAS:
     if lang == "en" and titel in VERBORGEN_VOOR_EN:
         continue
-    kwargs = {"title": menu_title(titel, lang), "icon": icoon}
+    kwargs = {"title": menu_title(titel, lang)}   # bewust zonder icoon: rustiger menu
     if url:
         kwargs["url_path"] = url
     else:

@@ -377,8 +377,8 @@ ENGLISH_TRANSLATIONS = {
     "Woordenboek": "dictionary",
 
     # Topografie
-    "Noord-holland": "north holland",
-    "Zuid-holland": "south holland",
+    "Noord-holland": "North Holland",
+    "Zuid-holland": "South Holland",
     "Nederland": "netherlands",
     "Benelux": "benelux",
     "Nederlandse Antillen": "netherlands antilles",

@@ -13,7 +13,7 @@ import plotly.graph_objects as go
 import psycopg2
 import pandas as pd
 import streamlit as st
-from i18n import t, tdf
+from i18n import category_label, t, tdf
 from pathlib import Path
 
 from common import (
@@ -58,7 +58,7 @@ from common import (
     BOL_CONDITION_ORDER,
 )
 
-st.set_page_config(page_title="Boekbeheersysteem", page_icon="📚", layout="wide")
+st.set_page_config(page_title="Boek- en kaartbeheersysteem", page_icon="📚", layout="wide")
 
 # Kleurbolletje voor de kolom "Met": Boekwinkeltjes geel, Bol blauw, eigen webshop paars.
 PLATFORM_EMOJI = {"BW": "🟡", "Bol": "🔵", "Webshop": "🟣"}
@@ -68,7 +68,7 @@ current_user = require_login()
 # Omzetcijfers en betalingen zijn alleen voor beheerders (Gebruikersbeheer); zonder gebruikers (opstartfase) is alles zichtbaar.
 can_see_finance = current_user is None or current_user.get("role") == "beheerder"
 
-st.title(t('📚 Boekbeheersysteem'))
+st.title(t('📚 Boek- en kaartbeheersysteem'))
 
 books, orders = load_books(), load_orders()
 
@@ -239,9 +239,9 @@ with books_tab:
         books_display["price"] = books_display["price"].apply(format_price)
         books_display["ean"] = books_display["ean"].apply(format_isbn)
         books_display["category1"] = books_sorted.apply(
-            lambda r: f"{r['category1']}, {r['category2']}"
+            lambda r: f"{category_label(r['category1'])}, {category_label(r['category2'])}"
             if pd.notna(r["category2"]) and str(r["category2"]).strip()
-            else r["category1"],
+            else category_label(r["category1"]),
             axis=1,
         )
         books_display = books_display.rename(
@@ -831,9 +831,9 @@ with left2:
     st.subheader(t('Voorraad per categorie (top 20)'))
     if not books.empty:
         combined_category = books.apply(
-            lambda r: f"{r['category1']}, {r['category2']}"
+            lambda r: f"{category_label(r['category1'])}, {category_label(r['category2'])}"
             if pd.notna(r["category2"]) and str(r["category2"]).strip()
-            else r["category1"],
+            else category_label(r["category1"]),
             axis=1,
         )
         cat_counts = combined_category.fillna("onbekend").value_counts().head(20).reset_index()
