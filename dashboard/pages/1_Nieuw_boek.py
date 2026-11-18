@@ -678,7 +678,7 @@ def image_section():
 
 image_section()
 
-if st.button("Boek toevoegen", key="new_book_submit"):
+if st.button("Boek toevoegen", type="primary", key="new_book_submit"):
     if not title or price <= 0:
         st.error("Titel en een prijs groter dan €0 zijn verplicht.")
     elif price < MIN_PRIJS:
