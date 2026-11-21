@@ -211,6 +211,11 @@ def main():
         # Gebruik: python main.py backfill-bol-shipments [ja]   (zonder 'ja' is het een proefrun)
         for line in sync.backfill_bol_orders_from_shipments(execute=len(sys.argv) > 2 and sys.argv[2].lower() == "ja"):
             print(line)
+    elif command == "push-bol-images":
+        # Gebruik: python main.py push-bol-images [oude] [aantal]  — 'oude' neemt ook aanbiedingen mee die niet via de app zijn aangemaakt
+        include_old = "oude" in sys.argv[2:]
+        nums = [int(a) for a in sys.argv[2:] if a.isdigit()]
+        print(f"{sync.push_images_to_bol(limit=nums[0] if nums else sync.BOL_IMAGES_PER_RUN, include_old=include_old)} boek(en) verstuurd.")
     elif command == "test-bol-images":
         # Gebruik: python main.py test-bol-images <boek-id> [ja]   (zonder 'ja' is het een proefrun)
         if len(sys.argv) < 3 or not sys.argv[2].strip().lstrip("-").isdigit():

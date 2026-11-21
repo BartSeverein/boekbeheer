@@ -1189,6 +1189,10 @@ def full_sync():
         restock_bol_offers()
     except Exception:
         pass  # al gelogd in restock_bol_offers(); de rest van de sync gaat gewoon door
+    try:
+        push_images_to_bol()
+    except Exception:
+        pass  # al gelogd in push_images_to_bol(); de rest van de sync gaat gewoon door
     return {
         "books_pulled": n_books,
         "orders_pulled": n_orders,
@@ -4600,3 +4604,116 @@ def test_bol_images(book_id, execute=False, wait_seconds=90):
         extra = f" - {a.get('subStatus')}: {a.get('subStatusDescription')}" if a.get("subStatus") else ""
         lines.append(f"  {a.get('status')}: {a.get('url')}{extra}")
     return lines
+
+
+# ---------- Pilot Tweedekans: foto's automatisch meesturen met de sync ----------
+BOL_IMAGES_PER_RUN = 10        # hooguit zoveel boeken per sync-run (Bol verwerkt de foto's zelf, dit houdt de run kort)
+BOL_IMAGES_MAX_ATTEMPTS = 3    # na zoveel mislukte pogingen wacht een boek tot zijn foto's veranderen
+
+
+def _ensure_bol_image_columns(conn):
+    with conn.cursor() as cur:
+        cur.execute("ALTER TABLE bol_offer_mapping ADD COLUMN IF NOT EXISTS images_hash TEXT")
+        cur.execute("ALTER TABLE bol_offer_mapping ADD COLUMN IF NOT EXISTS images_attempts INTEGER NOT NULL DEFAULT 0")
+        cur.execute("ALTER TABLE bol_offer_mapping ADD COLUMN IF NOT EXISTS images_sent_at TIMESTAMPTZ")
+    conn.commit()
+
+
+def push_images_to_bol(limit=BOL_IMAGES_PER_RUN, include_old=False):
+    """
+    Stuurt de eigen foto's van boeken naar hun Bol-aanbieding (pilot Tweedekans). Een boek komt aan de beurt als:
+    - het een Bol-aanbieding heeft met voorraad, en publieke fotolinks;
+    - de foto's (links + volgorde) anders zijn dan wat we eerder insturen (images_hash).
+    Zonder include_old geldt dat alleen voor boeken die via de app zijn aangemaakt, of waarvan we eerder al foto's hebben
+    ingestuurd (dus gewijzigde foto's); oude aanbiedingen worden niet met terugwerkende kracht aangeraakt.
+    Per run hooguit 'limit' boeken. Lukt het niet voor alle foto's, dan volgt een nieuwe poging bij de volgende run
+    (max. BOL_IMAGES_MAX_ATTEMPTS keer). Geeft het aantal succesvol ingestuurde boeken terug.
+    """
+    conn = get_connection()
+    ok, failed, errors = 0, 0, []
+    try:
+        _ensure_bol_image_columns(conn)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT b.id, b.title, m.offer_id, m.ean, m.images_hash, m.images_attempts
+                FROM books b
+                JOIN bol_offer_mapping m ON TRIM(m.ean) = TRIM(b.ean)
+                WHERE b.id > 0 AND COALESCE(b.queued, FALSE) = FALSE AND COALESCE(b.amount, 0) > 0
+                  AND m.offer_id IS NOT NULL
+                  AND (%(old)s OR b.created_via_app = TRUE OR m.images_hash IS NOT NULL)
+                ORDER BY (m.images_hash IS NULL) DESC, b.id DESC
+                """,
+                {"old": bool(include_old)},
+            )
+            candidates = cur.fetchall()
+        done = 0
+        for book in candidates:
+            if done >= limit:
+                break
+            with conn.cursor() as cur:
+                urls = _bol_image_urls(cur, book["id"])[:bol_client.MAX_IMAGES_PER_IMPORT]
+            if not urls:
+                continue
+            h = hashlib.sha1("|".join(urls).encode("utf-8")).hexdigest()
+            if h == book["images_hash"]:
+                continue   # deze foto's zijn al ingestuurd (of na te veel pogingen vastgelegd)
+            if (book["images_attempts"] or 0) >= BOL_IMAGES_MAX_ATTEMPTS:
+                book["images_attempts"] = 0   # de foto's zijn gewijzigd sinds de laatste poging: opnieuw beginnen
+            done += 1
+            try:
+                submitted = bol_client.submit_offer_images(book["offer_id"], urls)
+                batch_id, process_id = submitted.get("batchId"), submitted.get("processStatusId")
+                waited = 0
+                while batch_id is None and waited < 60:
+                    ps = bol_client.get_process_status(process_id)
+                    if ps.get("status") == "SUCCESS":
+                        batch_id = ps.get("entityId") or process_id
+                    elif ps.get("status") in ("FAILURE", "TIMEOUT"):
+                        raise bol_client.BolAPIError(f"foto-import mislukt ({ps.get('status')}): {ps.get('errorMessage') or ps}")
+                    else:
+                        time.sleep(5)
+                        waited += 5
+                if batch_id is None:
+                    raise bol_client.BolAPIError("Bol was na 60 seconden nog bezig met de foto's")
+                result = bol_client.get_offer_image_import(book["offer_id"], batch_id)
+                while result.get("status") != "COMPLETED" and waited < 90:
+                    time.sleep(5)
+                    waited += 5
+                    result = bol_client.get_offer_image_import(book["offer_id"], batch_id)
+                bad = [a for a in (result.get("assets") or []) if a.get("status") != "ACCEPTED"]
+                if result.get("status") != "COMPLETED" or bad:
+                    detail = "; ".join(f"{a.get('status')} {a.get('subStatus') or ''}".strip() for a in bad[:3]) or "nog niet klaar"
+                    raise bol_client.BolAPIError(f"niet alle foto's geaccepteerd ({detail})")
+                with conn.cursor() as cur:
+                    cur.execute("UPDATE bol_offer_mapping SET images_hash = %(h)s, images_attempts = 0, images_sent_at = %(now)s "
+                                "WHERE ean = %(ean)s", {"h": h, "now": _now(), "ean": book["ean"]})
+                conn.commit()
+                ok += 1
+            except bol_client.BolAPIError as e:
+                if getattr(e, "status_code", None) == 403:
+                    errors.append("Bol weigert foto-import (403): pilot Tweedekans staat niet aan; gestopt")
+                    break
+                failed += 1
+                attempts = (book["images_attempts"] or 0) + 1
+                errors.append(f"boek {book['id']} ({book['title']}): {e}")
+                with conn.cursor() as cur:
+                    # na te veel pogingen leggen we de huidige foto's vast, zodat we pas opnieuw proberen als ze wijzigen
+                    cur.execute("UPDATE bol_offer_mapping SET images_attempts = %(a)s, images_hash = CASE WHEN %(a)s >= %(max)s THEN %(h)s "
+                                "ELSE images_hash END WHERE ean = %(ean)s",
+                                {"a": attempts, "max": BOL_IMAGES_MAX_ATTEMPTS, "h": h, "ean": book["ean"]})
+                conn.commit()
+        if ok or failed or errors:
+            detail = f"{ok} {_n(ok, 'boek', 'boeken')} met foto's naar Bol gestuurd"
+            if failed or errors:
+                detail += f" — {failed} mislukt: " + "; ".join(errors[:5])
+            _log(conn, "push", "bol_images", "ok" if not errors else "error", detail, platform="Bol")
+            conn.commit()
+    except Exception as e:
+        conn.rollback()
+        _log(conn, "push", "bol_images", "error", str(e), platform="Bol")
+        conn.commit()
+        raise
+    finally:
+        conn.close()
+    return ok
