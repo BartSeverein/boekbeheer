@@ -1,0 +1,46 @@
+name: Bol Tweedekans - foto's van boeken naar Bol sturen
+
+# Stuurt de eigen foto's van boeken naar hun Bol-aanbieding (pilot Tweedekans). Dit gebeurt ook automatisch bij elke sync
+# (10 boeken per keer, alleen nieuwe of gewijzigde foto's). Met deze knop kun je het zelf starten, bijvoorbeeld om oude
+# aanbiedingen (niet via de app aangemaakt) in een keer bij te werken: zet 'ook_oude' op "ja" en kies een aantal.
+on:
+  workflow_dispatch:
+    inputs:
+      aantal:
+        description: 'Hoeveel boeken in deze run (bijv. 50)'
+        required: false
+        type: string
+        default: "50"
+      ook_oude:
+        description: 'Zet op "ja" om ook oude aanbiedingen mee te nemen (niet via de app aangemaakt)'
+        required: false
+        type: string
+        default: "nee"
+
+concurrency:
+  group: bol-images
+  cancel-in-progress: false
+
+jobs:
+  push-bol-images:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt
+      - name: Foto's insturen
+        run: |
+          if [ "$OOK_OUDE" = "ja" ]; then python main.py push-bol-images oude "$AANTAL"; else python main.py push-bol-images "$AANTAL"; fi
+        env:
+          AANTAL: ${{ github.event.inputs.aantal }}
+          OOK_OUDE: ${{ github.event.inputs.ook_oude }}
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          BOL_CLIENT_ID: ${{ secrets.BOL_CLIENT_ID }}
+          BOL_CLIENT_SECRET: ${{ secrets.BOL_CLIENT_SECRET }}
+          BOEKWINKELTJES_ENV: ${{ secrets.BOEKWINKELTJES_ENV }}
+          BOEKWINKELTJES_API_KEY_SANDBOX: ${{ secrets.BOEKWINKELTJES_API_KEY_SANDBOX }}
+          BOEKWINKELTJES_API_KEY_LIVE: ${{ secrets.BOEKWINKELTJES_API_KEY_LIVE }}
+          PYTHONUNBUFFERED: "1"
