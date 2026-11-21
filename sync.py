@@ -4562,11 +4562,28 @@ def test_bol_images(book_id, execute=False, wait_seconds=90):
     if not execute:
         return lines + ["PROEFRUN: er is niets naar Bol gestuurd. Draai opnieuw met 'ja' om het echt te doen."]
     try:
-        batch_id = bol_client.submit_offer_images(offer["offer_id"], urls)
+        submitted = bol_client.submit_offer_images(offer["offer_id"], urls)
     except bol_client.BolAPIError as exc:
         return lines + [f"MISLUKT: {exc}"]
-    lines.append(f"Verstuurd. Batchnummer van Bol: {batch_id}")
-    result, waited = None, 0
+    batch_id, process_id = submitted.get("batchId"), submitted.get("processStatusId")
+    lines.append(f"Verstuurd. Procesnummer van Bol: {process_id}" + (f", batchnummer: {batch_id}" if batch_id else ""))
+    waited = 0
+    while batch_id is None and waited <= wait_seconds:   # Bol meldt eerst een proces; het batchnummer komt als dat klaar is
+        try:
+            ps = bol_client.get_process_status(process_id)
+        except bol_client.BolAPIError as exc:
+            return lines + [f"Processtatus ophalen mislukt: {exc}"]
+        state = ps.get("status")
+        if state == "SUCCESS":
+            batch_id = ps.get("entityId") or process_id
+            break
+        if state in ("FAILURE", "TIMEOUT"):
+            return lines + [f"Bol meldt dat de foto-import niet gelukt is ({state}): {ps.get('errorMessage') or ps}"]
+        time.sleep(10)
+        waited += 10
+    if batch_id is None:
+        return lines + ["Bol is nog bezig met de foto's (status PENDING). Kijk later nog eens in het Bol-portaal."]
+    result = None
     while waited <= wait_seconds:
         try:
             result = bol_client.get_offer_image_import(offer["offer_id"], batch_id)
@@ -4576,6 +4593,8 @@ def test_bol_images(book_id, execute=False, wait_seconds=90):
             break
         time.sleep(10)
         waited += 10
+    if result is None:
+        return lines + ["Bol is nog bezig met de foto's. Kijk later nog eens in het Bol-portaal."]
     lines.append(f"Status van de batch: {result.get('status')}" + ("" if result.get("status") == "COMPLETED" else " (Bol is nog bezig; kijk later nog eens)"))
     for a in result.get("assets") or []:
         extra = f" - {a.get('subStatus')}: {a.get('subStatusDescription')}" if a.get("subStatus") else ""

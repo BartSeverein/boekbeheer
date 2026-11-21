@@ -916,7 +916,7 @@ MAX_IMAGES_PER_IMPORT = 30
 def submit_offer_images(offer_id, urls):
     """
     Stuurt de foto's (publieke links, hooguit 30) van één aanbieding naar Bol; de eerste link wordt de hoofdfoto (PRIMARY).
-    Bol haalt de foto's zelf op. Geeft het batchnummer terug waarmee get_offer_image_import de uitkomst laat zien.
+    Bol haalt de foto's zelf op. Geeft {'batchId', 'processStatusId'} terug (een van beide kan None zijn); get_process_status / get_offer_image_import laten de uitkomst zien.
     Alleen voor verkopers in de pilot: anders antwoordt Bol met 403.
     """
     urls = list(urls)[:MAX_IMAGES_PER_IMPORT]
@@ -936,10 +936,20 @@ def submit_offer_images(offer_id, urls):
             f"{_error_detail(resp)}", status_code=403)
     if resp.status_code not in (200, 201, 202):
         raise BolAPIError(f"Kon foto's niet insturen bij Bol ({resp.status_code}): {_error_detail(resp)}", status_code=resp.status_code)
-    batch_id = resp.json().get("batchId")
-    if batch_id is None:
-        raise BolAPIError(f"Bol nam de foto's aan, maar gaf geen batchnummer terug: {(resp.text or '')[:300]}")
-    return batch_id
+    data = resp.json() or {}
+    # Bol antwoordt (v11-pilot) met een process-status ('processStatusId', status PENDING); een directe 'batchId' kan ook voorkomen.
+    batch_id, process_id = data.get("batchId"), data.get("processStatusId")
+    if batch_id is None and process_id is None:
+        raise BolAPIError(f"Bol nam de foto's aan, maar gaf geen batch- of procesnummer terug: {(resp.text or '')[:300]}")
+    return {"batchId": batch_id, "processStatusId": process_id}
+
+
+def get_process_status(process_status_id):
+    """Eén keer de status van een asynchroon Bol-verzoek: {'status' (PENDING/SUCCESS/FAILURE/TIMEOUT), 'entityId', 'errorMessage', ...}."""
+    resp = _send("GET", f"https://api.bol.com/shared/process-status/{process_status_id}", headers=_headers(), timeout=15)
+    if not resp.ok:
+        raise BolAPIError(f"Kon processtatus niet ophalen ({resp.status_code}): {_error_detail(resp)}", status_code=resp.status_code)
+    return resp.json()
 
 
 def get_offer_image_import(offer_id, batch_id):
