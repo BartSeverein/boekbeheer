@@ -4608,7 +4608,8 @@ def test_bol_images(book_id, execute=False, wait_seconds=90):
 
 # ---------- Pilot Tweedekans: foto's automatisch meesturen met de sync ----------
 BOL_IMAGES_PER_RUN = 10        # hooguit zoveel boeken per sync-run (Bol verwerkt de foto's zelf, dit houdt de run kort)
-BOL_IMAGES_MAX_ATTEMPTS = 3    # na zoveel mislukte pogingen wacht een boek tot zijn foto's veranderen
+BOL_IMAGES_MAX_ATTEMPTS = 4    # na zoveel mislukte pogingen wacht een boek tot zijn foto's veranderen
+BOL_IMAGES_RETRY_MINUTES = 30  # tussen twee pogingen voor hetzelfde boek (een nieuwe aanbieding is bij Bol soms nog niet bekend)
 
 
 def _ensure_bol_image_columns(conn):
@@ -4616,6 +4617,7 @@ def _ensure_bol_image_columns(conn):
         cur.execute("ALTER TABLE bol_offer_mapping ADD COLUMN IF NOT EXISTS images_hash TEXT")
         cur.execute("ALTER TABLE bol_offer_mapping ADD COLUMN IF NOT EXISTS images_attempts INTEGER NOT NULL DEFAULT 0")
         cur.execute("ALTER TABLE bol_offer_mapping ADD COLUMN IF NOT EXISTS images_sent_at TIMESTAMPTZ")
+        cur.execute("ALTER TABLE bol_offer_mapping ADD COLUMN IF NOT EXISTS images_last_try TIMESTAMPTZ")
     conn.commit()
 
 
@@ -4630,7 +4632,7 @@ def push_images_to_bol(limit=BOL_IMAGES_PER_RUN, include_old=False):
     (max. BOL_IMAGES_MAX_ATTEMPTS keer). Geeft het aantal succesvol ingestuurde boeken terug.
     """
     conn = get_connection()
-    ok, failed, errors = 0, 0, []
+    ok, failed, retrying, errors = 0, 0, 0, []
     try:
         _ensure_bol_image_columns(conn)
         with conn.cursor() as cur:
@@ -4641,10 +4643,11 @@ def push_images_to_bol(limit=BOL_IMAGES_PER_RUN, include_old=False):
                 JOIN bol_offer_mapping m ON TRIM(m.ean) = TRIM(b.ean)
                 WHERE b.id > 0 AND COALESCE(b.queued, FALSE) = FALSE AND COALESCE(b.amount, 0) > 0
                   AND m.offer_id IS NOT NULL
+                  AND (m.images_last_try IS NULL OR m.images_last_try < now() - make_interval(mins => %(wait)s))
                   AND (%(old)s OR b.created_via_app = TRUE OR m.images_hash IS NOT NULL)
                 ORDER BY (m.images_hash IS NULL) DESC, b.id DESC
                 """,
-                {"old": bool(include_old)},
+                {"old": bool(include_old), "wait": BOL_IMAGES_RETRY_MINUTES},
             )
             candidates = cur.fetchall()
         done = 0
@@ -4694,20 +4697,27 @@ def push_images_to_bol(limit=BOL_IMAGES_PER_RUN, include_old=False):
                 if getattr(e, "status_code", None) == 403:
                     errors.append("Bol weigert foto-import (403): pilot Tweedekans staat niet aan; gestopt")
                     break
-                failed += 1
+                # 404 (aanbieding nog niet bekend bij Bol) en 'nog bezig' zijn meestal tijdelijk: later opnieuw proberen
                 attempts = (book["images_attempts"] or 0) + 1
-                errors.append(f"boek {book['id']} ({book['title']}): {e}")
+                gave_up = attempts >= BOL_IMAGES_MAX_ATTEMPTS
                 with conn.cursor() as cur:
                     # na te veel pogingen leggen we de huidige foto's vast, zodat we pas opnieuw proberen als ze wijzigen
-                    cur.execute("UPDATE bol_offer_mapping SET images_attempts = %(a)s, images_hash = CASE WHEN %(a)s >= %(max)s THEN %(h)s "
-                                "ELSE images_hash END WHERE ean = %(ean)s",
-                                {"a": attempts, "max": BOL_IMAGES_MAX_ATTEMPTS, "h": h, "ean": book["ean"]})
+                    cur.execute("UPDATE bol_offer_mapping SET images_attempts = %(a)s, images_last_try = %(now)s, "
+                                "images_hash = CASE WHEN %(gave_up)s THEN %(h)s ELSE images_hash END WHERE ean = %(ean)s",
+                                {"a": attempts, "now": _now(), "gave_up": gave_up, "h": h, "ean": book["ean"]})
                 conn.commit()
-        if ok or failed or errors:
+                if gave_up:   # pas na de laatste poging melden (dit geeft de enige foutmail)
+                    failed += 1
+                    errors.append(f"boek {book['id']} ({book['title']}), na {attempts} pogingen: {e}")
+                else:
+                    retrying += 1
+        if ok or failed or retrying or errors:
             detail = f"{ok} {_n(ok, 'boek', 'boeken')} met foto's naar Bol gestuurd"
+            if retrying:
+                detail += f"; {retrying} {_n(retrying, 'boek wordt', 'boeken worden')} later opnieuw geprobeerd (Bol had de aanbieding of foto's nog niet klaar)"
             if failed or errors:
-                detail += f" — {failed} mislukt: " + "; ".join(errors[:5])
-            _log(conn, "push", "bol_images", "ok" if not errors else "error", detail, platform="Bol")
+                detail += f" — {failed} definitief mislukt: " + "; ".join(errors[:5])
+            _log(conn, "push", "bol_images", "error" if errors else "ok", detail, platform="Bol")
             conn.commit()
     except Exception as e:
         conn.rollback()
