@@ -278,11 +278,13 @@ def require_login():
 
     if st.session_state.get("_uitgelogd"):
         _write_cookie_js("", 0)
-    st.title("🔒 Inloggen")
+    # Het inlogscherm is tweetalig: de taal van de gebruiker is pas bekend na het inloggen
+    st.title("🔒 Login")
     with st.form("login_form"):
-        short_name = st.text_input("Gebruikersnaam")
-        password = st.text_input("Wachtwoord", type="password")
-        submitted = st.form_submit_button("Inloggen")
+        short_name = st.text_input("Gebruikersnaam / Username")
+        password = st.text_input("Wachtwoord / Password", type="password")
+        st.caption("Beide velden zijn hoofdlettergevoelig / Both fields are case-sensitive")
+        submitted = st.form_submit_button("Login")
     if submitted:
         user = _attempt_login(short_name.strip(), password)
         if user:
@@ -291,7 +293,7 @@ def require_login():
             st.session_state.pop("_uitgelogd", None)
             st.rerun()
         else:
-            st.error("Onjuiste gebruikersnaam of wachtwoord.")
+            st.error("Onjuiste gebruikersnaam of wachtwoord. / Incorrect username or password.")
     st.stop()
 
 
