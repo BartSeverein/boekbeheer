@@ -159,7 +159,7 @@ def _drip_schedule_to_grid(schedule):
     rows = []
     for day, day_label in DRIP_DAYS:
         day_data = schedule.get(day) if isinstance(schedule.get(day), dict) else {}
-        row = {"Dag": day_label}
+        row = {"Dag": t(day_label)}
         for window, index, column in _drip_grid_columns():
             pair = day_data.get(window)
             value = pair[index] if isinstance(pair, (list, tuple)) and len(pair) == 2 else None
@@ -179,14 +179,14 @@ def _normalize_drip_time(value):
     match = re.fullmatch(r"(\d{1,2})[:.](\d{2})", text)
     if match and int(match.group(1)) <= 23 and int(match.group(2)) <= 59:
         return f"{int(match.group(1)):02d}:{match.group(2)}", None
-    return None, f"'{text}' is geen geldige tijd (gebruik uu:mm, bijvoorbeeld 11:00)"
+    return None, t("'{0}' is geen geldige tijd (gebruik uu:mm, bijvoorbeeld 11:00)", text)
 
 
 def _drip_grid_to_schedule(grid_df):
     """Zet de ingevulde tabel terug om naar een schema. Geeft (schema, lijst met foutmeldingen)."""
     schedule = {day: {window: None for window, _ in DRIP_WINDOWS} for day, _ in DRIP_DAYS}
     errors = []
-    day_by_label = {label: day for day, label in DRIP_DAYS}
+    day_by_label = {t(label): day for day, label in DRIP_DAYS}
     for _, row in grid_df.iterrows():
         day = day_by_label.get(row["Dag"])
         if day is None:
@@ -194,15 +194,15 @@ def _drip_grid_to_schedule(grid_df):
         for window, window_label in DRIP_WINDOWS:
             start, start_error = _normalize_drip_time(row[f"{window_label} van"])
             end, end_error = _normalize_drip_time(row[f"{window_label} tot"])
-            place = f"{row['Dag']}, {window_label}"
+            place = f"{row['Dag']}, {t(window_label)}"
             if start_error or end_error:
                 errors.append(f"{place}: {start_error or end_error}")
             elif start is None and end is None:
                 continue  # bewust leeg gelaten: in dit blokje wordt niet gedruppeld
             elif start is None or end is None:
-                errors.append(f"{place}: vul zowel 'van' als 'tot' in, of laat allebei leeg.")
+                errors.append(t("{0}: vul zowel 'van' als 'tot' in, of laat allebei leeg.", place))
             elif start >= end:
-                errors.append(f"{place}: 'tot' ({end}) moet later zijn dan 'van' ({start}).")
+                errors.append(t("{0}: 'tot' ({1}) moet later zijn dan 'van' ({2}).", place, end, start))
             else:
                 schedule[day][window] = [start, end]
     return schedule, errors
@@ -224,7 +224,7 @@ edited_grid = st.data_editor(
         "Dag": st.column_config.TextColumn(t("Dag"), width="small"),
         **{
             column: st.column_config.TextColumn(
-                column, max_chars=5,
+                t(column.rsplit(" ", 1)[0]) + " " + t(column.rsplit(" ", 1)[1]), max_chars=5,
                 help=t("Tijd als uu:mm, bijvoorbeeld 11:00. Laat 'van' én 'tot' leeg als er in dit blokje niet gedruppeld mag worden."),
             )
             for _, _, column in _drip_grid_columns()
@@ -413,7 +413,7 @@ if not is_english():   # Engelse gebruikers zien de kortingscodes van de webshop
             if kind == "percent":
                 pct = row.get("Percentage")
                 if pct is None or pd.isna(pct) or not 1 <= float(pct) <= 100:
-                    problems.append(f"{code}: vul een percentage tussen 1 en 100 in.")
+                    problems.append(t('{0}: vul een percentage tussen 1 en 100 in.', code))
                     continue
                 entry["percent"] = int(round(float(pct)))
             until = row.get("Tot en met")
@@ -524,7 +524,7 @@ if found_placeholders is not None:
             get_all_images.clear()  # zodat Boekdetails de foto's meteen opnieuw laadt
             st.session_state["placeholder_uploads_found"] = None
             st.session_state["placeholder_delete_message"] = (
-                f"{deleted_count} nepfoto('s) verwijderd. De boeken zelf zijn niet aangeraakt."
+                t("{0} nepfoto('s) verwijderd. De boeken zelf zijn niet aangeraakt.", deleted_count)
             )
             st.rerun()
 

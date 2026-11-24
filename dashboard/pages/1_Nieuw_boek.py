@@ -190,48 +190,45 @@ if market_info:
     active = market_info.get("activeAmount") or 0
     bw_no_offers = active == 0
     if active > 0:
-        msg = (
-            f"Dit boek wordt momenteel {active} keer aangeboden op Boekwinkeltjes "
-            f"voor €{format_price_dot(market_info.get('laagste_prijs'))} t/m €{format_price_dot(market_info.get('hoogste_prijs'))}"
+        msg = t(
+            "Dit boek wordt momenteel {0} keer aangeboden op Boekwinkeltjes voor €{1} t/m €{2}",
+            active, format_price_dot(market_info.get('laagste_prijs')), format_price_dot(market_info.get('hoogste_prijs')),
         )
         if market_info.get("lastOrder"):
-            msg += (
-                f", en is voor het laatst verkocht op {market_info['lastOrder']} "
-                f"voor het bedrag van {market_info['lastPrice']}"
-            )
+            msg += t(", en is voor het laatst verkocht op {0} voor het bedrag van {1}", market_info['lastOrder'], market_info['lastPrice'])
         box_lines.append(msg + ".")
     elif market_info.get("lastOrder"):
         box_lines.append(
-            f"Bij Boekwinkeltjes wordt dit boek momenteel niet aangeboden, maar is voor het laatst verkocht "
-            f"op {market_info['lastOrder']} voor het bedrag van {market_info['lastPrice']}."
+            t("Bij Boekwinkeltjes wordt dit boek momenteel niet aangeboden, maar is voor het laatst verkocht op {0} voor het bedrag van {1}.",
+              market_info['lastOrder'], market_info['lastPrice'])
         )
     else:
         bw_shows_nothing = True
         bw_no_offers = True
-        box_lines.append("Bij Boekwinkeltjes wordt dit boek momenteel niet aangeboden.")
+        box_lines.append(t("Bij Boekwinkeltjes wordt dit boek momenteel niet aangeboden."))
 elif market_error == "Geen gegevens gevonden voor dit ISBN.":
     # Boekwinkeltjes kent dit ISBN helemaal niet: dat is hetzelfde als 'niet aangeboden'.
     bw_shows_nothing = True
     bw_no_offers = True
-    box_lines.append("Bij Boekwinkeltjes wordt dit boek momenteel niet aangeboden.")
+    box_lines.append(t("Bij Boekwinkeltjes wordt dit boek momenteel niet aangeboden."))
 elif ean.strip() and ean.strip() != "0":
     st.caption(t('Kon geen marktgegevens ophalen: {0}', market_error))
 
 if external_metadata_preview and external_metadata_preview.get("prices"):
-    box_lines.append("Externe prijzen: " + ", ".join(external_metadata_preview["prices"]))
+    box_lines.append(t("Externe prijzen: ") + ", ".join(external_metadata_preview["prices"]))
 
 if bol_count is not None:
     if bol_count > 0:
-        verkoper_woord = "verkoper" if bol_count == 1 else "verkopers"
         box_lines.append(
-            f"Bij Bol wordt dit boek door {bol_count} {verkoper_woord} aangeboden voor "
-            f"€{format_price_dot(bol_laagste)} t/m €{format_price_dot(bol_hoogste)}."
+            t("Bij Bol wordt dit boek door {0} verkoper aangeboden voor €{1} t/m €{2}.", bol_count, format_price_dot(bol_laagste), format_price_dot(bol_hoogste))
+            if bol_count == 1 else
+            t("Bij Bol wordt dit boek door {0} verkopers aangeboden voor €{1} t/m €{2}.", bol_count, format_price_dot(bol_laagste), format_price_dot(bol_hoogste))
         )
     else:
         box_lines.append(
-            "Ook bij Bol niet."
+            t("Ook bij Bol niet.")
             if bw_no_offers
-            else "Bij Bol wordt dit boek momenteel niet aangeboden."
+            else t("Bij Bol wordt dit boek momenteel niet aangeboden.")
         )
 
 # Is het boek bij zowel Boekwinkeltjes als Bol nergens te koop? Dan als hulpmiddel de laagste
@@ -330,14 +327,14 @@ if isbn_is_valid and st.session_state.get("new_book_prefilled_isbn") != ean:
                 {
                     "data": metadata["cover_bytes"],
                     "content_type": metadata.get("cover_content_type", "image/jpeg"),
-                    "label": f"Omslag via {metadata.get('cover_source') or metadata.get('source', 'internet')}",
+                    "label": t("Omslag via {0}", metadata.get('cover_source') or metadata.get('source', 'internet')),
                 }
             ]
             st.session_state[k("cover_note")] = None
         else:
             rejected_sources = metadata.get("cover_rejected")
             st.session_state[k("cover_note")] = (
-                f"Geen omslag toegevoegd: {', '.join(rejected_sources)} gaf alleen een plaatshouder (\"geen omslag beschikbaar\")."
+                t("Geen omslag toegevoegd: {0} gaf alleen een plaatshouder (\"geen omslag beschikbaar\").", ', '.join(rejected_sources))
                 if rejected_sources else None
             )
 
@@ -574,10 +571,10 @@ with col_b:
     )
     _push_options = ["Push naar de webshop, Boekwinkeltjes en eventueel Bol", "Geen push (alleen lokaal bewaren)"]
     if is_admin:
-        push_enabled_choice = st.selectbox(t('Synchronisatie'), options=_push_options, key=k("push_enabled"))
+        push_enabled_choice = st.selectbox(t('Synchronisatie'), options=_push_options, key=k("push_enabled"), format_func=t)
     else:
         push_enabled_choice = st.selectbox(
-            t('Synchronisatie'), options=_push_options, index=1, disabled=True, key=k("push_enabled"),
+            t('Synchronisatie'), options=_push_options, index=1, disabled=True, key=k("push_enabled"), format_func=t,
             help=t('Het boek wordt pas online gezet nadat de beheerder het vrijgeeft, als het boek in de opslag ligt.'),
         )
         st.caption(t('Het boek komt pas online nadat de beheerder het vrijgeeft (zodra het in de opslag ligt).'))
@@ -734,21 +731,21 @@ if st.button(t('Boek toevoegen'), type="primary", key="new_book_submit"):
 
         if push_enabled_choice == "Push naar de webshop, Boekwinkeltjes en eventueel Bol":
             st.session_state["new_book_success_msg"] = (
-                f"✅ \"{title}\" is opgeslagen (tijdelijk id {temp_id}) en komt online:\n"
-                "- Bij de webshop aan het einde van de komende nacht.\n"
-                "- Bij Boekwinkeltjes gedurende de eerstvolgende druppeltijd.\n"
-                + ("- Niet bij Bol want er is geen ISBN." if not isbn_present
-                   else "- Niet bij Bol want het boek is daarvoor ongeschikt." if bol_unsuitable
-                   else "- Bij Bol na de eerstvolgende synchronisatie.")
+                t('✅ "{0}" is opgeslagen (tijdelijk id {1}) en komt online:', title, temp_id) + "\n"
+                + "- " + t("Bij de webshop aan het einde van de komende nacht.") + "\n"
+                + "- " + t("Bij Boekwinkeltjes gedurende de eerstvolgende druppeltijd.") + "\n"
+                + ("- " + t("Niet bij Bol want er is geen ISBN.") if not isbn_present
+                   else "- " + t("Niet bij Bol want het boek is daarvoor ongeschikt.") if bol_unsuitable
+                   else "- " + t("Bij Bol na de eerstvolgende synchronisatie."))
             )
         elif not is_admin:
-            st.session_state["new_book_success_msg"] = (
-                f"✅ \"{title}\" is opgeslagen (tijdelijk id {temp_id}) en komt gefaseerd online nadat het boek "
-                "in de opslag ligt en door de beheerder is vrijgegeven."
+            st.session_state["new_book_success_msg"] = t(
+                '✅ "{0}" is opgeslagen (tijdelijk id {1}) en komt gefaseerd online nadat het boek in de opslag ligt en door de beheerder is vrijgegeven.',
+                title, temp_id,
             )
         else:
-            st.session_state["new_book_success_msg"] = (
-                f"✅ \"{title}\" is lokaal opgeslagen (tijdelijk id {temp_id}) met 'Geen push' — "
-                "dit boek wordt niet naar Boekwinkeltjes gestuurd totdat je dat aanpast."
+            st.session_state["new_book_success_msg"] = t(
+                '✅ "{0}" is lokaal opgeslagen (tijdelijk id {1}) met \'Geen push\' — dit boek wordt niet naar Boekwinkeltjes gestuurd totdat je dat aanpast.',
+                title, temp_id,
             )
         st.rerun()

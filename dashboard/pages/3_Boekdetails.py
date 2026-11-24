@@ -581,33 +581,30 @@ else:
                 if market_info:
                     active = market_info.get("activeAmount") or 0
                     if active > 0:
-                        msg = (
-                            f"Dit boek wordt momenteel {active} keer aangeboden op Boekwinkeltjes "
-                            f"voor €{format_price_dot(market_info.get('laagste_prijs'))} t/m €{format_price_dot(market_info.get('hoogste_prijs'))}"
+                        msg = t(
+                            "Dit boek wordt momenteel {0} keer aangeboden op Boekwinkeltjes voor €{1} t/m €{2}",
+                            active, format_price_dot(market_info.get('laagste_prijs')), format_price_dot(market_info.get('hoogste_prijs')),
                         )
                         if market_info.get("lastOrder"):
-                            msg += (
-                                f", en is voor het laatst verkocht op {market_info['lastOrder']} "
-                                f"voor het bedrag van {market_info['lastPrice']}"
-                            )
+                            msg += t(", en is voor het laatst verkocht op {0} voor het bedrag van {1}", market_info['lastOrder'], market_info['lastPrice'])
                         bw_box_lines.append(msg + ".")
                     elif market_info.get("lastOrder"):
                         bw_box_lines.append(
-                            f"Dit boek wordt momenteel niet aangeboden, maar is voor het laatst verkocht "
-                            f"op {market_info['lastOrder']} voor het bedrag van {market_info['lastPrice']}."
+                            t("Dit boek wordt momenteel niet aangeboden, maar is voor het laatst verkocht op {0} voor het bedrag van {1}.",
+                              market_info['lastOrder'], market_info['lastPrice'])
                         )
                     else:
-                        bw_box_lines.append("Dit boek wordt niet aangeboden op Boekwinkeltjes.")
+                        bw_box_lines.append(t("Dit boek wordt niet aangeboden op Boekwinkeltjes."))
 
                 if bol_count is not None:
                     if bol_count > 0:
-                        verkoper_woord = "verkoper" if bol_count == 1 else "verkopers"
                         bw_box_lines.append(
-                            f"Bij Bol wordt dit boek door {bol_count} {verkoper_woord} aangeboden voor "
-                            f"€{format_price_dot(bol_laagste)} t/m €{format_price_dot(bol_hoogste)}."
+                            t("Bij Bol wordt dit boek door {0} verkoper aangeboden voor €{1} t/m €{2}.", bol_count, format_price_dot(bol_laagste), format_price_dot(bol_hoogste))
+                            if bol_count == 1 else
+                            t("Bij Bol wordt dit boek door {0} verkopers aangeboden voor €{1} t/m €{2}.", bol_count, format_price_dot(bol_laagste), format_price_dot(bol_hoogste))
                         )
                     else:
-                        bw_box_lines.append("Bij Bol wordt dit boek momenteel niet aangeboden.")
+                        bw_box_lines.append(t("Bij Bol wordt dit boek momenteel niet aangeboden."))
 
                 # Nergens te koop (niet bij Boekwinkeltjes en niet bij Bol)? Dan als hulpmiddel de laagste prijs bij
                 # Abebooks erbij, net als bij Nieuw boek.
@@ -964,31 +961,31 @@ else:
                     _f = [x for x in _f if x != F_SOLD] + ([] if F_STOCK in _f else [F_STOCK])
                     st.session_state["pending_view_filters"] = _f
                 _online = not edit_queued and edit_push_enabled
-                _lines = [f"✅ \"{edit_title}\" is aangepast en opgeslagen (id {chosen_id})" + (" en komt online:" if _online else ":")]
+                _lines = [t('✅ "{0}" is aangepast en opgeslagen (id {1})', edit_title, chosen_id) + (t(" en komt online:") if _online else ":")]
                 if edit_queued:
-                    _lines.append("- Het boek staat in de wachtrij en gaat nergens naartoe totdat je dat op 'Nee' zet.")
+                    _lines.append("- " + t("Het boek staat in de wachtrij en gaat nergens naartoe totdat je dat op 'Nee' zet."))
                 elif not edit_push_enabled:
-                    _lines.append("- Synchronisatie staat uit ('Geen push'): het boek gaat niet naar Boekwinkeltjes, de webshop of Bol.")
+                    _lines.append("- " + t("Synchronisatie staat uit ('Geen push'): het boek gaat niet naar Boekwinkeltjes, de webshop of Bol."))
                 else:
                     if int(edit_amount) <= 0:
-                        _lines.append("- Niet op de webshop want er is geen voorraad.")
+                        _lines.append("- " + t("Niet op de webshop want er is geen voorraad."))
                     else:
-                        _lines.append("- Op de webshop: prijs en voorraad bij de eerstvolgende catalogus-run, de rest aan het einde van de komende nacht.")
+                        _lines.append("- " + t("Op de webshop: prijs en voorraad bij de eerstvolgende catalogus-run, de rest aan het einde van de komende nacht."))
                     _both = chosen_id >= 0 and isbn_present and not bol_unsuitable
                     if _both:
-                        _lines.append("- Bij Bol en Boekwinkeltjes na de eerstvolgende synchronisatie.")
+                        _lines.append("- " + t("Bij Bol en Boekwinkeltjes na de eerstvolgende synchronisatie."))
                     elif chosen_id < 0:
-                        _lines.append("- Bij Boekwinkeltjes gedurende de eerstvolgende druppeltijd.")
+                        _lines.append("- " + t("Bij Boekwinkeltjes gedurende de eerstvolgende druppeltijd."))
                     else:
-                        _lines.append("- Bij Boekwinkeltjes na de eerstvolgende synchronisatie.")
+                        _lines.append("- " + t("Bij Boekwinkeltjes na de eerstvolgende synchronisatie."))
                     if _both:
                         pass
                     elif not isbn_present:
-                        _lines.append("- Niet bij Bol want er is geen ISBN.")
+                        _lines.append("- " + t("Niet bij Bol want er is geen ISBN."))
                     elif bol_unsuitable:
-                        _lines.append("- Niet bij Bol want het boek is daarvoor ongeschikt.")
+                        _lines.append("- " + t("Niet bij Bol want het boek is daarvoor ongeschikt."))
                     else:
-                        _lines.append("- Bij Bol na de eerstvolgende synchronisatie.")
+                        _lines.append("- " + t("Bij Bol na de eerstvolgende synchronisatie."))
                 st.session_state["book_saved_msg"] = "\n".join(_lines)
                 st.rerun()
 

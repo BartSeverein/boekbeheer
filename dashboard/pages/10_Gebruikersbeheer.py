@@ -243,7 +243,7 @@ with st.form("todo_extra_form", clear_on_submit=True):
             st.error(t('Vul een tekst in.'))
         else:
             add_todo_extra(extra_date, extra_text, my_short_name)
-            st.session_state["todo_extra_flash"] = f"Toegevoegd voor {_dagen[extra_date.weekday()]} {extra_date.strftime('%d-%m-%Y')}."
+            st.session_state["todo_extra_flash"] = t('Toegevoegd voor {0} {1}.', t(_dagen[extra_date.weekday()]), extra_date.strftime('%d-%m-%Y'))
             st.rerun()
 
 _extras = get_todo_extras()

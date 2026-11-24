@@ -171,7 +171,7 @@ if "bulk_queue_loc_done" in st.session_state:
     st.success(st.session_state.pop("bulk_queue_loc_done"))
 queued_books = get_queued_books()
 if not queued_books:
-    info_box("Geen boeken in de wachtrij.")
+    info_box(t("Geen boeken in de wachtrij."))
 else:
     my_name = current_user_short_name()
     n_mine, n_total = queued_counts(queued_books, my_name)
@@ -192,7 +192,7 @@ else:
                     save_book_edits(_b["id"], {"location": new_location}, user_short_name=_me,
                                     previous_values={"location": _b.get("location")})
                 load_books.clear()
-                st.session_state["bulk_queue_loc_done"] = f"De locatie van {len(shown_books)} boeken is gewijzigd naar {new_location}."
+                st.session_state["bulk_queue_loc_done"] = t('De locatie van {0} boeken is gewijzigd naar {1}.', len(shown_books), new_location)
                 st.rerun()
     for book in shown_books:
         col_info, col_edit, col_delete = st.columns([5, 1, 1])
