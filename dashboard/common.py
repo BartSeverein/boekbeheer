@@ -270,9 +270,9 @@ def require_login():
 
     if get_user_count() == 0:
         st.info(
-            "Er zijn nog geen gebruikers aangemaakt. Ga naar 'Gebruikersbeheer' om de "
+            t("Er zijn nog geen gebruikers aangemaakt. Ga naar 'Gebruikersbeheer' om de "
             "eerste gebruiker aan te maken — tot die tijd is de app open voor iedereen "
-            "met de link."
+            "met de link.")
         )
         return None
 
@@ -678,7 +678,7 @@ def trigger_github_workflow(workflow_file, ref="main"):
     token = _get_secret("GITHUB_TOKEN")
 
     if not repo or not token:
-        return False, "GITHUB_REPO en/of GITHUB_TOKEN zijn niet ingesteld in de secrets."
+        return False, t("GITHUB_REPO en/of GITHUB_TOKEN zijn niet ingesteld in de secrets.")
 
     url = f"https://api.github.com/repos/{repo}/actions/workflows/{workflow_file}/dispatches"
     try:
@@ -697,8 +697,8 @@ def trigger_github_workflow(workflow_file, ref="main"):
     # GitHub documenteert 204 (geen inhoud) als antwoord. In december 2025 gaf het een paar uur een 200 met een
     # beschrijving van de gestarte run terug; dan was de workflow ook gewoon gestart. Beide tellen dus als gelukt.
     if resp.status_code in (200, 204):
-        return True, "Gestart! Dit duurt een paar minuten — check het Actions-tabblad op GitHub voor de voortgang."
-    return False, f"GitHub gaf een fout terug ({resp.status_code}): {resp.text[:300]}"
+        return True, t("Gestart! Dit duurt een paar minuten — check het Actions-tabblad op GitHub voor de voortgang.")
+    return False, t('GitHub gaf een fout terug ({0}): {1}', resp.status_code, resp.text[:300])
 
 
 def get_db_url():
@@ -1413,11 +1413,11 @@ def add_placeholder_image(name, data, content_type):
     """
     verdict = check_cover_image(data)
     if verdict == "unreadable":
-        return False, "Dit bestand is geen leesbaar plaatje."
+        return False, t("Dit bestand is geen leesbaar plaatje.")
     if verdict == "too_small":
         return False, "Dit plaatje is te klein om als voorbeeld te dienen."
     if verdict == "placeholder":
-        return False, "Dit plaatje wordt al als plaatshouder herkend; toevoegen is niet nodig."
+        return False, t("Dit plaatje wordt al als plaatshouder herkend; toevoegen is niet nodig.")
     conn = psycopg2.connect(get_db_url())
     try:
         with conn.cursor() as cur:
@@ -1472,12 +1472,12 @@ def set_web_extra(book_id, source, ref_id, value):
     voorkant (eerste foto) staat er altijd al op en kan niet worden aangewezen.
     """
     if not _has_web_extra_column():
-        return False, "De database mist nog de kolom web_extra (voer foto_webshop.sql uit in Supabase)."
+        return False, t("De database mist nog de kolom web_extra (voer foto_webshop.sql uit in Supabase).")
     images = get_all_images(book_id)
     if images and images[0]["source"] == source and images[0]["ref_id"] == ref_id:
-        return False, "De voorkant staat altijd op de webshop."
+        return False, t("De voorkant staat altijd op de webshop.")
     if value and sum(1 for i in images[1:] if i.get("web_extra")) >= MAX_WEB_EXTRA:
-        return False, f"Er staan al {MAX_WEB_EXTRA} extra foto's op de webshop. Haal eerst een andere weg."
+        return False, t("Er staan al {0} extra foto's op de webshop. Haal eerst een andere weg.", MAX_WEB_EXTRA)
     conn = psycopg2.connect(get_db_url())
     try:
         with conn.cursor() as cur:
@@ -1518,7 +1518,7 @@ def set_front_image(book_id, image_id):
     van dit boek is nagekeken. Verandert niets bij Boekwinkeltjes. Geeft (gelukt, melding) terug.
     """
     if not _has_front_column():
-        return False, "De database mist nog de kolommen voor de voorkantkeuze (voer voorkant_keuze.sql uit in Supabase)."
+        return False, t("De database mist nog de kolommen voor de voorkantkeuze (voer voorkant_keuze.sql uit in Supabase).")
     conn = psycopg2.connect(get_db_url())
     try:
         with conn.cursor() as cur:
@@ -1554,7 +1554,7 @@ def _ensure_web_photos_checked_column():
 def mark_front_checked(book_id, checked=True, mode="front"):
     """Noteert dat de voorkant (mode='front') of de extra webshopfoto's (mode='extra') van dit boek zijn nagekeken."""
     if not _has_front_column():
-        return False, "De database mist nog de kolommen voor de voorkantkeuze (voer voorkant_keuze.sql uit in Supabase)."
+        return False, t("De database mist nog de kolommen voor de voorkantkeuze (voer voorkant_keuze.sql uit in Supabase).")
     column = REVIEW_COLUMNS[mode]
     conn = psycopg2.connect(get_db_url())
     try:
@@ -1593,7 +1593,7 @@ def set_web_extra_quick(book_id, image_id, value):
                 cur.execute("SELECT COUNT(*) FROM book_images WHERE book_id = %(b)s AND web_extra AND NOT is_front AND image_id NOT IN (-1, %(i)s)",
                             {"b": int(book_id), "i": int(image_id)})
                 if cur.fetchone()[0] >= MAX_WEB_EXTRA:
-                    return False, f"Er zijn al {MAX_WEB_EXTRA} extra foto's gekozen. Haal eerst een andere weg."
+                    return False, t("Er zijn al {0} extra foto's gekozen. Haal eerst een andere weg.", MAX_WEB_EXTRA)
             cur.execute("UPDATE book_images SET web_extra = %(v)s WHERE book_id = %(b)s AND image_id = %(i)s",
                         {"v": bool(value), "b": int(book_id), "i": int(image_id)})
         conn.commit()
@@ -2021,7 +2021,7 @@ def _boekwinkeltjes_login_session():
             allow_redirects=False,
         )
     except requests.RequestException as e:
-        return None, f"Kon niet inloggen bij Boekwinkeltjes: {e}"
+        return None, t('Kon niet inloggen bij Boekwinkeltjes: {0}', e)
 
     if "secureID" not in session.cookies.get_dict():
         # Wat de server precies terugstuurde, zodat te zien is of het een weigering (403, andere pagina) of een echt
@@ -2034,7 +2034,7 @@ def _boekwinkeltjes_login_session():
         )
         if 403 in (get_resp.status_code, post_resp.status_code):
             return None, f"Boekwinkeltjes weigert de verbinding vanaf deze server (403 Forbidden; {detail})."
-        return None, f"Inloggen bij Boekwinkeltjes is mislukt: geen sessiecookie ontvangen ({detail}). Controleer de gebruikersnaam en het wachtwoord."
+        return None, t('Inloggen bij Boekwinkeltjes is mislukt: geen sessiecookie ontvangen ({0}). Controleer de gebruikersnaam en het wachtwoord.', detail)
     return session, None
 
 
@@ -2050,15 +2050,15 @@ def _market_info_via_api(isbn, api_key):
     try:
         resp = requests.get(url, headers={"api-key": api_key, "Accept": "application/json"}, timeout=15)
     except requests.RequestException as e:
-        return None, f"Kon geen verbinding maken met Boekwinkeltjes: {e}"
+        return None, t('Kon geen verbinding maken met Boekwinkeltjes: {0}', e)
     if resp.status_code == 404:
         return None, "Geen gegevens gevonden voor dit ISBN."
     if resp.status_code in (401, 403) and "json" not in (resp.headers.get("Content-Type") or "").lower():
-        return None, f"Boekwinkeltjes weigert de verbinding vanaf deze server ({resp.status_code}); dat is een blokkade aan hun kant."
+        return None, t('Boekwinkeltjes weigert de verbinding vanaf deze server ({0}); dat is een blokkade aan hun kant.', resp.status_code)
     if resp.status_code == 401:
-        return None, "Boekwinkeltjes accepteert de API-sleutel niet (401). Controleer BOEKWINKELTJES_API_KEY_LIVE in de secrets."
+        return None, t("Boekwinkeltjes accepteert de API-sleutel niet (401). Controleer BOEKWINKELTJES_API_KEY_LIVE in de secrets.")
     if not resp.ok:
-        return None, f"Boekwinkeltjes gaf een fout terug (status {resp.status_code}): {(resp.text or '')[:200]}"
+        return None, t('Boekwinkeltjes gaf een fout terug (status {0}): {1}', resp.status_code, (resp.text or '')[:200])
     try:
         data = resp.json()
     except ValueError:
@@ -2102,7 +2102,7 @@ def raw_boekwinkeltjes_market_response(isbn):
     """Voor diagnose (Hulp en instellingen): het ruwe antwoord van /books/market/:isbn als tekst, zonder de sleutel."""
     api_key = _get_secret("BOEKWINKELTJES_API_KEY_LIVE")
     if not api_key:
-        return "Geen BOEKWINKELTJES_API_KEY_LIVE in de secrets."
+        return t("Geen BOEKWINKELTJES_API_KEY_LIVE in de secrets.")
     url = f"{BOEKWINKELTJES_API_BASE}/books/market/{(isbn or '').strip()}"
     try:
         resp = requests.get(url, headers={"api-key": api_key, "Accept": "application/json"}, timeout=15)
@@ -2140,13 +2140,13 @@ def lookup_boekwinkeltjes_market_info(isbn):
     try:
         resp = session.get(url, timeout=10)
         if not resp.ok:
-            return None, f"Boekwinkeltjes gaf een fout terug (status {resp.status_code})."
+            return None, t('Boekwinkeltjes gaf een fout terug (status {0}).', resp.status_code)
         data = resp.json()
     except (requests.RequestException, ValueError) as e:
-        return None, f"Kon geen verbinding maken: {e}"
+        return None, t('Kon geen verbinding maken: {0}', e)
 
     if data == "AUTHENTICATION_FAIL" or (isinstance(data, dict) and data.get("error") == "AUTHENTICATION_FAIL"):
-        return None, "Authenticatie mislukt ondanks inloggen — mogelijk is het inlogmechanisme veranderd."
+        return None, t("Authenticatie mislukt ondanks inloggen — mogelijk is het inlogmechanisme veranderd.")
     if not data.get("status"):
         return None, "Geen gegevens gevonden voor dit ISBN."
     return data, None
@@ -2500,7 +2500,7 @@ def determine_busstuk(length_cm, thickness_cm, briefpost_eur, pakketpost_eur):
         and PLAUSIBLE_THICKNESS_RANGE_CM[0] <= thickness_cm <= PLAUSIBLE_THICKNESS_RANGE_CM[1]
     )
     if not plausible:
-        message = "⚠️ Het is onbekend hoe lang en dik het boek is, controleer de gekozen verzendkosten goed."
+        message = t("⚠️ Het is onbekend hoe lang en dik het boek is, controleer de gekozen verzendkosten goed.")
         if length_cm is not None and thickness_cm is not None:
             # Niet zomaar stilzwijgend verwerpen: de genegeerde waarde laten zien,
             # zodat jij een duidelijk foute waarde ook kunt zien en kunt melden.
@@ -4255,7 +4255,7 @@ def _fetch_abebooks_pricing(isbn13):
             headers={"User-Agent": "Boekbeheer-prijscontrole/1.0"},
         )
     except requests.RequestException as e:
-        raise AbebooksError(f"geen verbinding met Abebooks ({type(e).__name__})")
+        raise AbebooksError(t('geen verbinding met Abebooks ({0})', type(e).__name__))
     if not resp.ok:
         raise AbebooksError(f"Abebooks antwoordde met HTTP {resp.status_code}", resp.text[:1500])
     try:
@@ -4429,7 +4429,7 @@ def parse_ecb_rates(xml_bytes):
             if rate > 0:
                 rates[cube.attrib["currency"]] = rate
     if not rates:
-        raise ExchangeRateError("geen koersen in het bestand")
+        raise ExchangeRateError(t("geen koersen in het bestand"))
     if not (isinstance(rate_date, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", rate_date)):
         rate_date = "onbekende datum"
     return rates, rate_date
@@ -4443,9 +4443,9 @@ def _fetch_ecb_rates():
         resp.raise_for_status()
     except requests.HTTPError as e:
         status = e.response.status_code if e.response is not None else "onbekend"
-        raise ExchangeRateError(f"de ECB antwoordde met een foutmelding (HTTP {status})")
+        raise ExchangeRateError(t('de ECB antwoordde met een foutmelding (HTTP {0})', status))
     except requests.RequestException as e:
-        raise ExchangeRateError(f"geen verbinding met de ECB ({type(e).__name__})")
+        raise ExchangeRateError(t('geen verbinding met de ECB ({0})', type(e).__name__))
     return parse_ecb_rates(resp.content)
 
 
@@ -4460,18 +4460,18 @@ def convert_to_eur(amount, display_currency):
     if iso is None and isinstance(display_currency, str) and re.fullmatch(r"[A-Z]{3}", display_currency):
         iso = display_currency  # een ISO-code als 'SEK'; de ECB publiceert er circa 30
     if iso is None:
-        return None, f"'{display_currency}' is niet eenduidig genoeg om om te rekenen"
+        return None, t("'{0}' is niet eenduidig genoeg om om te rekenen", display_currency)
     if iso == "EUR":
         return None, "het bedrag staat al in euro"
     try:
         rates, rate_date = _fetch_ecb_rates()
     except ExchangeRateError as e:
-        return None, f"omrekenen naar euro lukte niet: {e}"
+        return None, t('omrekenen naar euro lukte niet: {0}', e)
     rate = rates.get(iso)
     if rate is None:
-        return None, f"de ECB publiceert geen koers voor {iso}"
+        return None, t('de ECB publiceert geen koers voor {0}', iso)
     rate_text = f"{rate:.4f}".rstrip("0").rstrip(".").replace(".", ",")
-    return round(amount / rate, 2), f"1 euro = {rate_text} {iso} (referentiekoers van de ECB, {rate_date})"
+    return round(amount / rate, 2), t('1 euro = {0} {1} (referentiekoers van de ECB, {2})', rate_text, iso, rate_date)
 
 
 # Onthouden (10 min), ook een mislukte opzoeking: anders wacht elke klik op een keuzelijst opnieuw op de time-out.
@@ -4491,7 +4491,7 @@ def lookup_abebooks_lowest_price(isbn):
     }
     isbn13 = re.sub(r"\D", "", normalize_isbn(isbn) or "")
     if len(isbn13) != 13:
-        result["message"] = "geen geldig ISBN om op te zoeken"
+        result["message"] = t("geen geldig ISBN om op te zoeken")
         return result
     try:
         data = _fetch_abebooks_pricing(isbn13)
@@ -4503,7 +4503,7 @@ def lookup_abebooks_lowest_price(isbn):
     status, amount, currency, source = parse_abebooks_pricing(data)
     result.update(status=status, amount=amount, currency=currency, source=source)
     if status == "unreadable":
-        result["message"] = "het antwoord van Abebooks bevat niets wat de app herkent"
+        result["message"] = t("het antwoord van Abebooks bevat niets wat de app herkent")
     if status == "price" and currency:
         result["amount_eur"], result["rate_note"] = convert_to_eur(amount, currency)
     return result
@@ -4514,14 +4514,14 @@ def abebooks_box_line(result):
     if result["status"] == "price":
         amount_text = f"{result['amount']:.2f}".replace(".", ",")
         if result["currency"]:
-            line = f"Op Abebooks is het laagste bedrag {result['currency']} {amount_text}"
+            line = t('Op Abebooks is het laagste bedrag {0} {1}', result['currency'], amount_text)
             if result.get("amount_eur") is not None:
                 line += f" (± € {result['amount_eur']:.2f})".replace(".", ",")
             return line
-        return f"Op Abebooks is het laagste bedrag {amount_text} (valuta onbekend)"
+        return t('Op Abebooks is het laagste bedrag {0} (valuta onbekend)', amount_text)
     if result["status"] == "none":
-        return "Ook op Abebooks wordt dit boek momenteel niet aangeboden."
-    return "Abebooks kon niet worden geraadpleegd (zie de technische details hieronder)."
+        return t("Ook op Abebooks wordt dit boek momenteel niet aangeboden.")
+    return t("Abebooks kon niet worden geraadpleegd (zie de technische details hieronder).")
 
 
 # ---------- cron-job.org (overzicht van de 5 geplande taken op Home) ----------
@@ -4575,7 +4575,7 @@ def get_github_workflow_runs(workflow_file, around_epoch, window_seconds=600):
     repo = _get_secret("GITHUB_REPO")
     token = _get_secret("GITHUB_TOKEN")
     if not repo or not token:
-        return [], "GITHUB_REPO en/of GITHUB_TOKEN zijn niet ingesteld."
+        return [], t("GITHUB_REPO en/of GITHUB_TOKEN zijn niet ingesteld.")
     start = dt.datetime.fromtimestamp(around_epoch - window_seconds, tz=dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     end = dt.datetime.fromtimestamp(around_epoch + window_seconds, tz=dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     try:
@@ -4660,7 +4660,7 @@ def get_cron_job_status():
     """
     api_key = _get_secret("CRON_JOB_API_KEY")
     if not api_key:
-        return [], "CRON_JOB_API_KEY is niet ingesteld."
+        return [], t("CRON_JOB_API_KEY is niet ingesteld.")
     try:
         resp = requests.get(
             f"{CRON_JOB_API_BASE}/jobs",

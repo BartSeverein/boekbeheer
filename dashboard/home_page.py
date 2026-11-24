@@ -422,7 +422,7 @@ else:
                 "Taak": job.get("title", "(naamloos)"),
                 "Laatste run": format_datetime_nl(dt.datetime.fromtimestamp(last_exec, tz=dt.timezone.utc)) if last_exec else "–",
                 "Status": cron_status_label(job.get("lastStatus")),
-                "Uitkomst bij GitHub": "⚠️ niet op te halen" if gh_error else github_run_label(gh_run),
+                "Uitkomst bij GitHub": t("⚠️ niet op te halen") if gh_error else github_run_label(gh_run),
                 "Duur": "–" if gh_error else github_run_duration_label(gh_run),
                 "Volgende run": format_datetime_nl(dt.datetime.fromtimestamp(next_exec, tz=dt.timezone.utc)) if next_exec else "–",
             }
@@ -490,7 +490,7 @@ with right1:
         if "queued" in _rick_sale.columns:
             _rick_sale = _rick_sale[~_rick_sale["queued"].fillna(False).astype(bool)]
         is_rick = _rick_sale["location"].fillna("").str.contains("r", case=False)
-        rick_counts = is_rick.map({True: "Wel van Rick", False: "Niet van Rick"}).value_counts().reset_index()
+        rick_counts = is_rick.map({True: t("Wel van Rick"), False: t("Niet van Rick")}).value_counts().reset_index()
         rick_counts.columns = ["wie", "aantal boeken"]
         fig = px.pie(rick_counts, names="wie", values="aantal boeken")
         st.plotly_chart(fig, width="stretch")

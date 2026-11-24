@@ -22,6 +22,11 @@ except ImportError:  # i18n_en.py nog niet geüpload: alles blijft Nederlands
     EN = {}
 
 try:
+    from i18n_en import LOG_NOUNS, LOG_VERBS, LOG_PHRASES
+except ImportError:
+    LOG_NOUNS, LOG_VERBS, LOG_PHRASES = [], {}, []
+
+try:
     from i18n_en import MENU_EN
 except ImportError:
     MENU_EN = {}
@@ -103,3 +108,30 @@ def category_option(label):
     if match:
         return t("(huidig) {0}", category_label(match.group(1)))
     return category_label(t(label)) if label in EN else category_label(label)
+
+
+def tlog(text):
+    """Tekst uit het sync-log (door de synchronisatie in het Nederlands weggeschreven) voor weergave vertalen.
+    Voor Nederlandse gebruikers, lege teksten en onbekende teksten blijft alles zoals het is."""
+    if not text or not isinstance(text, str) or not is_english():
+        return text
+    exact = EN.get(text)
+    if exact is not None:
+        return exact
+    verbs = "|".join(sorted(LOG_VERBS, key=len, reverse=True))
+    out = text
+    for nl_s, nl_p, en_s, en_p in LOG_NOUNS:
+        pat = r"(\d+) (%s|%s)(?: (%s))?(?![\w'-])" % (re.escape(nl_p), re.escape(nl_s), verbs)
+
+        def repl(m, en_s=en_s, en_p=en_p, nl_s=nl_s):
+            n = m.group(1)
+            one = n == "1" and m.group(2) == nl_s
+            word = en_s if one else en_p
+            verb = m.group(3)
+            if verb:
+                word += " " + LOG_VERBS[verb][0 if one else 1]
+            return f"{n} {word}"
+        out = re.sub(pat, repl, out)
+    for nl, en in sorted(LOG_PHRASES, key=lambda p: -len(p[0])):
+        out = out.replace(nl, en)
+    return re.sub(r"\b[Bb]oek (\d+)", lambda m: "Book " + m.group(1) if m.group(0)[0] == "B" else "book " + m.group(1), out)
