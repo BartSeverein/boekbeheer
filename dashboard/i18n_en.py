@@ -745,3 +745,13 @@ EN.update({
 EN.update({"Nog geen boeken toegevoegd.": "No books added yet."})
 
 EN.update({"Rick of China": "Rick or China", "Van Rick": "Rick's", "Over China": "About China", "Overig": "Other"})
+
+EN.update({
+    "🛂 Wachten op goedkeuring door de beheerder": "🛂 Waiting for administrator approval",
+    "Boeken die niet door een beheerder zijn ingevoerd en nog niet zijn vrijgegeven voor synchronisatie. Klik op 'Bewerken' om te controleren en vrij te geven.": "Books not entered by an administrator that have not yet been released for synchronisation. Click 'Edit' to check and release them.",
+    "Geen boeken die op goedkeuring wachten.": "No books waiting for approval.",
+    "{0} boek(en) wachten op goedkeuring.": "{0} book(s) waiting for approval.",
+    "Bulkwachtrij": "Bulk queue",
+    "Nog niet vrijgegeven": "Not yet released",
+})
+EN.update({"✅ Vrijgeven": "✅ Release", "'{0}' vrijgegeven voor synchronisatie.": "'{0}' released for synchronisation."})

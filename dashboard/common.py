@@ -3333,6 +3333,35 @@ def queued_caption(mine, total):
     return t("{0} boeken die ik heb toegevoegd in bulk wachten op handmatige controle, {1} in totaal.", mine, total)
 
 
+def get_books_awaiting_admin():
+    """
+    Boeken die op een beheerder wachten en niet door een beheerder zijn ingevoerd:
+    in de bulkwachtrij (queued) of nieuw en nog niet vrijgegeven voor synchronisatie (id < 0, push uit).
+    'status' is 'wachtrij' of 'vrijgave'; 'added_by' is de korte naam van de invoerder (None = onbekend).
+    """
+    conn = _dict_connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT b.id, b.title, b.author, b.ean, b.location,
+                       CASE WHEN b.queued = TRUE THEN 'wachtrij' ELSE 'vrijgave' END AS status,
+                       (SELECT l.user_short_name FROM book_activity_log l
+                        WHERE l.book_id = b.id AND l.action = 'created'
+                        ORDER BY l.occurred_at LIMIT 1) AS added_by
+                FROM books b
+                WHERE b.queued = TRUE OR (b.id < 0 AND COALESCE(b.push_enabled, TRUE) = FALSE)
+                ORDER BY b.id DESC
+                """
+            )
+            rows = cur.fetchall()
+            cur.execute("SELECT short_name FROM app_users WHERE role = 'beheerder'")
+            admins = {r["short_name"] for r in cur.fetchall()}
+        return [r for r in rows if r["added_by"] not in admins]
+    finally:
+        conn.close()
+
+
 def queued_row_text(book):
     """
     'Titel — Auteur — ISBN 978… (Bart, 0413R)': tussen haakjes wie het boek heeft toegevoegd en waar het ligt.
