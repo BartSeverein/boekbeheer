@@ -67,7 +67,7 @@ def _store_english(nl_text, en_text):
         pass
 
 
-def bijz_input(key, new=True):
+def bijz_input(key, new=True, long_key=None):
     """
     Invoerveld(en) voor Engelstalige gebruikers. 'key' is de sessiesleutel van het vrije tekstveld
     (zodat voorinvullen blijft werken). Geeft een 'state' dict terug voor finalize().
@@ -88,9 +88,10 @@ def bijz_input(key, new=True):
         )
     lang_key = f"{key}_lang"
     if lang_key not in st.session_state:
-        st.session_state[lang_key] = "EN" if (new and not st.session_state.get(key)) else "NL"
-    lang = st.radio(t("Taal van de opmerkingen"), ["EN", "NL"], horizontal=True, key=lang_key)
+        st.session_state[lang_key] = "EN" if (new and not st.session_state.get(key) and not (long_key and st.session_state.get(long_key))) else "NL"
+    lang = st.radio(t("Taal van Bijzonderheden en Meer info"), ["EN", "NL"], horizontal=True, key=lang_key)
     st.text_area(t("Opmerkingen (Bijzonderheden)"), height=100, key=key)
+    state["long_key"] = long_key
     state.update(year=int(year or 0), pages=int(pages or 0), binding=binding, condition=condition, lang=lang)
     return state
 
@@ -120,3 +121,21 @@ def finalize(state):
     if state["lang"] == "EN" and nl_text and notes != en_notes:
         _store_english(nl_text, ", ".join(en_parts))
     return nl_text
+
+
+def long_label(state):
+    """Label van het veld Meer info, met de gekozen taal erachter."""
+    return t("Meer info (in English)") if state["lang"] == "EN" else t("Meer info (in Dutch)")
+
+
+def finalize_long(state, text):
+    """Meer info: Engelse invoer wordt via DeepL naar het Nederlands vertaald; geeft de tekst om op te slaan."""
+    text = (text or "").strip()
+    if not text or state["lang"] != "EN":
+        return text
+    nl, err = deepl_en_to_nl(text)
+    if err:
+        st.warning(err + " " + t("Meer info is onvertaald opgeslagen."))
+        return text
+    _store_english(nl, text)
+    return nl

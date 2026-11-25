@@ -725,3 +725,13 @@ LOG_PHRASES = [
     (" MB van ", " MB of "),
     ("wel bij Boekwinkeltjes bijgewerkt", "updated at Boekwinkeltjes"),
 ]
+
+EN.update({
+    "Meer info (in English)": "More info (in English)",
+    "Meer info (in Dutch)": "More info (in Dutch)",
+    "Meer info (in Nederlands)": "More info (in Dutch)",
+    "Taal van Bijzonderheden en Meer info": "Language of Special features and More info",
+    "Meer info is onvertaald opgeslagen.": "More info was saved untranslated.",
+})
+
+EN.update({"Meer info": "More info"})
