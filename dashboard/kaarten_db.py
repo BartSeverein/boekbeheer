@@ -62,24 +62,24 @@ def toon_tabellen_melding():
 
 # ---------- Keuzelijsten ----------
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False, max_entries=5)
 def get_provincies():
     return [r["naam"] for r in _query("SELECT naam FROM kaart_provincies ORDER BY volgorde, naam")]
 
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False, max_entries=30)
 def get_plaatsen(provincie):
     """[(id, naam)] van een provincie, alfabetisch."""
     rows = _query("SELECT id, naam FROM kaart_plaatsen WHERE provincie = %(p)s ORDER BY lower(naam)", {"p": provincie})
     return [(r["id"], r["naam"]) for r in rows]
 
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False, max_entries=5)
 def get_themas():
     return [r["naam"] for r in _query("SELECT naam FROM kaart_themas ORDER BY naam")]
 
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False, max_entries=5)
 def get_perioden():
     return [r["naam"] for r in _query("SELECT naam FROM kaart_perioden ORDER BY volgorde, naam")]
 
@@ -88,7 +88,7 @@ def uitgever_label(naam, plaats):
     return f"{naam}; {plaats}" if plaats else naam
 
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False, max_entries=5)
 def get_uitgevers():
     """[(id, label)] alfabetisch, label = 'Naam; Plaats' (zoals in je eigen lijst)."""
     rows = _query("SELECT id, naam, plaats FROM kaart_uitgevers ORDER BY lower(naam), lower(plaats)")

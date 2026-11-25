@@ -757,3 +757,4 @@ EN.update({
 EN.update({"✅ Vrijgeven": "✅ Release", "'{0}' vrijgegeven voor synchronisatie.": "'{0}' released for synchronisation."})
 
 EN.update({"Boeken die een gebruiker heeft ingevoerd en gecontroleerd, maar die nog niet zijn vrijgegeven voor synchronisatie. Klik op 'Bewerken' om te bekijken, of op 'Vrijgeven' als je het zeker weet.": "Books a user has entered and checked, but that have not yet been released for synchronisation. Click 'Edit' to review, or 'Release' if you are sure."})
+EN.update({"Pagina (van {0}, {1} boeken per pagina)": "Page (of {0}, {1} books per page)"})

@@ -729,7 +729,7 @@ def get_db_url():
 _BOOK_COLS_LIGHT = None   # kolomnamen van books zonder de lange beschrijving (eenmalig opgehaald)
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=300, max_entries=2)
 def load_books(full=False):
     """
     Alle boeken. Standaard ZONDER de lange beschrijving: die is het zwaarst en bijna niemand heeft hem nodig, terwijl
@@ -778,7 +778,7 @@ def _webshop_order_number(order_id):
     return (-int(order_id) - WEBSHOP_ID_BASE) // 1000
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=300, max_entries=2)
 def load_orders(include_tests=False):
     conn = psycopg2.connect(get_db_url())
     try:
@@ -799,7 +799,7 @@ BOL_CONDITION_LABELS = {"NEW": "nieuw", "AS_NEW": "als nieuw", "GOOD": "goed", "
 NO_SALE_STATUSES = ("CANCELLED", "CANCELLATION_REQUESTED", "no_response", "sold_or_unavailable", "return_received")
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=300, max_entries=30)
 def get_book_bol_and_sales(book_id, ean):
     """
     Voor het detailblok van een boek: {'offer_id', 'condition', 'sales'}. 'condition' is de conditie op Bol in woorden (of None),
@@ -839,7 +839,7 @@ def get_book_bol_and_sales(book_id, ean):
     return result
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=300, max_entries=2)
 def load_revenue_history():
     """Handmatig aangeleverde bruto omzet per maand en platform (tabel revenue_history), met kolommen month, platform, amount.
     Leeg als de tabel nog niet bestaat."""
@@ -914,7 +914,7 @@ def load_data():
     return load_books(), load_orders()
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=300, max_entries=50)
 def get_all_image_urls(book_id, size="medium"):
     """Geeft alle afbeelding-URL's voor een boek terug, in volgorde (eerste = aangenomen hoofdafbeelding)."""
     column = {"large": "url_large", "medium": "url_medium", "small": "url_small"}[size]
@@ -1044,7 +1044,7 @@ def set_main_image_url(book_id, url):
         conn.close()
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=300, max_entries=5)
 def get_known_publishers():
     """Alfabetisch gesorteerde lijst van bekende uitgevers (ruwe waarde)."""
     conn = psycopg2.connect(get_db_url())
@@ -1378,7 +1378,7 @@ def _ensure_placeholder_table(cur):
     cur.execute("ALTER TABLE placeholder_images ENABLE ROW LEVEL SECURITY")
 
 
-@st.cache_data(ttl=600)
+@st.cache_data(ttl=600, max_entries=5)
 def _load_placeholder_rows():
     """De plaatshouders uit de database als lijst {'id', 'name', 'data', 'content_type'}; leeg als de tabel nog niet bestaat."""
     try:
@@ -1464,7 +1464,7 @@ def delete_placeholder_image(image_id):
 MAX_WEB_EXTRA = 2   # naast de voorkant gaan er hoogstens twee foto's extra naar de webshop
 
 
-@st.cache_data(ttl=600)
+@st.cache_data(ttl=600, max_entries=5)
 def _has_web_extra_column():
     """Bestaat de kolom web_extra al? (foto_webshop.sql in Supabase.) Zonder die kolom werkt alles als vroeger."""
     try:
@@ -1510,7 +1510,7 @@ def set_web_extra(book_id, source, ref_id, value):
     return True, ""
 
 
-@st.cache_data(ttl=600)
+@st.cache_data(ttl=600, max_entries=5)
 def _has_front_column():
     """Bestaan de kolommen voor de eigen voorkantkeuze al? (voorkant_keuze.sql in Supabase.)"""
     try:
@@ -1670,7 +1670,7 @@ def get_front_review_books(only_unchecked=True, only_bol=False, search="", limit
     return books, total
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=300, max_entries=15)
 def get_all_images(book_id):
     """
     Geeft alle afbeeldingen van een boek terug als dicts met url_large/url_medium/url_small,
@@ -2127,7 +2127,7 @@ def raw_boekwinkeltjes_market_response(isbn):
     return f"GET {url}\nstatus {resp.status_code}, {resp.headers.get('Content-Type')}\n\n{(resp.text or '')[:4000]}"
 
 
-@st.cache_data(ttl=600)
+@st.cache_data(ttl=600, max_entries=50)
 def lookup_boekwinkeltjes_market_info(isbn):
     """
     Haalt marktinfo (aantal aanbieders, prijsrange, laatste verkoop) op bij Boekwinkeltjes.
@@ -2450,7 +2450,7 @@ SHIPPING_DEFAULT_BRIEFPOST = 3.95
 SHIPPING_DEFAULT_PAKKETPOST = 7.25
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=300, max_entries=5)
 def get_shipping_costs():
     """
     De verzendkosten voor briefpost (busstuk) en pakketpost, als (briefpost,
@@ -2547,7 +2547,7 @@ def _strip_html(text):
     return re.sub(r" {2,}", " ", without_tags).strip()
 
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=3600, max_entries=20)
 def _download_cover(url):
     """Haalt een omslagplaatje op. Geeft (bytes, content_type), of None als het niet lukt."""
     try:
@@ -2584,7 +2584,7 @@ def pick_cover(candidates, open_library_url=None):
 
 # Onthouden (10 min): elke keuze in een keuzelijst laadt de pagina opnieuw, en dit zijn drie live opzoekingen
 # (ISBNdb, Google Books, Open Library). Zonder dit wacht je daar bij elke klik opnieuw op.
-@st.cache_data(ttl=600, show_spinner=False)
+@st.cache_data(ttl=600, show_spinner=False, max_entries=50)
 def lookup_book_metadata_external(isbn):
     """
     Haalt boekgegevens (titel, auteur, uitgever, taal, omslagfoto, beschrijving,
@@ -3517,7 +3517,7 @@ def bol_condition_counts(rows):
     return [(label, counts[label]) for label in BOL_CONDITION_ORDER if counts.get(label)]
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=300, max_entries=5)
 def get_bol_condition_rows():
     """
     (categorie, staat) van elk Bol-aanbod dat nu voorraad heeft, zoals de voorraadsync het laatst bij Bol zag.
@@ -3540,7 +3540,7 @@ def get_bol_condition_rows():
         conn.close()
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=300, max_entries=5)
 def get_bol_offer_stocks():
     """{ean: voorraad bij Bol} van alle Bol-aanbiedingen die de voorraadsync kent (ook die op voorraad 0)."""
     conn = psycopg2.connect(get_db_url())
@@ -3555,7 +3555,7 @@ def get_bol_offer_stocks():
         conn.close()
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=300, max_entries=5)
 def get_bol_offer_eans():
     """Alle ISBN's (ean) waarvoor een Bol-aanbieding bekend is, ook als die op voorraad 0 staat."""
     conn = psycopg2.connect(get_db_url())
@@ -3570,7 +3570,7 @@ def get_bol_offer_eans():
         conn.close()
 
 
-@st.cache_data(ttl=600)
+@st.cache_data(ttl=600, max_entries=3)
 def get_weekly_stock_snapshots(max_weeks=60):
     """
     De laatste wekelijkse metingen (oudste eerst) als lijst van dicts met measured_on, bw_titles, bol_titles,
@@ -3606,7 +3606,7 @@ def get_weekly_stock_snapshots(max_weeks=60):
 _SKIP_CATEGORY_WORDS = ("overig", "divers", "onbekend")
 
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=3600, max_entries=30)
 def get_top_category_pairs(limit=8):
     """
     De meest gebruikte categorieen (of categoriekoppels 'Categorie 1 + Categorie 2') van alle boeken, voor de snelkeuze bij
@@ -3644,7 +3644,7 @@ def get_top_category_pairs(limit=8):
     return result
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=300, max_entries=5)
 def get_current_stock_snapshot():
     """
     De voorraad op dit moment, op dezelfde manier geteld als de wekelijkse meting (take_weekly_stock_snapshot in sync.py),
@@ -3712,7 +3712,7 @@ MOLLIE_METHOD_NL = {
 }
 
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False, max_entries=30)
 def get_mollie_payments(limit=100):
     """
     De laatste betalingen volgens Mollie als tabel (nieuwste eerst): datum, bedrag, status, omschrijving, methode en betaler.
@@ -3753,7 +3753,7 @@ def get_mollie_payments(limit=100):
     return pd.DataFrame(rows, columns=["moment", "bedrag", "status", "paid", "omschrijving", "methode", "betaler"])
 
 
-@st.cache_data(ttl=1800, show_spinner=False)
+@st.cache_data(ttl=1800, show_spinner=False, max_entries=4)
 def get_search_console_data(period):
     """
     Zoekverkeer uit Google Search Console voor de gekozen periode (zie GSC_PERIODS): een tabel met een rij per uur (24 uur) of
@@ -3804,7 +3804,7 @@ def get_search_console_data(period):
     return data.drop(columns="key").sort_values("moment").reset_index(drop=True)
 
 
-@st.cache_data(ttl=1800, show_spinner=False)
+@st.cache_data(ttl=1800, show_spinner=False, max_entries=8)
 def get_search_console_queries(period, limit=20):
     """
     De zoekopdrachten (queries) waarmee mensen je webshop in Google vonden, voor de gekozen periode (zie GSC_PERIODS): een tabel
@@ -3924,7 +3924,7 @@ def get_slow_movers(limit=100):
 
 # ---------- Bol.com Retailer API: concurrerende aanbiedingen ----------
 
-@st.cache_data(ttl=250)
+@st.cache_data(ttl=250, max_entries=5)
 def _get_bol_access_token():
     """
     Haalt een toegangstoken op bij Bol.com's Retailer API (client_credentials-flow).
@@ -3956,7 +3956,7 @@ def _get_bol_access_token():
     return None
 
 
-@st.cache_data(ttl=600)
+@st.cache_data(ttl=600, max_entries=50)
 def lookup_bol_competing_offers(ean):
     """
     Haalt actuele concurrerende aanbiedingen op bij Bol.com voor dit EAN, via de
@@ -4030,7 +4030,7 @@ def format_price_dot(value):
         return value
 
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=3600, max_entries=50)
 def lookup_bol_catalog_product(ean):
     """
     Haalt catalogusgegevens op bij Bol.com voor dit EAN (titel, auteur, fabrikant,
@@ -4142,7 +4142,7 @@ def lookup_bol_catalog_product(ean):
     return result if result else None
 
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=3600, max_entries=50)
 def lookup_bol_category_names(ean):
     """
     Haalt bij Bol.com de categorie-hiërarchie (met leesbare namen) op waarin dit
@@ -4279,7 +4279,7 @@ class AbebooksError(Exception):
         self.raw = raw
 
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=3600, max_entries=50)
 def _fetch_abebooks_pricing(isbn13):
     """
     Haalt het ruwe prijsantwoord van Abebooks op: één verzoek, met een korte
@@ -4480,7 +4480,7 @@ def parse_ecb_rates(xml_bytes):
     return rates, rate_date
 
 
-@st.cache_data(ttl=21600)
+@st.cache_data(ttl=21600, max_entries=5)
 def _fetch_ecb_rates():
     """Haalt de koersen op (maximaal eens per 6 uur). Een mislukking wordt niet onthouden."""
     try:
@@ -4520,7 +4520,7 @@ def convert_to_eur(amount, display_currency):
 
 
 # Onthouden (10 min), ook een mislukte opzoeking: anders wacht elke klik op een keuzelijst opnieuw op de time-out.
-@st.cache_data(ttl=600, show_spinner=False)
+@st.cache_data(ttl=600, show_spinner=False, max_entries=50)
 def lookup_abebooks_lowest_price(isbn):
     """
     Zoekt het laagste bedrag voor dit ISBN bij Abebooks. Geeft altijd een dict
@@ -4609,7 +4609,7 @@ def failed_cron_jobs(jobs):
     return [job for job in jobs if isinstance(job.get("lastStatus"), int) and job["lastStatus"] >= 2]
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=300, max_entries=20)
 def get_github_workflow_runs(workflow_file, around_epoch, window_seconds=600):
     """
     De uitvoeringen van één GitHub Actions-workflow die rond een bepaald tijdstip (epoch, in seconden) zijn gestart, nieuwste eerst:
@@ -4695,7 +4695,7 @@ def github_run_for_cron_job(job, max_gap_seconds=600):
     return min(close, key=lambda r: abs((r["created"] - moment).total_seconds())), None
 
 
-@st.cache_data(ttl=21600)
+@st.cache_data(ttl=21600, max_entries=5)
 def get_cron_job_status():
     """
     Haalt de lijst van alle cron-job.org-taken op, met per taak: titel, laatste
@@ -4734,7 +4734,7 @@ def _webshop_authors_module():
     return webshop_authors
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=300, max_entries=5)
 def get_webshop_authors():
     """
     Auteurs die nu een eigen pagina in de webshop hebben (minstens 3 boeken te koop): lijst van {"slug", "name", "count"}, meeste
