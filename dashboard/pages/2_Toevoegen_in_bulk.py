@@ -222,9 +222,8 @@ if (_current_user is None) or (_current_user.get("role") == "beheerder"):
     else:
         st.write(t("{0} boek(en) wachten op goedkeuring.", len(_awaiting)))
         for _b in _awaiting:
-            _ci, _cs, _cr, _ce = st.columns([6, 1.5, 1.3, 1])
+            _ci, _cr, _ce = st.columns([7, 1.3, 1])
             _ci.write(queued_row_text(_b))
-            _cs.write(t('Nog niet vrijgegeven'))
             if _cr.button(t('✅ Vrijgeven'), key=f"release_awaiting_{_b['id']}"):
                 _new, _old = {"push_enabled": True}, {"push_enabled": False}
                 save_book_edits(_b["id"], _new, user_short_name=current_user_short_name(), previous_values=_old)
