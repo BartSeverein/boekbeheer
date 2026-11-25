@@ -743,3 +743,5 @@ EN.update({
     "Totaal in deze periode": "Total in this period",
 })
 EN.update({"Nog geen boeken toegevoegd.": "No books added yet."})
+
+EN.update({"Rick of China": "Rick or China", "Van Rick": "Rick's", "Over China": "About China", "Overig": "Other"})

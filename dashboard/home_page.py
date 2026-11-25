@@ -13,7 +13,7 @@ import plotly.graph_objects as go
 import psycopg2
 import pandas as pd
 import streamlit as st
-from i18n import category_label, t, tdf
+from i18n import category_label, t, tdf, tlog
 from pathlib import Path
 
 from common import (
@@ -126,9 +126,9 @@ def _poll_sync_completion(timeout_seconds=360, quiet_seconds=6):
             start_id = rows[-1][0]
             latest_detail = rows[-1][1]
             last_new_row_time = time.time()
-            placeholder.info(t('Bezig... laatste update: {0}', latest_detail))
+            placeholder.info(t('Bezig... laatste update: {0}', tlog(latest_detail)))
         elif seen_any and last_new_row_time and (time.time() - last_new_row_time) > quiet_seconds:
-            placeholder.success(t('Sync voltooid. Laatste update: {0}', latest_detail))
+            placeholder.success(t('Sync voltooid. Laatste update: {0}', tlog(latest_detail)))
             load_books.clear()
             load_orders.clear()
             return
@@ -341,6 +341,7 @@ with sync_tab:
         }
     )
     log = log[["ID", "Datum en tijd", "Met", "Type", "Richting", "Bron", "Status", "Details"]]
+    log["Details"] = log["Details"].apply(tlog)
     st.dataframe(tdf(log), width="stretch")
 
 st.divider()
@@ -484,15 +485,21 @@ with left1:
         st.info(t('Nog geen orders om te tonen.'))
 
 with right1:
-    st.subheader(t('Boeken van Rick'))
+    st.subheader(t('Rick of China'))
     if not books.empty:
         _rick_sale = books[(books["amount"].fillna(0) > 0) & (books["id"] > 0)]
         if "queued" in _rick_sale.columns:
             _rick_sale = _rick_sale[~_rick_sale["queued"].fillna(False).astype(bool)]
-        is_rick = _rick_sale["location"].fillna("").str.contains("r", case=False)
-        rick_counts = is_rick.map({True: t("Wel van Rick"), False: t("Niet van Rick")}).value_counts().reset_index()
-        rick_counts.columns = ["wie", "aantal boeken"]
-        fig = px.pie(rick_counts, names="wie", values="aantal boeken")
+        _loc = _rick_sale["location"].fillna("")
+        is_china = _loc.str.contains("c", case=False, regex=False)                 # een C wint altijd (ook bij R en C)
+        is_rick = _loc.str.contains("r", case=False, regex=False) & ~is_china
+        _n_rick, _n_china = int(is_rick.sum()), int(is_china.sum())
+        _n_overig = len(_rick_sale) - _n_rick - _n_china
+        rick_counts = pd.DataFrame({
+            "wie": [f"{t('Van Rick')} ({_n_rick})", f"{t('Over China')} ({_n_china})", f"{t('Overig')} ({_n_overig})"],
+            "aantal boeken": [_n_rick, _n_china, _n_overig],
+        })
+        fig = px.pie(rick_counts, names="wie", values="aantal boeken", category_orders={"wie": rick_counts["wie"].tolist()})
         st.plotly_chart(fig, width="stretch")
         st.caption(t('Van de verkoopvoorraad.'))
     else:
