@@ -499,7 +499,11 @@ with right1:
             "wie": [f"{t('Van Rick')} ({_n_rick})", f"{t('Over China')} ({_n_china})", f"{t('Overig')} ({_n_overig})"],
             "aantal boeken": [_n_rick, _n_china, _n_overig],
         })
-        fig = px.pie(rick_counts, names="wie", values="aantal boeken", category_orders={"wie": rick_counts["wie"].tolist()})
+        _bl = _blue_shades(5)   # lichtst = Overig, twee tinten donkerder = China, nog twee donkerder = Rick
+        _kleur = dict(zip(rick_counts["wie"], [_bl[4], _bl[2], _bl[0]]))
+        fig = px.pie(rick_counts, names="wie", values="aantal boeken", color="wie", color_discrete_map=_kleur,
+                     category_orders={"wie": rick_counts["wie"].tolist()})
+        fig.update_traces(sort=False)
         st.plotly_chart(fig, width="stretch")
         st.caption(t('Van de verkoopvoorraad.'))
     else:
