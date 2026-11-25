@@ -3335,8 +3335,8 @@ def queued_caption(mine, total):
 
 def get_books_awaiting_admin():
     """
-    Boeken die op een beheerder wachten en niet door een beheerder zijn ingevoerd:
-    in de bulkwachtrij (queued) of nieuw en nog niet vrijgegeven voor synchronisatie (id < 0, push uit).
+    Boeken die door een gebruiker (geen beheerder) zijn ingevoerd en gecontroleerd (niet meer in de wachtrij),
+    maar nog niet zijn vrijgegeven voor synchronisatie (nieuw: id < 0, push uit). Alleen de beheerder geeft die vrij.
     'status' is 'wachtrij' of 'vrijgave'; 'added_by' is de korte naam van de invoerder (None = onbekend).
     """
     conn = _dict_connect()
@@ -3350,7 +3350,7 @@ def get_books_awaiting_admin():
                         WHERE l.book_id = b.id AND l.action = 'created'
                         ORDER BY l.occurred_at LIMIT 1) AS added_by
                 FROM books b
-                WHERE b.queued = TRUE OR (b.id < 0 AND COALESCE(b.push_enabled, TRUE) = FALSE)
+                WHERE b.queued = FALSE AND b.id < 0 AND COALESCE(b.push_enabled, TRUE) = FALSE
                 ORDER BY b.id DESC
                 """
             )
