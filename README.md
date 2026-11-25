@@ -1,5 +1,4 @@
-# Boekwinkeltjes.nl sync + online dashboard
+# Platform sync + online dashboard
 
-Synchroniseert je boeken en orders van Boekwinkeltjes.nl met een Supabase (Postgres)
-database, automatisch in de cloud via GitHub Actions, met een Streamlit-dashboard
-erbovenop.
+Automatically synchronises books, postcards and orders from several platforms in the cloud via GitHub Actions with a Supabase (Postgres) database,
+supplemented by a Streamlit dashboard.
