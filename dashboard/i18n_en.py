@@ -735,3 +735,5 @@ EN.update({
 })
 
 EN.update({"Meer info": "More info"})
+
+EN.update({"Annuleren": "Cancel", "Wijzigen": "Edit"})

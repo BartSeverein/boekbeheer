@@ -391,6 +391,22 @@ def add_todo_extra(due_date, text, created_by=None):
         conn.close()
 
 
+def update_todo_extra(extra_id, due_date, text):
+    text = (text or "").strip()
+    if not text:
+        return
+    conn = _dict_connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE todo_extras SET due_date = %(d)s, text = %(t)s WHERE id = %(id)s",
+                {"d": due_date, "t": text, "id": int(extra_id)},
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def delete_todo_extra(extra_id):
     conn = _dict_connect()
     try:
