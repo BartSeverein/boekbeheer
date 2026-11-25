@@ -231,10 +231,10 @@ else:
             mask = loc_norm.str.startswith(s_loc)
         else:
             mask = (
-                books["title"].str.lower().str.contains(s, na=False)
-                | books["author"].str.lower().str.contains(s, na=False)
-                | books["book_number"].astype(str).str.contains(s, na=False)
-                | books["ean"].astype(str).str.contains(s, na=False)
+                books["title"].str.lower().str.contains(s, na=False, regex=False)
+                | books["author"].str.lower().str.contains(s, na=False, regex=False)
+                | books["book_number"].astype(str).str.contains(s, na=False, regex=False)
+                | books["ean"].astype(str).str.contains(s, na=False, regex=False)
                 | (loc_norm.str.startswith(s_loc) if s_loc else False)
             )
         filtered = books[mask] if search else books
