@@ -223,7 +223,15 @@ if my_user or (is_admin and users):
             st.info(t('Nog geen boeken toegevoegd.'))
             _inputters = []
         else:
-            st.line_chart(_df, height=260, color=_blues[: len(_df.columns)])
+            # vaste kleur per persoon (op voornaam in de gebruikerslijst); anderen krijgen de overige tinten
+            _vast = {"bart": "#83C9FF", "lem": "#0B3C8C", "spike": "#1F77D0", "jules": "#4FA3E8"}
+            _by_full = {u["short_name"]: (u.get("full_name") or "").lower() for u in users}
+            _vrij = [c for c in _blues if c not in _vast.values()]
+            _kleuren = []
+            for c in _df.columns:
+                _eerste = (_by_full.get(c) or c).lower().split(" ")[0]
+                _kleuren.append(_vast.get(_eerste) or (_vrij.pop(0) if _vrij else "#7F7F7F"))
+            st.line_chart(_df, height=260, color=_kleuren)
         _tot = ", ".join(f"{u}: {int(_df[u].sum())}" for u in _inputters)
         if _inputters:
             st.caption(t('Totaal in deze periode') + ": " + _tot)
