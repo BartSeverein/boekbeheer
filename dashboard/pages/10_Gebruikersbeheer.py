@@ -24,6 +24,7 @@ from common import (
     get_books_added_log,
     get_todo_extras,
     add_todo_extra,
+    update_todo_extra,
     delete_todo_extra,
     create_user,
     update_user,
@@ -251,10 +252,33 @@ if _extras:
     st.caption(t('Klaar om meegestuurd te worden, eerstvolgende bovenaan. Na het versturen verdwijnt een taak vanzelf uit de lijst.'))
     for e in _extras:
         d = e["due_date"]
-        c1, c2, c3 = st.columns([2, 10, 1])
+        _edit_key = f"edit_extra_{e['id']}"
+        if st.session_state.get(_edit_key):
+            with st.form(f"edit_extra_form_{e['id']}"):
+                f1, f2 = st.columns([1, 4])
+                new_date = f1.date_input(t('Datum'), value=d, format="DD-MM-YYYY")
+                new_text = f2.text_input(t('Taak (een korte regel)'), value=e["text"], max_chars=200)
+                b1, b2, _ = st.columns([1, 1, 6])
+                save = b1.form_submit_button(t('Opslaan'), type="primary")
+                cancel = b2.form_submit_button(t('Annuleren'))
+            if save:
+                if not new_text.strip():
+                    st.error(t('Vul een tekst in.'))
+                else:
+                    update_todo_extra(e["id"], new_date, new_text)
+                    st.session_state.pop(_edit_key, None)
+                    st.rerun()
+            if cancel:
+                st.session_state.pop(_edit_key, None)
+                st.rerun()
+            continue
+        c1, c2, c3, c4 = st.columns([2, 10, 1, 1])
         c1.write(f"{t(_dagen[d.weekday()])} {d.strftime('%d-%m-%Y')}" + (t(" (gaat mee met de eerstvolgende mail)") if d < _vandaag else ""))
         c2.write(e["text"])
-        if c3.button("🗑️", key=f"del_extra_{e['id']}", help=t('Verwijderen')):
+        if c3.button("✏️", key=f"btn_edit_extra_{e['id']}", help=t('Wijzigen')):
+            st.session_state[_edit_key] = True
+            st.rerun()
+        if c4.button("🗑️", key=f"del_extra_{e['id']}", help=t('Verwijderen')):
             delete_todo_extra(e["id"])
             st.rerun()
 else:
