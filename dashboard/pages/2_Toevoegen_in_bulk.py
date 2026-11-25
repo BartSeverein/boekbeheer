@@ -21,6 +21,7 @@ from common import (
     autofill_book_fields_from_isbn,
     create_new_book_draft,
     get_queued_books,
+    get_books_awaiting_admin,
     queued_counts,
     filter_queued_books,
     queued_caption,
@@ -39,7 +40,7 @@ from categories import CATEGORY1_OPTIONS, CATEGORY2_OPTIONS
 
 st.set_page_config(page_title="Toevoegen in bulk", page_icon="📥", layout="wide")
 render_logo(Path(__file__).parent.parent / "assets" / "logo_mail.png")
-require_login()
+_current_user = require_login()
 st.title(t('📥 Toevoegen in bulk'))
 
 st.caption(
@@ -208,3 +209,31 @@ else:
                 load_books.clear()
                 st.success(t("'{0}' verwijderd.", book['title'] or book['ean'] or book['id']))
                 st.rerun()
+
+
+# ---------- Alleen voor beheerders: boeken van anderen die wachten op goedkeuring ----------
+if (_current_user is None) or (_current_user.get("role") == "beheerder"):
+    st.divider()
+    st.subheader(t('🛂 Wachten op goedkeuring door de beheerder'))
+    st.caption(t("Boeken die niet door een beheerder zijn ingevoerd en nog niet zijn vrijgegeven voor synchronisatie. Klik op 'Bewerken' om te controleren en vrij te geven."))
+    _awaiting = get_books_awaiting_admin()
+    if not _awaiting:
+        info_box(t("Geen boeken die op goedkeuring wachten."))
+    else:
+        st.write(t("{0} boek(en) wachten op goedkeuring.", len(_awaiting)))
+        for _b in _awaiting:
+            _ci, _cs, _cr, _ce = st.columns([6, 1.5, 1.3, 1])
+            _ci.write(queued_row_text(_b))
+            _cs.write(t('Bulkwachtrij') if _b["status"] == "wachtrij" else t('Nog niet vrijgegeven'))
+            if _cr.button(t('✅ Vrijgeven'), key=f"release_awaiting_{_b['id']}"):
+                if _b["status"] == "wachtrij":
+                    _new, _old = {"queued": False, "push_enabled": True}, {"queued": True, "push_enabled": False}
+                else:
+                    _new, _old = {"push_enabled": True}, {"push_enabled": False}
+                save_book_edits(_b["id"], _new, user_short_name=current_user_short_name(), previous_values=_old)
+                load_books.clear()
+                st.session_state["bulk_queue_loc_done"] = t("'{0}' vrijgegeven voor synchronisatie.", _b["title"] or _b["ean"] or _b["id"])
+                st.rerun()
+            if _ce.button(t('Bewerken'), key=f"edit_awaiting_{_b['id']}"):
+                st.session_state["preselect_book_id"] = _b["id"]
+                st.switch_page("pages/3_Boekdetails.py")
