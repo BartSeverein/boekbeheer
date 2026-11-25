@@ -737,3 +737,9 @@ EN.update({
 EN.update({"Meer info": "More info"})
 
 EN.update({"Annuleren": "Cancel", "Wijzigen": "Edit"})
+
+EN.update({
+    "Aantal toegevoegde boeken per gebruiker, {0}. Alleen de beheerder ziet deze grafiek.": "Number of books added per user, {0}. Only the administrator can see this chart.",
+    "Totaal in deze periode": "Total in this period",
+})
+EN.update({"Nog geen boeken toegevoegd.": "No books added yet."})
