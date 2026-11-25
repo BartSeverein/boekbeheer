@@ -215,7 +215,7 @@ else:
 if (_current_user is None) or (_current_user.get("role") == "beheerder"):
     st.divider()
     st.subheader(t('🛂 Wachten op goedkeuring door de beheerder'))
-    st.caption(t("Boeken die niet door een beheerder zijn ingevoerd en nog niet zijn vrijgegeven voor synchronisatie. Klik op 'Bewerken' om te controleren en vrij te geven."))
+    st.caption(t("Boeken die een gebruiker heeft ingevoerd en gecontroleerd, maar die nog niet zijn vrijgegeven voor synchronisatie. Klik op 'Bewerken' om te bekijken, of op 'Vrijgeven' als je het zeker weet."))
     _awaiting = get_books_awaiting_admin()
     if not _awaiting:
         info_box(t("Geen boeken die op goedkeuring wachten."))
@@ -224,12 +224,9 @@ if (_current_user is None) or (_current_user.get("role") == "beheerder"):
         for _b in _awaiting:
             _ci, _cs, _cr, _ce = st.columns([6, 1.5, 1.3, 1])
             _ci.write(queued_row_text(_b))
-            _cs.write(t('Bulkwachtrij') if _b["status"] == "wachtrij" else t('Nog niet vrijgegeven'))
+            _cs.write(t('Nog niet vrijgegeven'))
             if _cr.button(t('✅ Vrijgeven'), key=f"release_awaiting_{_b['id']}"):
-                if _b["status"] == "wachtrij":
-                    _new, _old = {"queued": False, "push_enabled": True}, {"queued": True, "push_enabled": False}
-                else:
-                    _new, _old = {"push_enabled": True}, {"push_enabled": False}
+                _new, _old = {"push_enabled": True}, {"push_enabled": False}
                 save_book_edits(_b["id"], _new, user_short_name=current_user_short_name(), previous_values=_old)
                 load_books.clear()
                 st.session_state["bulk_queue_loc_done"] = t("'{0}' vrijgegeven voor synchronisatie.", _b["title"] or _b["ean"] or _b["id"])
