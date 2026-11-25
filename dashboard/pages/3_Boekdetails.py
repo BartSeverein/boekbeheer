@@ -883,6 +883,8 @@ else:
                 edit_push_enabled = current_push_enabled
                 if current_queued and not edit_queued and is_admin:   # alleen de beheerder geeft een boek vrij
                     edit_push_enabled = True
+                if is_admin and chosen_id < 0 and not current_queued and not current_push_enabled and not edit_queued:
+                    edit_push_enabled = True   # boek wachtte op vrijgave: opslaan door de beheerder geeft het meteen vrij
 
                 save_book_edits(
                     chosen_id,
