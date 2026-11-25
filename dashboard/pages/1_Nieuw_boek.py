@@ -29,7 +29,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import streamlit as st
 from i18n import category_option, is_english, t
-from bijz_en import bijz_input, finalize as finalize_bijz
+from bijz_en import bijz_input, finalize as finalize_bijz, finalize_long, long_label
 
 from common import (
     create_new_book_draft,
@@ -559,7 +559,7 @@ with col_b:
     category3 = st.text_input(t('Categorie 3'), key=k("category3"))
     language = st.text_input(t('Taal'), value="NL", key=k("language"))
     if is_english():
-        _bijz_state = bijz_input(k("short"), new=True)
+        _bijz_state = bijz_input(k("short"), new=True, long_key=k("long"))
         short_description = ""   # wordt bij het opslaan samengesteld (en zo nodig vertaald)
     else:
         _bijz_state = None
@@ -567,7 +567,8 @@ with col_b:
             t("Bijzonderheden (jaar, pagina's, vorm, staat)"), height=100, key=k("short")
         )
     long_description = st.text_area(
-        t('Meer info (in Nederlands)'), height=150, key=k("long")
+        long_label(_bijz_state) if _bijz_state is not None else t('Meer info (in Nederlands)'),
+        height=150, key=k("long"),
     )
     _push_options = ["Push naar de webshop, Boekwinkeltjes en eventueel Bol", "Geen push (alleen lokaal bewaren)"]
     if is_admin:
@@ -687,6 +688,7 @@ if st.button(t('Boek toevoegen'), type="primary", key="new_book_submit"):
             category2 = st.session_state.get(k("category2_txt"), "")
         if _bijz_state is not None:
             short_description = finalize_bijz(_bijz_state)
+            long_description = finalize_long(_bijz_state, long_description)
         temp_id = create_new_book_draft(
             {
                 "title": title,

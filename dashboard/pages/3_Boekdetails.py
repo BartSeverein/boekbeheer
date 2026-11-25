@@ -11,7 +11,7 @@ from concurrent.futures import ThreadPoolExecutor
 import pandas as pd
 import streamlit as st
 from i18n import category_label, category_option, is_english, t, tdf
-from bijz_en import bijz_input, finalize as finalize_bijz
+from bijz_en import bijz_input, finalize as finalize_bijz, finalize_long, long_label
 from pathlib import Path
 
 from common import (
@@ -314,8 +314,6 @@ else:
                 t('⚠️ Synchronisatie met Boekwinkeltjes staat uit voor dit boek — vermoedelijk omdat het niet meer bij Boekwinkeltjes bestaat (bijv. daar handmatig verwijderd). Het boek wordt daardoor niet meer bijgewerkt.')
             )
             if st.button(t('Synchronisatie weer aanzetten'), key=f"reenable_push_{chosen_id}"):
-                if _bijz_state is not None:
-                    edit_short_desc = finalize_bijz(_bijz_state)
                 save_book_edits(
                     chosen_id,
                     {"push_enabled": True},
@@ -789,7 +787,7 @@ else:
                         _short_key = f"{edit_prefix}_short"
                         if _short_key not in st.session_state:
                             st.session_state[_short_key] = _s(b["short_description"])
-                        _bijz_state = bijz_input(_short_key, new=False)
+                        _bijz_state = bijz_input(_short_key, new=False, long_key=f"{edit_prefix}_long")
                         edit_short_desc = None   # wordt bij het opslaan samengesteld
                     else:
                         _bijz_state = None
@@ -800,7 +798,7 @@ else:
                             key=f"{edit_prefix}_short",
                         )
                     edit_long_desc = st.text_area(
-                        t('Meer info (in Nederlands)'),
+                        long_label(_bijz_state) if _bijz_state is not None else t('Meer info (in Nederlands)'),
                         value=_s(b["long_description"]),
                         height=150,
                         key=f"{edit_prefix}_long",
@@ -879,6 +877,9 @@ else:
                 # Synchronisatie blijft standaard ongewijzigd; wordt de wachtrij van Ja
                 # naar Nee gezet, dan gaat 'ie automatisch aan (dat scheelt een handeling
                 # na het controleren van een bulk-geïmporteerd boek).
+                if _bijz_state is not None:
+                    edit_short_desc = finalize_bijz(_bijz_state)
+                    edit_long_desc = finalize_long(_bijz_state, edit_long_desc)
                 edit_push_enabled = current_push_enabled
                 if current_queued and not edit_queued and is_admin:   # alleen de beheerder geeft een boek vrij
                     edit_push_enabled = True
