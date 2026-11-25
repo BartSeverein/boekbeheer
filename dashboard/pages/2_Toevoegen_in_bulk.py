@@ -195,7 +195,15 @@ else:
                 load_books.clear()
                 st.session_state["bulk_queue_loc_done"] = t('De locatie van {0} boeken is gewijzigd naar {1}.', len(shown_books), new_location)
                 st.rerun()
-    for book in shown_books:
+    _per_pagina = 50
+    _aantal_paginas = max(1, -(-len(shown_books) // _per_pagina))
+    _pagina = 1
+    if _aantal_paginas > 1:
+        _pagina = st.number_input(
+            t('Pagina (van {0}, {1} boeken per pagina)', _aantal_paginas, _per_pagina),
+            min_value=1, max_value=_aantal_paginas, value=1, step=1, key=f"bulk_queue_page_{queue_view}",
+        )
+    for book in shown_books[(int(_pagina) - 1) * _per_pagina: int(_pagina) * _per_pagina]:
         col_info, col_edit, col_delete = st.columns([5, 1, 1])
         with col_info:
             st.write(queued_row_text(book))
