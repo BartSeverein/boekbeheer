@@ -266,6 +266,8 @@ def require_login():
                 del st.session_state["user"]
                 st.session_state["_uitgelogd"] = True
                 st.rerun()
+            if user.get("role") == "beheerder":
+                st.caption(f"Streamlit {st.__version__}")
         return user
 
     if get_user_count() == 0:
