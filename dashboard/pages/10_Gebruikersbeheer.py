@@ -243,3 +243,69 @@ if my_user or (is_admin and users):
             totaal = int(counts.sum())
             st.markdown(t('**{0}** ({1}) — {2} in deze periode', u['full_name'], u['short_name'], totaal))
             st.line_chart(counts.rename("Boeken"), height=220, color="#83C9FF")
+
+
+# ---------- Stokken achter de deur: handmatige taken voor de dagelijkse to-do-mail ----------
+import datetime as _dt
+
+st.divider()
+st.subheader(t('Stokken achter de deur'))
+st.write(
+    t('Elke ochtend om 7:15 krijgt de beheerder een e-mail met taken die op die dag gedaan moeten worden. Een aantal taken liggen vast, zoals pakjes inpakken. Maar soms zijn er taken die het ook waard zijn om de beheerder op het hart te drukken. Dat zijn de "stokken achter de deur" die je hier kunt toevoegen.')
+)
+_flash = st.session_state.pop("todo_extra_flash", None)
+if _flash:
+    st.success(_flash)
+
+_vandaag = _dt.datetime.now(ZoneInfo("Europe/Amsterdam")).date()
+_dagen = ["ma", "di", "wo", "do", "vr", "za", "zo"]
+with st.form("todo_extra_form", clear_on_submit=True):
+    c1, c2 = st.columns([1, 4])
+    with c1:
+        extra_date = st.date_input(t('Datum'), value=_vandaag + _dt.timedelta(days=1), min_value=_vandaag, format="DD-MM-YYYY")
+    with c2:
+        extra_text = st.text_input(t('Taak (een korte regel)'), max_chars=200)
+    if st.form_submit_button(t('Toevoegen')):
+        if not extra_text.strip():
+            st.error(t('Vul een tekst in.'))
+        else:
+            add_todo_extra(extra_date, extra_text, my_short_name)
+            st.session_state["todo_extra_flash"] = t('Toegevoegd voor {0} {1}.', t(_dagen[extra_date.weekday()]), extra_date.strftime('%d-%m-%Y'))
+            st.rerun()
+
+_extras = get_todo_extras()
+if _extras:
+    st.caption(t('Klaar om meegestuurd te worden, eerstvolgende bovenaan. Na het versturen verdwijnt een taak vanzelf uit de lijst.'))
+    for e in _extras:
+        d = e["due_date"]
+        _edit_key = f"edit_extra_{e['id']}"
+        if st.session_state.get(_edit_key):
+            with st.form(f"edit_extra_form_{e['id']}"):
+                f1, f2 = st.columns([1, 4])
+                new_date = f1.date_input(t('Datum'), value=d, format="DD-MM-YYYY")
+                new_text = f2.text_input(t('Taak (een korte regel)'), value=e["text"], max_chars=200)
+                b1, b2, _ = st.columns([1, 1, 6])
+                save = b1.form_submit_button(t('Opslaan'), type="primary")
+                cancel = b2.form_submit_button(t('Annuleren'))
+            if save:
+                if not new_text.strip():
+                    st.error(t('Vul een tekst in.'))
+                else:
+                    update_todo_extra(e["id"], new_date, new_text)
+                    st.session_state.pop(_edit_key, None)
+                    st.rerun()
+            if cancel:
+                st.session_state.pop(_edit_key, None)
+                st.rerun()
+            continue
+        c1, c2, c3, c4 = st.columns([2, 10, 1, 1])
+        c1.write(f"{t(_dagen[d.weekday()])} {d.strftime('%d-%m-%Y')}" + (t(" (gaat mee met de eerstvolgende mail)") if d < _vandaag else ""))
+        c2.write(e["text"])
+        if c3.button("✏️", key=f"btn_edit_extra_{e['id']}", help=t('Wijzigen')):
+            st.session_state[_edit_key] = True
+            st.rerun()
+        if c4.button("🗑️", key=f"del_extra_{e['id']}", help=t('Verwijderen')):
+            delete_todo_extra(e["id"])
+            st.rerun()
+else:
+    st.info(t('Er staan geen taken klaar.'))
