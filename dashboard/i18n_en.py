@@ -247,7 +247,7 @@ EN.update({
     '**Taal:** {0}': '**Language:** {0}',
     '**ISBN:** {0}': '**ISBN:** {0}',
     '**Boeknummer:** {0}': '**Book number:** {0}',
-    '**Boeknummer BW:** {0}': '**Book number BW:** {0}',
+    '**Boeknummer:** {0}': '**Book number:** {0}',
     "**Alle foto's** — klik op 🔍 voor een groter afbeelding en op 🗑️ om hem te verwijderen. De voorkant kies je bij het uploaden (onder 'Boek bewerken').": "**All photos** — click 🔍 for a larger image and 🗑️ to delete it. You choose the front cover when uploading (under 'Edit book').",
     '**Link:** [{0}]({1})': '**Link:** [{0}]({1})',
     '✏️ Boek bewerken': '✏️ Edit book',
