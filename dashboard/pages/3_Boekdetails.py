@@ -965,25 +965,19 @@ else:
                 elif not edit_push_enabled:
                     _lines.append("- " + t("Synchronisatie staat uit ('Geen push'): het boek gaat niet naar Boekwinkeltjes, de webshop of Bol."))
                 else:
+                    _bol_ok = isbn_present and not bol_unsuitable
+                    if _bol_ok:
+                        _lines.append("- " + t("Op Boekwinkeltjes, Bol en Bol Tweedekans: bij de eerstvolgende synchronisatie."))
+                    else:
+                        _lines.append("- " + t("Op Boekwinkeltjes: bij de eerstvolgende synchronisatie."))
+                        if not isbn_present:
+                            _lines.append("- " + t("Niet bij Bol want er is geen ISBN."))
+                        else:
+                            _lines.append("- " + t("Niet bij Bol want het boek is daarvoor ongeschikt."))
                     if int(edit_amount) <= 0:
                         _lines.append("- " + t("Niet op de webshop want er is geen voorraad."))
                     else:
                         _lines.append("- " + t("Op de webshop: prijs en voorraad bij de eerstvolgende catalogus-run, de rest aan het einde van de komende nacht."))
-                    _both = chosen_id >= 0 and isbn_present and not bol_unsuitable
-                    if _both:
-                        _lines.append("- " + t("Bij Bol en Boekwinkeltjes na de eerstvolgende synchronisatie."))
-                    elif chosen_id < 0:
-                        _lines.append("- " + t("Bij Boekwinkeltjes bij de eerstvolgende synchronisatie."))
-                    else:
-                        _lines.append("- " + t("Bij Boekwinkeltjes na de eerstvolgende synchronisatie."))
-                    if _both:
-                        pass
-                    elif not isbn_present:
-                        _lines.append("- " + t("Niet bij Bol want er is geen ISBN."))
-                    elif bol_unsuitable:
-                        _lines.append("- " + t("Niet bij Bol want het boek is daarvoor ongeschikt."))
-                    else:
-                        _lines.append("- " + t("Bij Bol na de eerstvolgende synchronisatie."))
                 st.session_state["book_saved_msg"] = "\n".join(_lines)
                 st.rerun()
 

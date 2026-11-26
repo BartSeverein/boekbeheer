@@ -732,14 +732,15 @@ if st.button(t('Boek toevoegen'), type="primary", key="new_book_submit"):
         st.session_state["new_book_form_version"] = v + 1
 
         if push_enabled_choice == "Push naar de webshop, Boekwinkeltjes en eventueel Bol":
-            st.session_state["new_book_success_msg"] = (
-                t('✅ "{0}" is opgeslagen (tijdelijk id {1}) en komt online:', title, temp_id) + "\n"
-                + "- " + t("Bij de webshop aan het einde van de komende nacht.") + "\n"
-                + "- " + t("Bij Boekwinkeltjes bij de eerstvolgende synchronisatie.") + "\n"
-                + ("- " + t("Niet bij Bol want er is geen ISBN.") if not isbn_present
-                   else "- " + t("Niet bij Bol want het boek is daarvoor ongeschikt.") if bol_unsuitable
-                   else "- " + t("Bij Bol na de eerstvolgende synchronisatie."))
-            )
+            _regels = [t('✅ "{0}" is opgeslagen (tijdelijk id {1}) en komt online:', title, temp_id)]
+            if not isbn_present or bol_unsuitable:
+                _regels.append("- " + t("Op Boekwinkeltjes: bij de eerstvolgende synchronisatie."))
+                _regels.append("- " + (t("Niet bij Bol want er is geen ISBN.") if not isbn_present
+                                       else t("Niet bij Bol want het boek is daarvoor ongeschikt.")))
+            else:
+                _regels.append("- " + t("Op Boekwinkeltjes, Bol en Bol Tweedekans: bij de eerstvolgende synchronisatie."))
+            _regels.append("- " + t("Op de webshop: aan het einde van de komende nacht."))
+            st.session_state["new_book_success_msg"] = "\n".join(_regels)
         elif not is_admin:
             st.session_state["new_book_success_msg"] = t(
                 '✅ "{0}" is opgeslagen (tijdelijk id {1}) en komt gefaseerd online nadat het boek in de opslag ligt en door de beheerder is vrijgegeven.',
