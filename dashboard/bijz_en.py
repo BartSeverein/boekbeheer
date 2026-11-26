@@ -20,7 +20,7 @@ from i18n import t
 
 CONDITIONS = [
     ("New in plastic", "nieuw in plastic"),
-    ("Like new", "als nieuw"),
+    ("Like new", "in nieuwstaat"),
     ("Used", "gebruikt"),
     ("Traces of use", "met leessporen"),
 ]
@@ -114,6 +114,7 @@ def finalize(state):
             _rest.append(_p)
     notes = ", ".join(_rest)
     notes = re.sub(r"gebruikssporen", "leessporen", notes, flags=re.I)   # Bol verwacht 'leessporen'
+    notes = re.sub(r"(?:zo goed |bijna )?als nieuw", "nieuwstaat", notes, flags=re.I)   # 'nieuw' zou bij Bol als nieuw gelden, 'nieuwstaat' als zo goed als nieuw
     en_notes = notes
     if notes and state["lang"] == "EN":
         notes, err = deepl_en_to_nl(notes)
