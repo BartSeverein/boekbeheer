@@ -1175,11 +1175,13 @@ def full_sync():
         sync_stock_with_bol()
     except Exception:
         pass  # al gelogd in sync_stock_with_bol(); de rest van de sync gaat gewoon door
-    # Let op: nieuwe boeken (pending_create) worden hier bewust NIET meer aangemaakt —
-    # dat gebeurt druppelsgewijs via drip_push_new_books(), voor optimale zichtbaarheid
-    # op Boekwinkeltjes' 'nieuw toegevoegd'-overzicht. Zie ook de noodgreep daarin voor
-    # het einde van de avondperiode.
+    # Nieuwe boeken (pending_create) worden hieronder aangemaakt, maximaal NEW_BOOKS_PER_SYNC per run
+    # (het druppelsysteem is afgeschaft); de rest volgt bij de volgende sync.
     n_pushed = push_pending_books()
+    try:
+        push_new_books(max_books=NEW_BOOKS_PER_SYNC)   # geen druppelsysteem meer: alles wat vrijgegeven is gaat mee
+    except Exception:
+        pass  # al gelogd in push_new_books(); de rest van de sync gaat gewoon door
     n_images_pushed = push_uploaded_images()
     try:
         push_new_books_to_bol()
@@ -1269,21 +1271,25 @@ def _create_one_book_at_boekwinkeltjes(cur, row):
     return new_id
 
 
-def push_new_books():
+NEW_BOOKS_PER_SYNC = 40   # plafond per gewone sync, zodat een grote partij de run niet laat time-outen
+
+
+def push_new_books(max_books=None):
     """
-    Maakt in ÉÉN KEER alle nog niet aangemaakte boeken (pending_create = TRUE) aan
-    bij Boekwinkeltjes. Wordt niet meer automatisch bij elke gewone sync aangeroepen
-    — zie drip_push_new_books() daarvoor, die boeken één voor één en alleen tijdens
-    drukke bezoekperioden naar buiten brengt. Deze functie blijft bestaan als
-    noodgreep: aan het einde van de avondperiode worden eventueel nog openstaande
-    boeken in één keer alsnog aangemaakt.
+    Maakt de nog niet aangemaakte, vrijgegeven boeken (pending_create = TRUE, push_enabled = TRUE)
+    aan bij Boekwinkeltjes. Wordt bij elke gewone sync aangeroepen (met een plafond, zie
+    NEW_BOOKS_PER_SYNC); zonder max_books gaan ze allemaal in één keer, zoals bij de handmatige
+    taken 'push-new-books-now' en 'alles-nu-doorzetten'.
     """
     conn = get_connection()
     count = 0
     errors = []
     try:
         with conn.cursor() as cur:
-            cur.execute("SELECT * FROM books WHERE pending_create = TRUE AND push_enabled = TRUE")
+            cur.execute(
+                "SELECT * FROM books WHERE pending_create = TRUE AND push_enabled = TRUE ORDER BY id DESC"
+                + (f" LIMIT {int(max_books)}" if max_books else "")
+            )
             rows = cur.fetchall()
             for row in rows:
                 try:
