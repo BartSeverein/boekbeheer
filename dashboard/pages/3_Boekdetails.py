@@ -973,7 +973,7 @@ else:
                     if _both:
                         _lines.append("- " + t("Bij Bol en Boekwinkeltjes na de eerstvolgende synchronisatie."))
                     elif chosen_id < 0:
-                        _lines.append("- " + t("Bij Boekwinkeltjes gedurende de eerstvolgende druppeltijd."))
+                        _lines.append("- " + t("Bij Boekwinkeltjes bij de eerstvolgende synchronisatie."))
                     else:
                         _lines.append("- " + t("Bij Boekwinkeltjes na de eerstvolgende synchronisatie."))
                     if _both:

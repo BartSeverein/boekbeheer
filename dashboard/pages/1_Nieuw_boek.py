@@ -735,7 +735,7 @@ if st.button(t('Boek toevoegen'), type="primary", key="new_book_submit"):
             st.session_state["new_book_success_msg"] = (
                 t('✅ "{0}" is opgeslagen (tijdelijk id {1}) en komt online:', title, temp_id) + "\n"
                 + "- " + t("Bij de webshop aan het einde van de komende nacht.") + "\n"
-                + "- " + t("Bij Boekwinkeltjes gedurende de eerstvolgende druppeltijd.") + "\n"
+                + "- " + t("Bij Boekwinkeltjes bij de eerstvolgende synchronisatie.") + "\n"
                 + ("- " + t("Niet bij Bol want er is geen ISBN.") if not isbn_present
                    else "- " + t("Niet bij Bol want het boek is daarvoor ongeschikt.") if bol_unsuitable
                    else "- " + t("Bij Bol na de eerstvolgende synchronisatie."))
