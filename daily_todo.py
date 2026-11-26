@@ -125,7 +125,13 @@ def build_items(counts, weekday):
             + " Begin daar uiterlijk 15:00 aan."
         )
 
-    items.extend(DAY_ITEMS.get(weekday, []))
+    # 'Voer vandaag minimaal 15 (weekend: 50) boeken in': dat getal plus het aantal boeken dat klaarstaat om ingepakt te worden
+    for _regel in DAY_ITEMS.get(weekday, []):
+        for _basis in (15, 50):
+            if _regel.startswith(f"Voer vandaag minimaal {_basis} boeken in"):
+                _regel = _regel.replace(f"minimaal {_basis} boeken", f"minimaal {_basis + total} boeken", 1)
+                break
+        items.append(_regel)
     items.extend(e["text"] for e in (counts.get("extras") or []))   # 'stokken achter de deur' uit Gebruikersbeheer
 
     n = counts.get("slow_movers")
