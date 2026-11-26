@@ -405,8 +405,6 @@ else:
             st.markdown(t('**Categorie:** {0}', ' / '.join(category_label(c) for c in categories) if categories else '–'))
             st.markdown(t('**Taal:** {0}', na(b['language'])))
             st.markdown(t('**ISBN:** {0}', format_isbn(b['ean'])))
-            _own_number = b.get("book_number")
-            st.markdown(t('**Boeknummer:** {0}', int(_own_number) if pd.notna(_own_number) else '–'))
             st.markdown(t('**Boeknummer BW:** {0}', int(chosen_id)))
             try:
                 _extra = get_book_bol_and_sales(int(chosen_id), str(b["ean"]).strip() if pd.notna(b["ean"]) else "")
