@@ -758,3 +758,8 @@ EN.update({"✅ Vrijgeven": "✅ Release", "'{0}' vrijgegeven voor synchronisati
 
 EN.update({"Boeken die een gebruiker heeft ingevoerd en gecontroleerd, maar die nog niet zijn vrijgegeven voor synchronisatie. Klik op 'Bewerken' om te bekijken, of op 'Vrijgeven' als je het zeker weet.": "Books a user has entered and checked, but that have not yet been released for synchronisation. Click 'Edit' to review, or 'Release' if you are sure."})
 EN.update({"Pagina (van {0}, {1} boeken per pagina)": "Page (of {0}, {1} books per page)"})
+
+EN.update({
+    "Bij Boekwinkeltjes bij de eerstvolgende synchronisatie.": "On Boekwinkeltjes at the next synchronisation.",
+    "Klik op een rij om de boekdetails te openen. Gesorteerd op laatst toegevoegd; boeken die nog bij Boekwinkeltjes moeten worden aangemaakt staan bovenaan.": "Click a row to open the book details. Sorted by most recently added; books that still have to be created at Boekwinkeltjes are at the top.",
+})

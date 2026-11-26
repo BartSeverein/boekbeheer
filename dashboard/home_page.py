@@ -224,7 +224,7 @@ with books_tab:
         # Sorteren op id (hoogste eerst) i.p.v. listing_date: het id verandert
         # nooit meer na aanmaak, terwijl listing_date mogelijk meebeweegt bij
         # latere bewerkingen aan het boek.
-        # Nieuwe boeken die nog op het druppelsysteem wachten hebben een tijdelijk NEGATIEF id (hoe nieuwer, hoe
+        # Nieuwe boeken die nog bij Boekwinkeltjes aangemaakt moeten worden hebben een tijdelijk NEGATIEF id (hoe nieuwer, hoe
         # lager). Die horen bovenaan: daarna komen de boeken met een echt id, hoogste eerst.
         books_sorted["_volgorde"] = books_sorted["id"].where(books_sorted["id"] > 0, 10**12 - books_sorted["id"])
         books_sorted = books_sorted.sort_values("_volgorde", ascending=False).drop(columns="_volgorde").reset_index(drop=True)
@@ -262,7 +262,7 @@ with books_tab:
             selection_mode="single-row",
             key="books_overview_table",
         )
-        st.caption(t('Klik op een rij om de boekdetails te openen. Gesorteerd op laatst toegevoegd; boeken die nog op het druppelsysteem wachten staan bovenaan.'))
+        st.caption(t('Klik op een rij om de boekdetails te openen. Gesorteerd op laatst toegevoegd; boeken die nog bij Boekwinkeltjes moeten worden aangemaakt staan bovenaan.'))
         selected_rows = event.selection.rows if event and event.selection else []
         if selected_rows:
             selected_book_id = int(books_sorted.iloc[selected_rows[0]]["id"])
