@@ -9,6 +9,7 @@ Aanpassen? Pas hieronder de keuzes aan: (Engelse tekst, Nederlandse tekst die wo
 """
 
 import hashlib
+import re
 
 import psycopg2
 import requests
@@ -21,7 +22,7 @@ CONDITIONS = [
     ("New in plastic", "nieuw in plastic"),
     ("Like new", "als nieuw"),
     ("Used", "gebruikt"),
-    ("Traces of use", "met gebruikssporen"),
+    ("Traces of use", "met leessporen"),
 ]
 BINDINGS = [("Hardcover", "gebonden"), ("Paperback", "paperback")]
 
@@ -99,6 +100,20 @@ def bijz_input(key, new=True, long_key=None):
 def finalize(state):
     """Maakt van de invoer de Nederlandse tekst die wordt opgeslagen (vertaalt zo nodig via DeepL)."""
     notes = (st.session_state.get(state["key"]) or "").strip()
+    # Voorgevulde gegevens (Bol/metadata) staan als "2005, 320pp, ..." in het vrije tekstveld: jaar en pagina's
+    # halen we eruit, zodat ze vooraan komen te staan (tenzij ze al in de losse velden zijn ingevuld).
+    _rest = []
+    for _p in [x.strip() for x in notes.split(",")]:
+        if not _p:
+            continue
+        if re.fullmatch(r"(1[5-9]\d\d|20\d\d)", _p):
+            state["year"] = state["year"] or int(_p)       # een zelf ingevuld jaar wint
+        elif re.fullmatch(r"(\d{1,5})\s*pp\.?", _p, re.I):
+            state["pages"] = state["pages"] or int(re.match(r"\d+", _p).group())
+        else:
+            _rest.append(_p)
+    notes = ", ".join(_rest)
+    notes = re.sub(r"gebruikssporen", "leessporen", notes, flags=re.I)   # Bol verwacht 'leessporen'
     en_notes = notes
     if notes and state["lang"] == "EN":
         notes, err = deepl_en_to_nl(notes)
