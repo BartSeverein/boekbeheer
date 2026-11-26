@@ -423,8 +423,7 @@ else:
                     st.markdown(t('**Verkoopgeschiedenis:** {0} keer verkocht ({1})', len(_sales), _parts))
                 else:
                     st.markdown(t('**Verkoopgeschiedenis:** Nog niet verkocht'))
-            if show_logistics:
-                st.markdown(t('**Locatie:** {0}', na(b['location'])))
+            st.markdown(t('**Locatie:** {0}', na(b['location'])))
 
         st.markdown(t('<br>'), unsafe_allow_html=True)
 
@@ -767,15 +766,13 @@ else:
                         key=f"{edit_prefix}_amount",
                     )
                 with col_b:
-                    if show_logistics:
-                        edit_location = st.text_input(
-                            t('Locatie'),
-                            value=_s(b["location"]),
-                            key=f"{edit_prefix}_location",
-                        )
-                    else:
-                        # Niet zichtbaar in deze weergave; de bestaande waarde blijft gewoon staan.
-                        edit_location = _s(b["location"])
+                    # Locatie is altijd te wijzigen, ook bij een niet-voorradig boek: dat wordt vaak juist opnieuw
+                    # ingevoerd (bijv. via 'Naar boek' bij een dubbele ISBN in een bulk-import).
+                    edit_location = st.text_input(
+                        t('Locatie'),
+                        value=_s(b["location"]),
+                        key=f"{edit_prefix}_location",
+                    )
 
                     edit_category3 = st.text_input(
                         t('Categorie 3'), value=_s(b["category3"]), key=f"{edit_prefix}_category3"
