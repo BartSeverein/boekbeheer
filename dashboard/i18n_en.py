@@ -763,3 +763,9 @@ EN.update({
     "Bij Boekwinkeltjes bij de eerstvolgende synchronisatie.": "On Boekwinkeltjes at the next synchronisation.",
     "Klik op een rij om de boekdetails te openen. Gesorteerd op laatst toegevoegd; boeken die nog bij Boekwinkeltjes moeten worden aangemaakt staan bovenaan.": "Click a row to open the book details. Sorted by most recently added; books that still have to be created at Boekwinkeltjes are at the top.",
 })
+
+EN.update({
+    "Op Boekwinkeltjes, Bol en Bol Tweedekans: bij de eerstvolgende synchronisatie.": "On Boekwinkeltjes, Bol and Bol Tweedekans: at the next synchronisation.",
+    "Op Boekwinkeltjes: bij de eerstvolgende synchronisatie.": "On Boekwinkeltjes: at the next synchronisation.",
+    "Op de webshop: aan het einde van de komende nacht.": "On the webshop: at the end of the coming night.",
+})
