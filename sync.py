@@ -3672,6 +3672,7 @@ BOL_ECONOMIC_OPERATOR_NAME = "Severein Services"
 # dus die gaan nooit als toelichting naar Bol.
 _BOL_STANDARD_TERM = re.compile(
     r"\d{4}|\d+\s*(?:pp|p|blz|pag)\.?|\d*e?\s*(?:druk|herdruk)"
+    r"|gebruikt"
     r"|gebonden|paperback|mass market paperback|hardcover|hardback|softcover|pocket|ingenaaid|geniet"
     r"|spiraalgebonden|spiraal|spiral-bound|board book|library binding|kartonboek|gebrocheerd",
     re.IGNORECASE,
@@ -3701,7 +3702,7 @@ def _derive_bol_condition(short_description):
     """
     Leidt de Bol-conditie (en een toelichtend commentaar) af uit het veld
     'Bijzonderheden', volgens vaste regels:
-      - 'nieuw' (maar niet 'nieuwstaat') en/of 'folie' -> nieuw
+      - 'nieuw', 'nieuw in plastic' of 'folie' als heel onderdeel (tussen komma's) -> nieuw
       - 'nieuwstaat' -> tweedehands / zo goed als nieuw, 'Geen leessporen'
       - 'leessporen' -> tweedehands / redelijk, 'Leessporen'
       - anders -> tweedehands / goed, 'Leessporen'
@@ -3715,7 +3716,10 @@ def _derive_bol_condition(short_description):
     # De conditie staat hier in een neutrale vorm: {'category': 'NEW'} of {'category': 'SECONDHAND',
     # 'state': ...}. bol_client._condition_payload vertaalt dat naar wat de gekozen versie van
     # Bol's API verwacht (versie 10 wil bij 'nieuw' ook een 'name', versie 11 niet).
-    if ("nieuw" in text and "nieuwstaat" not in text) or "folie" in text:
+    # 'Nieuw' telt alleen als het een heel onderdeel van Bijzonderheden is (tussen komma's), zodat opmerkingen
+    # als 'nieuwe kaft', 'bijna nieuw' of 'in folie gekaft' geen nieuw boek van een tweedehands boek maken.
+    _delen = [re.sub(r"\s+", " ", d).strip(" .;:-") for d in text.split(",")]
+    if any(re.fullmatch(r"(?:nieuw(?: in (?:plastic|folie))?|(?:in )?(?:plastic|folie))", d) for d in _delen):
         return {"category": "NEW"}, None
     if "nieuwstaat" in text:
         return {"category": "SECONDHAND", "state": "AS_NEW"}, "Geen leessporen"
