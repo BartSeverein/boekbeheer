@@ -487,6 +487,21 @@ def _feed_description(b, loc, year, pages, binding, notes):
     return re.sub(r"\s+", " ", kop + zin + extra).strip()[:4900]
 
 
+def _feed_shipping(b, cfg):
+    """Verzendregels per land voor de feed ('NL:::4.55 EUR'): zelfde tarieven als op de boekpagina en bij het afrekenen
+    (eigen tarief van het land, anders OTHER; klein of groot pakje naar het formaat van het boek)."""
+    rates = cfg.get("shipping_rates") or {}
+    out = []
+    for cc in cfg.get("countries") or ["NL"]:
+        if cc == "NL":
+            cents = b["ship_cents"]
+        else:
+            rate = rates.get(cc) or rates.get("OTHER") or rates.get("NL")
+            cents = rate[1 if b["big"] else 0] if rate else b["ship_cents"]
+        out.append(f"{cc}:::{cents / 100:.2f} EUR")
+    return out
+
+
 def _merchant_feed(books, cfg, book_tr, cat_label):
     """Tab-gescheiden bestand voor Google Merchant Center (alleen boeken met foto; Google eist die)."""
     cols = ["id", "title", "description", "link", "image_link", "additional_image_link", "availability", "price", "condition",
@@ -514,7 +529,7 @@ def _merchant_feed(books, cfg, book_tr, cat_label):
             "availability": "in_stock", "price": f"{b['price_cents'] / 100:.2f} EUR", "condition": "used",
             "gtin": gtin, "identifier_exists": "yes" if gtin else "no", "author": b.get("author") or "",
             "product_type": b["category_label"].replace(" › ", " > "), "google_product_category": "784",
-            "shipping": f"NL:::{b['ship_cents'] / 100:.2f} EUR",
+            "shipping": ",".join(_feed_shipping(b, cfg)),
             "product_detail": ",".join(details),
         }
         lines.append("\t".join(cell(row[c]) for c in cols))
