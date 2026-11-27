@@ -449,10 +449,48 @@ def i18n_php(cfg):
     return "<?php\n// Gegenereerd door build.py uit webshop/i18n.py — niet handmatig wijzigen.\nreturn json_decode(<<<'JSON'\n" + text + "\nJSON\n, true);\n"
 
 
+_FEED_BINDING = re.compile(r"(gebonden|hardcover|paperback|softcover|pocket|ringband|spiraalgebonden|luxe editie)", re.I)
+
+
+def _feed_specs(short):
+    """Haalt jaar, aantal pagina's en vorm uit Bijzonderheden ('2019, 393pp, paperback, lichte slijtage').
+    Geeft (jaar, pagina's, vorm, overige opmerkingen); wat niet gevonden wordt is None."""
+    year = pages = binding = None
+    rest = []
+    for part in [p.strip() for p in (short or "").split(",") if p.strip()]:
+        if year is None and re.fullmatch(r"(1[5-9]\d\d|20\d\d)", part):
+            year = int(part)
+        elif pages is None and re.fullmatch(r"\d{1,5}\s*(?:pp|pag|p|blz)\.?", part, re.I):
+            pages = int(re.match(r"\d+", part).group())
+        elif binding is None and _FEED_BINDING.fullmatch(part):
+            binding = part.lower()
+        else:
+            rest.append(part)
+    return year, pages, binding, ", ".join(rest)
+
+
+def _feed_description(b, loc, year, pages, binding, notes):
+    """Beschrijving voor de feed: de lange tekst als die er is, anders een zin uit de bekende gegevens."""
+    long_text = re.sub(r"\s+", " ", loc.get("long") or "").strip()
+    if long_text:
+        return long_text[:4900]
+    kop = "Tweedehands boek: " + b["title"] + ((" van " + b["author"]) if b.get("author") else "") + "."
+    feiten = [x for x in (
+        f"Uitgegeven in {year}" if year else "",
+        f"{pages} pagina's" if pages else "",
+        binding or "",
+    ) if x]
+    zin = (" " + ", ".join(feiten) + ".") if feiten else ""
+    if b.get("publisher"):
+        zin += f" Uitgever: {b['publisher']}."
+    extra = (" " + notes[0].upper() + notes[1:] + ".") if notes and not notes.endswith(".") else (" " + notes if notes else "")
+    return re.sub(r"\s+", " ", kop + zin + extra).strip()[:4900]
+
+
 def _merchant_feed(books, cfg, book_tr, cat_label):
     """Tab-gescheiden bestand voor Google Merchant Center (alleen boeken met foto; Google eist die)."""
     cols = ["id", "title", "description", "link", "image_link", "additional_image_link", "availability", "price", "condition",
-            "gtin", "identifier_exists", "author", "product_type", "google_product_category", "shipping"]
+            "gtin", "identifier_exists", "author", "product_type", "google_product_category", "shipping", "product_detail"]
 
     def cell(v):
         return re.sub(r"[\t\r\n]+", " ", str(v if v is not None else "")).strip()
@@ -463,7 +501,10 @@ def _merchant_feed(books, cfg, book_tr, cat_label):
         if not imgs:
             continue
         loc = _book_loc(b, "nl", book_tr, cat_label)
-        desc = re.sub(r"\s+", " ", (loc.get("long") or loc.get("short") or b["title"])).strip()[:4900]
+        year, pages, binding, notes = _feed_specs(loc.get("short"))
+        desc = _feed_description(b, loc, year, pages, binding, notes)
+        genre = (b["category_label"].split(" › ")[0]).replace(",", ";")
+        details = ([f"Boekgegevens:Aantal pagina's:{pages}"] if pages else []) + ([f"Boekgegevens:Genre:{genre}"] if genre else [])
         isbn = re.sub(r"\D", "", b.get("isbn") or "")
         gtin = isbn if len(isbn) == 13 else ""
         row = {
@@ -474,6 +515,7 @@ def _merchant_feed(books, cfg, book_tr, cat_label):
             "gtin": gtin, "identifier_exists": "yes" if gtin else "no", "author": b.get("author") or "",
             "product_type": b["category_label"].replace(" › ", " > "), "google_product_category": "784",
             "shipping": f"NL:::{b['ship_cents'] / 100:.2f} EUR",
+            "product_detail": ",".join(details),
         }
         lines.append("\t".join(cell(row[c]) for c in cols))
     return "\n".join(lines) + "\n"
