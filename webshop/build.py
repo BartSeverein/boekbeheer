@@ -320,6 +320,20 @@ def _prepare_books(raw_books, cfg, c1_labels, c2_labels):
         c1_label = c1_labels.get(c1, c1)
         c2 = r.get("category2") or None
         c2_label = c2_labels.get(c1, {}).get(c2, c2) if c2 else None
+        # Samengevoegde categorieën (alleen voor de webshop): een groep wordt de hoofdcategorie, de oude subcategorieën blijven sub.
+        _hit = CAT_MERGE_C2.get(((c1 or "").lower(), (c2 or "").lower())) if c2 else None
+        if _hit is None:
+            _hit = CAT_MERGE_C1.get((c1 or "").lower())
+        if _hit:
+            _old1, _old2 = c1_label, c2_label
+            _group, _sub = _hit
+            c1_label = _group
+            if _sub is not None:
+                c2_label = _sub or None
+            _old_path = f"/categorie/{slugify(_old1)}/" + (f"{slugify(_old2)}/" if _old2 else "")
+            _new_path = f"/categorie/{slugify(c1_label)}/" + (f"{slugify(c2_label)}/" if c2_label else "")
+            if _old_path != _new_path:
+                CAT_REDIRECTS[_old_path] = f"/categorie/{slugify(c1_label)}/" if _old_path.count("/") == 3 else _new_path
         isbn = "".join(ch for ch in (r.get("isbn") or "") if ch.isdigit() or ch in "xX")
         lang = (r.get("language") or "").strip()
         b = dict(r)
@@ -559,6 +573,67 @@ def _load_cat_refs():
 
 CAT_REFS = _load_cat_refs()
 
+
+def _load_cat_merge():
+    """Samengevoegde categorieën voor de webshop (content/categorie_samenvoegen.json); alleen de webshop, niet Boekwinkeltjes/Bol.
+    Geeft ({(c1, c2 of None): (groep, subcategorie-regel)}, {c1: (groep, sub)} voor hele hoofdcategorieën, {groepnamen})."""
+    path = HERE / "content" / "categorie_samenvoegen.json"
+    by_c2, by_c1, labels = {}, {}, set()
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return by_c2, by_c1, labels
+    for g in raw.get("groepen", []):
+        label = (g.get("label") or "").strip()
+        if not label:
+            continue
+        labels.add(label)
+        for m in g.get("leden", []):
+            c1 = (m[0] if m else "").strip().lower()
+            c2 = (m[1] if len(m) > 1 else "").strip().lower()
+            sub = m[2] if len(m) > 2 else None   # None: behoud de eigen subcategorie; '': geen subcategorie; tekst: die subcategorie
+            if c2:
+                by_c2[(c1, c2)] = (label, sub)
+            elif c1:
+                by_c1[c1] = (label, sub)
+    return by_c2, by_c1, labels
+
+
+CAT_MERGE_C2, CAT_MERGE_C1, CAT_MERGED_LABELS = _load_cat_merge()
+
+
+def _remap_cat_refs(refs):
+    """De handmatige 'Kijk ook in'-verwijzingen gebruiken de oorspronkelijke categorienamen; zet ze om naar de samengevoegde
+    categorieën (bron en doel), laat verwijzingen naar zichzelf vallen en voeg verwijzingen die samenvallen samen."""
+    def new_key(key):
+        parts = [p.strip() for p in key.split(" > ")]
+        c1 = parts[0]
+        c2 = parts[1] if len(parts) > 1 else ""
+        hit = CAT_MERGE_C2.get((c1, c2)) if c2 else None
+        if hit:
+            group, sub = hit
+            sub = c2 if sub is None else sub.strip().lower()
+            return group.lower() + (f" > {sub}" if sub else "")
+        hit = CAT_MERGE_C1.get(c1)
+        if hit:
+            group, sub = hit
+            if c2:
+                return f"{group.lower()} > {c2}"
+            return group.lower()
+        return key
+    out = {}
+    for key, targets in refs.items():
+        nk = new_key(key)
+        for t in targets:
+            nt = new_key(t)
+            if nt != nk and nt not in out.setdefault(nk, []):
+                out[nk].append(nt)
+    return out
+
+
+CAT_REFS = _remap_cat_refs(CAT_REFS)
+CAT_REDIRECTS = {}   # oud Nederlands categoriepad -> nieuw pad, voor .htaccess
+
 HTACCESS = """\
 # Gegenereerd door build.py
 DirectoryIndex index.html
@@ -673,7 +748,16 @@ def _write_assets(out_dir, cfg):
 
 def _write_server_files(out_dir, cfg, data_dir):
     """Wat op de server draait en snel kan wijzigen: .htaccess, de PHP-scripts en hun instellingen. Gaat ook mee in een catalogusrun."""
-    _write(out_dir, ".htaccess", HTACCESS)
+    _redir = ""
+    if CAT_REDIRECTS:
+        _lines = ["", "# Oude categoriepaden (samengevoegde categorieën) -> nieuwe pagina"]
+        for _old, _new in sorted(CAT_REDIRECTS.items()):
+            for _l in ["nl"] + [x for x in cfg["langs"] if x != "nl"]:
+                _o, _n = i18n.localize(_old, _l), i18n.localize(_new, _l)
+                if _o != _n:
+                    _lines.append(f"Redirect 301 {_o.rstrip('/')}/ {_n}")
+        _redir = "\n".join(_lines) + "\n"
+    _write(out_dir, ".htaccess", HTACCESS + _redir)
     for name in ("lib.php", "checkout.php", "code.php", "search.php", "stock.php", "purge.php", "webhook.php", "status.php", "mailtest.php"):
         src = HERE / "php" / name
         if not src.exists():
@@ -849,9 +933,9 @@ def build_site(raw_books, out_dir, cfg=None, *, mode="full", imported_order_ids=
         # de hoofdcategorie zelf (Hobby). Boeken zonder subcategorie houden een knop met de hoofdcategorie.
         buttons = []
         for c in top:
-            if not c["subs"]:
+            if not c["subs"] or c["label"] in CAT_MERGED_LABELS:
                 buttons.append({"label": cat_label(c["label"], lang), "slug": c["slug"], "count": len(c["books"]),
-                                "other": c["label"].strip().lower() == "overig"})
+                                "has_subs": bool(c["subs"]), "other": c["label"].strip().lower() == "overig"})
                 continue
             for s in c["subs"].values():
                 buttons.append({"label": cat_label(s["label"], lang), "slug": s["slug"], "count": len(s["books"]),
