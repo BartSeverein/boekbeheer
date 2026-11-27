@@ -2631,7 +2631,7 @@ def lookup_book_metadata_external(isbn):
         if isbndb_data.get("pages"):
             bijz_parts.append(f"{isbndb_data['pages']}pp")
         if isbndb_data.get("binding"):
-            bijz_parts.append(isbndb_data["binding"])
+            bijz_parts.append(str(isbndb_data["binding"]).lower())
         if bijz_parts:
             result["bijz"] = ", ".join(bijz_parts[:2]) + (f", {bijz_parts[2]}" if len(bijz_parts) > 2 else "")
         result["source"] = "ISBNdb"
@@ -3222,7 +3222,7 @@ def autofill_book_fields_from_isbn(isbn):
                 if bol_product.get("pages"):
                     bijz_parts.append(f"{bol_product['pages']}pp")
                 if bol_product.get("binding"):
-                    bijz_parts.append(bol_product["binding"])
+                    bijz_parts.append(str(bol_product["binding"]).lower())
                 if bijz_parts:
                     fields["short_description"] = ", ".join(bijz_parts[:2]) + (
                         f", {bijz_parts[2]}" if len(bijz_parts) > 2 else ""
