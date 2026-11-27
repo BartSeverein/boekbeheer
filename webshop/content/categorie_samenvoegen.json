@@ -1,0 +1,15 @@
+{
+ "groepen": [
+  {"label": "Spiritualiteit en esoterie",
+   "leden": [["studieboeken", "spiritualiteit"], ["studieboeken", "esoterie"], ["hobby", "astrologie"]]},
+  {"label": "Geschiedenis",
+   "leden": [["geschiedenis"], ["studieboeken", "geschiedenis", ""]]},
+  {"label": "Kinder- en jeugdboeken",
+   "leden": [["kinderboeken", "", "Kinderboeken"], ["jeugdroman", "", "Jeugdroman"]]},
+  {"label": "Bedrijf en management",
+   "leden": [["studieboeken", "management"], ["studieboeken", "marketing"]]},
+  {"label": "Mens en maatschappij",
+   "leden": [["studieboeken", "psychologie"], ["studieboeken", "filosofie"], ["studieboeken", "sociologie"],
+             ["studieboeken", "seksualiteit"], ["studieboeken", "communicatie"]]}
+ ]
+}
