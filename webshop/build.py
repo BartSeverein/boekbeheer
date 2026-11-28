@@ -165,6 +165,13 @@ def load_from_postgres(conn):
                 imgs.sort(key=lambda i, front=r["image_id"]: i["image_id"] != front)   # stabiel: alleen de voorkant verhuist
         except Exception:   # kolom is_front bestaat nog niet (voorkant_keuze.sql): dan de eerste foto, zoals altijd
             conn.rollback()
+        # Aantal pagina's dat apart is aangevuld (bol_paginas_aanvullen.py); bestaat de kolom nog niet, dan gewoon overslaan
+        db_pages = {}
+        try:
+            cur.execute("SELECT id, pages FROM books WHERE pages IS NOT NULL AND pages > 0")
+            db_pages = {int(r["id"]): int(r["pages"]) for r in cur.fetchall()}
+        except Exception:
+            conn.rollback()
         cur.execute("SELECT id FROM orders WHERE platform = 'Webshop' AND COALESCE(stock_adjusted, FALSE) = TRUE")
         imported = {(-int(r["id"]) - 3_000_000_000) // 1000 for r in cur.fetchall()}
     books = []
@@ -174,7 +181,7 @@ def load_from_postgres(conn):
             "language": r["language"], "short": r["short_description"], "long": r["long_description"],
             "price": float(r["price"]), "shipping": float(r["shipping_cost"]) if r["shipping_cost"] is not None else None,
             "amount": int(r["amount"]), "category1": r["category1"], "category2": r["category2"],
-            "listing_date": r["listing_date"],
+            "listing_date": r["listing_date"], "db_pages": db_pages.get(int(r["id"])),
             "images": [{"image_id": i["image_id"], "url_large": i["url_large"], "url_medium": i["url_medium"],
                         "has_data": bool(i["has_data"]), "web_extra": bool(i.get("web_extra"))} for i in images.get(int(r["id"]), [])],
         }})
@@ -474,7 +481,7 @@ def _feed_specs(short):
     for part in [p.strip() for p in (short or "").split(",") if p.strip()]:
         if year is None and re.fullmatch(r"(1[5-9]\d\d|20\d\d)", part):
             year = int(part)
-        elif pages is None and re.fullmatch(r"\d{1,5}\s*(?:pp|pag|p|blz)\.?", part, re.I):
+        elif pages is None and re.fullmatch(r"\d{1,5}\s*(?:pp|pag|pagina'?s|pagina|p|blz)\.?", part, re.I):
             pages = int(re.match(r"\d+", part).group())
         elif binding is None and _FEED_BINDING.fullmatch(part):
             binding = part.lower()
@@ -486,8 +493,15 @@ def _feed_specs(short):
 def _feed_description(b, loc, year, pages, binding, notes):
     """Beschrijving voor de feed: de lange tekst als die er is, anders een zin uit de bekende gegevens."""
     long_text = re.sub(r"\s+", " ", loc.get("long") or "").strip()
+    genre = (b.get("category_label") or "").split(" › ")[0].strip()
+    # Google (Merchant Center-advies) wil aantal pagina's en genre in de beschrijvingstekst zelf zien staan
+    tail = ""
+    if pages and "pagina" not in long_text.lower():
+        tail += f" Aantal pagina's: {pages}."
+    if genre and "genre" not in long_text.lower():
+        tail += f" Genre: {genre}."
     if long_text:
-        return long_text[:4900]
+        return (long_text[:4900 - len(tail)] + tail).strip()
     kop = "Tweedehands boek: " + b["title"] + ((" van " + b["author"]) if b.get("author") else "") + "."
     feiten = [x for x in (
         f"Uitgegeven in {year}" if year else "",
@@ -495,6 +509,8 @@ def _feed_description(b, loc, year, pages, binding, notes):
         binding or "",
     ) if x]
     zin = (" " + ", ".join(feiten) + ".") if feiten else ""
+    if genre:
+        zin += f" Genre: {genre}."
     if b.get("publisher"):
         zin += f" Uitgever: {b['publisher']}."
     extra = (" " + notes[0].upper() + notes[1:] + ".") if notes and not notes.endswith(".") else (" " + notes if notes else "")
@@ -531,6 +547,7 @@ def _merchant_feed(books, cfg, book_tr, cat_label):
             continue
         loc = _book_loc(b, "nl", book_tr, cat_label)
         year, pages, binding, notes = _feed_specs(loc.get("short"))
+        pages = pages or b.get("db_pages")
         desc = _feed_description(b, loc, year, pages, binding, notes)
         genre = (b["category_label"].split(" › ")[0]).replace(",", ";")
         details = ([f"Boekgegevens:Aantal pagina's:{pages}"] if pages else []) + ([f"Boekgegevens:Genre:{genre}"] if genre else [])
