@@ -1,0 +1,43 @@
+name: Aantal pagina's aanvullen uit Bol (voor de Google-feed)
+
+# Vult books.pages aan vanuit de Bol-catalogus (draai eerst boeken_paginas.sql in Supabase).
+# Raakt alleen die ene kolom aan. Met proef = "ja" wordt er niets opgeslagen en worden 20 voorbeelden getoond.
+on:
+  workflow_dispatch:
+    inputs:
+      proef:
+        description: 'Zet op "ja" voor een proefrun (niets opslaan, eerste 20 boeken tonen)'
+        required: false
+        type: string
+        default: "ja"
+      aantal:
+        description: "Maximaal aantal boeken (leeg of 0 = alle)"
+        required: false
+        type: string
+        default: "500"
+
+jobs:
+  paginas:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Pagina's aanvullen
+        run: |
+          ARGS=""
+          if [ "$PROEF" = "ja" ]; then ARGS="--dry-run --limit 20"; elif [ -n "$AANTAL" ] && [ "$AANTAL" != "0" ]; then ARGS="--limit $AANTAL"; fi
+          python bol_paginas_aanvullen.py $ARGS
+        env:
+          PROEF: ${{ github.event.inputs.proef }}
+          AANTAL: ${{ github.event.inputs.aantal }}
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          BOL_CLIENT_ID: ${{ secrets.BOL_CLIENT_ID }}
+          BOL_CLIENT_SECRET: ${{ secrets.BOL_CLIENT_SECRET }}
